@@ -549,5 +549,9 @@ export default {
 .ms-table-header {
   margin-bottom: 10px;
 }
+
+.ms-table >>> .el-table__fixed-body-wrapper {
+  top: 49px !important;
+}
 </style>
 

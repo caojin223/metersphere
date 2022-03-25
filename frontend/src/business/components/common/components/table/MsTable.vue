@@ -551,8 +551,4 @@ export default {
   background-color: #ffffff !important;
 }
 
-.ms-table >>> .el-table__fixed-body-wrapper {
-  top: 49px !important;
-  /*height: 604px !important;*/
-}
 </style>

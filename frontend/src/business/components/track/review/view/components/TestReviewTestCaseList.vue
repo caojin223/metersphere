@@ -550,8 +550,8 @@ export default {
   margin-bottom: 10px;
 }
 
-.ms-table >>> .el-table__fixed-body-wrapper {
-  top: 49px !important;
+/deep/ .el-table__fixed-body-wrapper {
+  top: 49px !important; /* 不同表格top值不一样 */
 }
 </style>
 

@@ -104,3 +104,26 @@ CREATE TABLE `ui_scenario_reference` (
 -- module management
 INSERT INTO system_parameter (param_key, param_value, type, sort)
 VALUES ('metersphere.module.ui', 'ENABLE', 'text', 1);
+
+
+-- quota
+-- 处理移除组织时遗留的脏数据
+delete
+from quota
+where workspace_id is null
+  and id != 'workspace';
+
+alter table quota
+    add member int(10) null comment '成员数量限制';
+
+alter table quota
+    add project int(10) null comment '项目数量限制';
+
+alter table quota
+    add project_id varchar(50) null comment '项目类型配额';
+
+alter table quota
+    add vum_total decimal(10,2) null comment '总vum数';
+
+alter table quota
+    add vum_used decimal(10,2) null comment '消耗的vum数';

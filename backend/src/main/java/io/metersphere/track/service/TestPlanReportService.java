@@ -3,35 +3,36 @@ package io.metersphere.track.service;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
-import com.esotericsoftware.minlog.Log;
 import io.metersphere.api.dto.automation.TestPlanFailureApiDTO;
 import io.metersphere.api.dto.automation.TestPlanFailureScenarioDTO;
 import io.metersphere.api.service.ApiDefinitionExecResultService;
 import io.metersphere.api.service.ApiScenarioReportService;
-import io.metersphere.api.service.ShareInfoService;
+import io.metersphere.api.service.ApiTestEnvironmentService;
 import io.metersphere.base.domain.*;
 import io.metersphere.base.mapper.*;
 import io.metersphere.base.mapper.ext.*;
 import io.metersphere.commons.constants.*;
 import io.metersphere.commons.utils.*;
 import io.metersphere.constants.RunModeConstants;
-import io.metersphere.dto.BaseSystemConfigDTO;
+import io.metersphere.dto.RunModeConfigDTO;
 import io.metersphere.dto.TestPlanExecuteReportDTO;
-import io.metersphere.dto.UserDTO;
+import io.metersphere.dto.TestPlanUiScenarioDTO;
 import io.metersphere.i18n.Translator;
 import io.metersphere.log.vo.OperatingLogDetails;
-import io.metersphere.notice.sender.NoticeModel;
-import io.metersphere.notice.service.NoticeSendService;
+import io.metersphere.performance.service.PerformanceTestService;
+import io.metersphere.service.EnvironmentGroupProjectService;
+import io.metersphere.service.EnvironmentGroupService;
 import io.metersphere.service.ProjectService;
-import io.metersphere.service.SystemParameterService;
-import io.metersphere.service.UserService;
 import io.metersphere.track.dto.*;
+import io.metersphere.track.dto.testplan.TestPlanApiCaseInfoDTO;
+import io.metersphere.track.dto.testplan.TestPlanApiScenarioInfoDTO;
+import io.metersphere.track.dto.testplan.TestPlanReportRunInfoDTO;
 import io.metersphere.track.request.report.QueryTestPlanReportRequest;
 import io.metersphere.track.request.report.TestPlanReportSaveRequest;
 import io.metersphere.track.request.testcase.QueryTestPlanRequest;
 import io.metersphere.track.request.testplan.LoadCaseRequest;
-import io.metersphere.track.request.testplan.TestplanRunRequest;
-import org.apache.commons.beanutils.BeanMap;
+import io.metersphere.track.request.testplan.TestPlanRunRequest;
+import io.metersphere.track.service.utils.TestPlanRequestUtil;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -78,15 +79,11 @@ public class TestPlanReportService {
     @Resource
     TestPlanReportContentMapper testPlanReportContentMapper;
     @Resource
-    ShareInfoService shareInfoService;
-    @Resource
     private TestPlanPrincipalMapper testPlanPrincipalMapper;
     @Resource
-    private UserService userService;
-    @Resource
-    private ProjectService projectService;
-    @Resource
     ExtTestPlanTestCaseMapper extTestPlanTestCaseMapper;
+    @Resource
+    private PerformanceTestService performanceTestService;
     @Resource
     private ExtLoadTestReportMapper extLoadTestReportMapper;
     @Resource
@@ -104,6 +101,16 @@ public class TestPlanReportService {
     private TestPlanExecutionQueueMapper testPlanExecutionQueueMapper;
     @Resource
     private TestPlanMessageService testPlanMessageService;
+    @Resource
+    private EnvironmentGroupProjectService environmentGroupProjectService;
+    @Resource
+    private EnvironmentGroupService environmentGroupService;
+    @Resource
+    private ApiTestEnvironmentService apiTestEnvironmentService;
+    @Resource
+    private ProjectService projectService;
+    @Resource
+    ExtTestPlanUiScenarioCaseMapper extTestPlanUiScenarioCaseMapper;
 
     public List<TestPlanReportDTO> list(QueryTestPlanReportRequest request) {
         List<TestPlanReportDTO> list = new ArrayList<>();
@@ -186,6 +193,12 @@ public class TestPlanReportService {
                                     planReportCaseDTOS = extApiScenarioReportMapper.selectForPlanReport(reportIds);
                                     TestPlanUtils.buildStatusResultMap(planReportCaseDTOS, statusResultMap, report, "Success");
                                 }
+                                if (MapUtils.isNotEmpty(testPlanExecuteReportDTO.getTestPlanUiScenarioIdAndReportIdMap())) {
+                                    // 场景用例
+                                    reportIds = new ArrayList<>(testPlanExecuteReportDTO.getTestPlanUiScenarioIdAndReportIdMap().values());
+                                    planReportCaseDTOS = extApiScenarioReportMapper.selectForPlanReport(reportIds);
+                                    TestPlanUtils.buildStatusResultMap(planReportCaseDTOS, statusResultMap, report, "Success");
+                                }
                                 if (MapUtils.isNotEmpty(testPlanExecuteReportDTO.getTestPlanLoadCaseIdAndReportIdMap())) {
                                     // 性能用例
                                     reportIds = new ArrayList<>(testPlanExecuteReportDTO.getTestPlanLoadCaseIdAndReportIdMap().values());
@@ -203,16 +216,14 @@ public class TestPlanReportService {
                                     TestPlanUtils.buildStatusResultMap(planReportCaseDTOS, statusResultMap, report, TestPlanLoadCaseStatus.success.name());
                                 }
                             }
+
+                            report.setExecuteRate(0.0);
+                            report.setPassRate(0.0);
+
                             // 设置成功率
-                            if (report.getCaseCount() != null && report.getCaseCount() != 0 && report.getExecuteCount() != 0) {
-                                report.setExecuteRate(report.getExecuteCount() * 0.1 * 10 / report.getCaseCount());
-                            } else {
-                                report.setExecuteRate(0.0);
-                            }
-                            if (report.getPassCount() != 0 && report.getCaseCount() != null && report.getExecuteCount() != 0) {
-                                report.setPassRate(report.getPassCount() * 0.1 * 10 / report.getExecuteCount());
-                            } else {
-                                report.setPassRate(0.0);
+                            if (report.getCaseCount() != null && report.getCaseCount() != 0) {
+                                report.setExecuteRate(report.getExecuteCount() * 1.0 / report.getCaseCount());
+                                report.setPassRate(report.getPassCount() * 1.0 / report.getCaseCount());
                             }
                             testPlanReportDTO.setPassRate(report.getPassRate());
                         }
@@ -222,7 +233,7 @@ public class TestPlanReportService {
         }
     }
 
-    public TestPlanScheduleReportInfoDTO genTestPlanReportBySchedule(String planReportId, String planId, String userId, String triggerMode) {
+    public TestPlanScheduleReportInfoDTO genTestPlanReportBySchedule(String planReportId, String planId, String userId, String triggerMode, RunModeConfigDTO runModeConfigDTO) {
         TestPlanReport testPlanReport = this.getTestPlanReport(planReportId);
         TestPlanScheduleReportInfoDTO returnDTO = new TestPlanScheduleReportInfoDTO();
         if (testPlanReport != null) {
@@ -232,46 +243,99 @@ public class TestPlanReportService {
         Map<String, String> planScenarioIdMap = new LinkedHashMap<>();
         Map<String, String> planTestCaseIdMap = new LinkedHashMap<>();
         Map<String, String> performanceIdMap = new LinkedHashMap<>();
-        List<TestPlanApiScenario> testPlanApiScenarioList = extTestPlanScenarioCaseMapper.selectLegalDataByTestPlanId(planId);
-        for (TestPlanApiScenario model : testPlanApiScenarioList) {
+        Map<String, String> uiScenarioIdMap = new LinkedHashMap<>();
+
+
+        List<TestPlanApiScenarioInfoDTO> testPlanApiScenarioList = extTestPlanScenarioCaseMapper.selectLegalDataByTestPlanId(planId);
+        for (TestPlanApiScenarioInfoDTO model : testPlanApiScenarioList) {
             planScenarioIdMap.put(model.getId(), model.getApiScenarioId());
         }
-        List<TestPlanApiCase> testPlanApiCaseList = extTestPlanApiCaseMapper.selectLegalDataByTestPlanId(planId);
-        for (TestPlanApiCase model : testPlanApiCaseList) {
+        List<TestPlanApiCaseInfoDTO> testPlanApiCaseList = extTestPlanApiCaseMapper.selectLegalDataByTestPlanId(planId);
+        for (TestPlanApiCaseInfoDTO model : testPlanApiCaseList) {
             planTestCaseIdMap.put(model.getId(), model.getApiCaseId());
         }
+
+        //解析运行环境信息
+        TestPlanReportRunInfoDTO runInfoDTO = this.parseTestPlanRunInfo(runModeConfigDTO, testPlanApiCaseList, testPlanApiScenarioList);
+
         LoadCaseRequest loadCaseRequest = new LoadCaseRequest();
         loadCaseRequest.setTestPlanId(planId);
         List<TestPlanLoadCaseDTO> testPlanLoadCaseDTOList = extTestPlanLoadCaseMapper.selectTestPlanLoadCaseList(loadCaseRequest);
         for (TestPlanLoadCaseDTO dto : testPlanLoadCaseDTOList) {
             performanceIdMap.put(dto.getId(), dto.getLoadCaseId());
         }
-
-        Map<String, String> apiCaseInfoMap = new HashMap<>();
-        for (String id : planTestCaseIdMap.keySet()) {
-            apiCaseInfoMap.put(id, TestPlanApiExecuteStatus.PREPARE.name());
-        }
-        Map<String, String> scenarioInfoMap = new HashMap<>();
-        for (String id : planScenarioIdMap.keySet()) {
-            scenarioInfoMap.put(id, TestPlanApiExecuteStatus.PREPARE.name());
-        }
-        Map<String, String> performanceInfoMap = new HashMap<>();
-        for (String id : performanceIdMap.values()) {
-            performanceInfoMap.put(id, TestPlanApiExecuteStatus.PREPARE.name());
+        List<TestPlanUiScenario> testPlanUiScenarioList = extTestPlanUiScenarioCaseMapper.selectLegalDataByTestPlanId(planId);
+        for (TestPlanUiScenario dto : testPlanUiScenarioList) {
+            uiScenarioIdMap.put(dto.getId(), dto.getUiScenarioId());
         }
 
-        TestPlanReportSaveRequest saveRequest = new TestPlanReportSaveRequest(planReportId, planId, userId, triggerMode,
-                planTestCaseIdMap.size() > 0, planScenarioIdMap.size() > 0, performanceIdMap.size() > 0,
-                apiCaseInfoMap, scenarioInfoMap, performanceInfoMap);
+        TestPlanReportSaveRequest saveRequest = new TestPlanReportSaveRequest.Builder()
+                .setReportID(planReportId)
+                .setPlanId(planId)
+                .setUserId(userId)
+                .setCountResources(false)
+                .setTriggerMode(triggerMode)
+                .setApiCaseIsExecuting(!planTestCaseIdMap.isEmpty())
+                .setScenarioIsExecuting(!planScenarioIdMap.isEmpty())
+                .setPerformanceIsExecuting(!performanceIdMap.isEmpty())
+                .setUiScenarioIsExecuting(!uiScenarioIdMap.isEmpty())
+                .setApiCaseIdMap(planTestCaseIdMap)
+                .setScenarioIdMap(planScenarioIdMap)
+                .setPerformanceIdMap(performanceIdMap)
+                .setUiScenarioIdMap(uiScenarioIdMap)
+                .build();
 
         if (testPlanReport == null) {
-            returnDTO = this.genTestPlanReport(saveRequest);
+            returnDTO = this.genTestPlanReport(saveRequest, runInfoDTO);
         }
         returnDTO.setPlanScenarioIdMap(planScenarioIdMap);
         returnDTO.setApiTestCaseDataMap(planTestCaseIdMap);
         returnDTO.setPerformanceIdMap(performanceIdMap);
+        returnDTO.setUiScenarioIdMap(uiScenarioIdMap);
 
         return returnDTO;
+    }
+
+    public TestPlanReportRunInfoDTO parseTestPlanRunInfo(RunModeConfigDTO runModeConfigDTO, List<TestPlanApiCaseInfoDTO> testPlanApiCaseList, List<TestPlanApiScenarioInfoDTO> testPlanApiScenarioList) {
+        TestPlanReportRunInfoDTO runInfoDTO = new TestPlanReportRunInfoDTO();
+        Map<String, String> selectEnvMap = runModeConfigDTO.getEnvMap();
+        runInfoDTO.setRunMode(runModeConfigDTO.getMode());
+        if (StringUtils.equals("GROUP", runModeConfigDTO.getEnvironmentType()) && StringUtils.isNotEmpty(runModeConfigDTO.getEnvironmentGroupId())) {
+            selectEnvMap = environmentGroupProjectService.getEnvMap(runModeConfigDTO.getEnvironmentGroupId());
+            runInfoDTO.setEnvGroupId(runModeConfigDTO.getEnvironmentGroupId());
+        }
+
+        for (TestPlanApiScenarioInfoDTO model : testPlanApiScenarioList) {
+            Map<String, String> envMap = null;
+            if (StringUtils.equalsIgnoreCase("group", model.getEnvironmentType()) && StringUtils.isNotEmpty(model.getEnvironmentGroupId())) {
+                envMap = environmentGroupProjectService.getEnvMap(model.getEnvironmentGroupId());
+            } else {
+                if (MapUtils.isNotEmpty(selectEnvMap) && selectEnvMap.containsKey(model.getProjectId())) {
+                    runInfoDTO.putScenarioRunInfo(model.getId(), model.getProjectId(), selectEnvMap.get(model.getProjectId()));
+                } else if (StringUtils.isNotEmpty(model.getEnvironment())) {
+                    try {
+                        envMap = JSONObject.parseObject(model.getEnvironment(), Map.class);
+                    } catch (Exception e) {
+                        LogUtil.error("解析场景环境失败!", e);
+                    }
+                }
+            }
+            if (MapUtils.isNotEmpty(envMap)) {
+                for (Map.Entry<String, String> entry : envMap.entrySet()) {
+                    String projectId = entry.getKey();
+                    String envIdStr = entry.getValue();
+                    runInfoDTO.putScenarioRunInfo(model.getId(), projectId, envIdStr);
+                }
+            }
+        }
+        for (TestPlanApiCaseInfoDTO model : testPlanApiCaseList) {
+            if (MapUtils.isNotEmpty(selectEnvMap) && selectEnvMap.containsKey(model.getProjectId())) {
+                runInfoDTO.putApiCaseRunInfo(model.getId(), model.getProjectId(), selectEnvMap.get(model.getProjectId()));
+            } else {
+                runInfoDTO.putApiCaseRunInfo(model.getId(), model.getProjectId(), model.getEnvironmentId());
+            }
+        }
+        return runInfoDTO;
     }
 
     /**
@@ -284,7 +348,7 @@ public class TestPlanReportService {
      * saveRequest.scenarioIsExecuting    场景案例是否执行中
      * saveRequest.performanceIsExecuting 性能案例是否执行中
      */
-    public TestPlanScheduleReportInfoDTO genTestPlanReport(TestPlanReportSaveRequest saveRequest) {
+    public TestPlanScheduleReportInfoDTO genTestPlanReport(TestPlanReportSaveRequest saveRequest, TestPlanReportRunInfoDTO runInfoDTO) {
         TestPlanWithBLOBs testPlan = testPlanMapper.selectByPrimaryKey(saveRequest.getPlanId());
         String testPlanReportID = saveRequest.getReportID();
         TestPlanReport testPlanReport = new TestPlanReport();
@@ -294,6 +358,9 @@ public class TestPlanReportService {
         testPlanReport.setUpdateTime(System.currentTimeMillis());
         try {
             testPlanReport.setName(testPlan.getName() + "-" + DateUtils.getTimeString(new Date()));
+            if (testPlanReport.getName().length() > 128) {
+                testPlanReport.setName(testPlan.getName().substring(0, 106) + "-" + DateUtils.getTimeString(new Date()));
+            }
         } catch (Exception ignored) {
         }
 
@@ -302,15 +369,19 @@ public class TestPlanReportService {
         testPlanReport.setStartTime(System.currentTimeMillis());
         testPlanReport.setEndTime(System.currentTimeMillis());
         testPlanReport.setIsNew(true);
+        testPlanReport.setRunInfo(JSONObject.toJSONString(runInfoDTO));
 
         if (saveRequest.isCountResources()) {
-            List<TestPlanApiCase> testPlanApiCaseList = extTestPlanApiCaseMapper.selectLegalDataByTestPlanId(saveRequest.getPlanId());
-            List<String> apiCaseIdList = testPlanApiCaseList.stream().map(TestPlanApiCase::getApiCaseId).collect(Collectors.toList());
+            List<TestPlanApiCaseInfoDTO> testPlanApiCaseList = extTestPlanApiCaseMapper.selectLegalDataByTestPlanId(saveRequest.getPlanId());
+            List<String> apiCaseIdList = testPlanApiCaseList.stream().map(TestPlanApiCaseInfoDTO::getApiCaseId).collect(Collectors.toList());
             testPlanReport.setIsApiCaseExecuting(!apiCaseIdList.isEmpty());
 
-            List<TestPlanApiScenario> testPlanApiScenarioList = extTestPlanScenarioCaseMapper.selectLegalDataByTestPlanId(saveRequest.getPlanId());
-            List<String> scenarioIdList = testPlanApiScenarioList.stream().map(TestPlanApiScenario::getApiScenarioId).collect(Collectors.toList());
+            List<TestPlanApiScenarioInfoDTO> testPlanApiScenarioList = extTestPlanScenarioCaseMapper.selectLegalDataByTestPlanId(saveRequest.getPlanId());
+            List<String> scenarioIdList = testPlanApiScenarioList.stream().map(TestPlanApiScenarioInfoDTO::getApiScenarioId).collect(Collectors.toList());
             testPlanReport.setIsScenarioExecuting(!scenarioIdList.isEmpty());
+
+            List<TestPlanUiScenario> testPlanUiScenarioList = extTestPlanUiScenarioCaseMapper.selectLegalDataByTestPlanId(saveRequest.getPlanId());
+            testPlanReport.setIsUiScenarioExecuting(!testPlanUiScenarioList.isEmpty());
 
             LoadCaseRequest loadCaseRequest = new LoadCaseRequest();
             loadCaseRequest.setTestPlanId(saveRequest.getPlanId());
@@ -322,9 +393,13 @@ public class TestPlanReportService {
             testPlanReport.setIsApiCaseExecuting(saveRequest.isApiCaseIsExecuting());
             testPlanReport.setIsScenarioExecuting(saveRequest.isScenarioIsExecuting());
             testPlanReport.setIsPerformanceExecuting(saveRequest.isPerformanceIsExecuting());
+            testPlanReport.setIsUiScenarioExecuting(saveRequest.isUiScenarioIsExecuting());
         }
 
-        if (testPlanReport.getIsScenarioExecuting() || testPlanReport.getIsApiCaseExecuting() || testPlanReport.getIsPerformanceExecuting()) {
+        if (testPlanReport.getIsScenarioExecuting()
+                || testPlanReport.getIsApiCaseExecuting()
+                || testPlanReport.getIsPerformanceExecuting()
+                || testPlanReport.getIsUiScenarioExecuting()) {
             testPlanReport.setStatus(TestPlanReportStatus.RUNNING.name());
         } else {
             testPlanReport.setStatus(TestPlanReportStatus.COMPLETED.name());
@@ -421,14 +496,31 @@ public class TestPlanReportService {
     }
 
     public TestPlanReportContentWithBLOBs updateReport(TestPlanReport testPlanReport, TestPlanReportContentWithBLOBs reportContent) {
-        if (testPlanReport == null) {
+        if (testPlanReport == null || reportContent == null) {
             return null;
         }
         TestPlanService testPlanService = CommonBeanFactory.getBean(TestPlanService.class);
-        TestPlanSimpleReportDTO reportDTO = testPlanService.buildPlanReport(testPlanReport, reportContent);
+        TestPlanReportBuildResultDTO reportBuildResult = testPlanService.buildPlanReport(testPlanReport, reportContent);
+        TestPlanSimpleReportDTO reportDTO = reportBuildResult.getTestPlanSimpleReportDTO();
         reportDTO.setStartTime(testPlanReport.getStartTime());
-        reportContent = parseReportDaoToReportContent(reportDTO, reportContent);
+        reportContent = parseReportDaoToReportContent(testPlanReport.getStatus(), reportDTO, reportContent);
+        this.updatePassRateAndApiBaseInfoFromReportContent(testPlanReport.getStatus(), reportDTO, reportContent, reportBuildResult.isApiBaseInfoChanged());
         return reportContent;
+    }
+
+    private void updatePassRateAndApiBaseInfoFromReportContent(String status, TestPlanSimpleReportDTO reportDTO, TestPlanReportContentWithBLOBs reportContent, boolean apiBaseInfoChanged) {
+        // 如果报告已结束，则更新测试计划报告通过率字段 passRate
+        if (!StringUtils.equalsIgnoreCase(status, "running") && (Double.compare(reportContent.getPassRate(), reportDTO.getPassRate()) != 0 || apiBaseInfoChanged)) {
+            TestPlanReportContentExample contentExample = new TestPlanReportContentExample();
+            contentExample.createCriteria().andTestPlanReportIdEqualTo(reportContent.getTestPlanReportId());
+            TestPlanReportContentWithBLOBs content = new TestPlanReportContentWithBLOBs();
+            content.setPassRate(reportDTO.getPassRate());
+            if (apiBaseInfoChanged) {
+                content.setApiBaseCount(reportContent.getApiBaseCount());
+            }
+            testPlanReportContentMapper.updateByExampleSelective(content, contentExample);
+        }
+
     }
 
     public TestPlanReport finishedTestPlanReport(String testPlanReportId, String status) {
@@ -436,9 +528,10 @@ public class TestPlanReportService {
         if (testPlanReport != null && StringUtils.equalsIgnoreCase(testPlanReport.getStatus(), "stopped")) {
             return testPlanReport;
         }
+        boolean isSendMessage = false;
+        TestPlanReportContentWithBLOBs content = null;
         if (testPlanReport != null) {
-            boolean isSendMessage = false;
-            if(StringUtils.equalsIgnoreCase(testPlanReport.getStatus(),ExecuteResult.RUNNING.name())){
+            if (StringUtils.equalsIgnoreCase(testPlanReport.getStatus(), ExecuteResult.TEST_PLAN_RUNNING.toString())) {
                 isSendMessage = true;
             }
             //初始化测试计划包含组件信息
@@ -451,7 +544,7 @@ public class TestPlanReportService {
             long endTime = System.currentTimeMillis();
             long testCaseCount = testPlanTestCaseMapper.countByExample(testPlanTestCaseExample);
             boolean updateTestPlanTime = testCaseCount > 0;
-            if (updateTestPlanTime) {
+            if (updateTestPlanTime && !StringUtils.equalsAnyIgnoreCase(testPlanReport.getStatus(), APITestStatus.Rerunning.name())) {
                 testPlanReport.setEndTime(endTime);
                 testPlanReport.setUpdateTime(endTime);
             }
@@ -459,91 +552,23 @@ public class TestPlanReportService {
             TestPlanReportContentExample contentExample = new TestPlanReportContentExample();
             contentExample.createCriteria().andTestPlanReportIdEqualTo(testPlanReportId);
             List<TestPlanReportContentWithBLOBs> contents = testPlanReportContentMapper.selectByExampleWithBLOBs(contentExample);
-            TestPlanReportContentWithBLOBs content = null;
             if (CollectionUtils.isNotEmpty(contents)) {
                 content = contents.get(0);
+                content.setApiBaseCount(null);
+                content.setPassRate(null);
+                extTestPlanReportMapper.setApiBaseCountAndPassRateIsNullById(content.getId());
             }
-            boolean hasErrorCase = false;
             if (content != null) {
-                //更新接口用例、场景用例的最终执行状态
-                if (StringUtils.isNotEmpty(content.getPlanApiCaseReportStruct())) {
-                    try {
-                        List<TestPlanFailureApiDTO> apiTestCases = JSONArray.parseArray(content.getPlanApiCaseReportStruct(), TestPlanFailureApiDTO.class);
-                        List<String> reportIdList = new ArrayList<>();
-                        apiTestCases.forEach(item -> {
-                            if (StringUtils.isNotEmpty(item.getReportId())) {
-                                reportIdList.add(item.getReportId());
-                            }
-                        });
-                        Map<String, String> reportResult = apiDefinitionExecResultService.selectReportResultByReportIds(reportIdList);
-                        String defaultStatus = "error";
-                        for (TestPlanFailureApiDTO dto : apiTestCases) {
-                            String reportId = dto.getReportId();
-                            if (StringUtils.isEmpty(reportId)) {
-                                dto.setExecResult(defaultStatus);
-                            } else {
-                                String execStatus = reportResult.get(reportId);
-                                if (execStatus == null) {
-                                    execStatus = defaultStatus;
-                                }
-                                dto.setExecResult(execStatus);
-                            }
-                            if (!StringUtils.equalsAnyIgnoreCase(dto.getExecResult(), "success")) {
-                                hasErrorCase = true;
-                            }
-                        }
-                        content.setPlanApiCaseReportStruct(JSONObject.toJSONString(apiTestCases));
-                    } catch (Exception e) {
-                        LogUtil.error("update test plan api error! ", e);
-                    }
-                }
-                if (StringUtils.isNotEmpty(content.getPlanScenarioReportStruct())) {
-                    try {
-                        List<TestPlanFailureScenarioDTO> scenarioCases = JSONArray.parseArray(content.getPlanScenarioReportStruct(), TestPlanFailureScenarioDTO.class);
-                        List<String> reportIdList = new ArrayList<>();
-                        scenarioCases.forEach(item -> {
-                            if (StringUtils.isNotEmpty(item.getReportId())) {
-                                reportIdList.add(item.getReportId());
-                            }
-                        });
-                        String defaultStatus = "Fail";
-                        Map<String, String> reportStatus = apiScenarioReportService.getReportStatusByReportIds(reportIdList);
-
-                        for (TestPlanFailureScenarioDTO dto : scenarioCases) {
-                            String reportId = dto.getReportId();
-                            if (StringUtils.isNotEmpty(reportId)) {
-                                String execStatus = reportStatus.get(reportId);
-                                if (execStatus == null) {
-                                    execStatus = defaultStatus;
-                                } else {
-                                    if (StringUtils.equalsIgnoreCase(status, "Error")) {
-                                        status = "Fail";
-                                    }
-                                }
-                                dto.setLastResult(execStatus);
-                                dto.setStatus(execStatus);
-                                if (!StringUtils.equalsAnyIgnoreCase(execStatus, "success")) {
-                                    hasErrorCase = true;
-                                }
-                            }
-                        }
-                        content.setPlanScenarioReportStruct(JSONObject.toJSONString(scenarioCases));
-                    } catch (Exception e) {
-                        LogUtil.error("update test plan api error! ", e);
-                    }
-                }
                 //更新content表对结束日期
-                content.setStartTime(testPlanReport.getStartTime());
-                content.setEndTime(endTime);
+                if (!StringUtils.equalsAnyIgnoreCase(testPlanReport.getStatus(), APITestStatus.Rerunning.name())) {
+                    content.setStartTime(testPlanReport.getStartTime());
+                    content.setEndTime(endTime);
+                }
                 testPlanReportContentMapper.updateByExampleSelective(content, contentExample);
             }
             //计算测试计划状态
             if (StringUtils.equalsIgnoreCase(status, TestPlanReportStatus.COMPLETED.name())) {
-                if (hasErrorCase) {
-                    testPlanReport.setStatus(TestPlanReportStatus.FAILED.name());
-                } else {
-                    testPlanReport.setStatus(TestPlanReportStatus.SUCCESS.name());
-                }
+                testPlanReport.setStatus(TestPlanReportStatus.SUCCESS.name());
             } else {
                 testPlanReport.setStatus(status);
             }
@@ -551,6 +576,7 @@ public class TestPlanReportService {
             testPlanReport.setIsApiCaseExecuting(false);
             testPlanReport.setIsScenarioExecuting(false);
             testPlanReport.setIsPerformanceExecuting(false);
+            testPlanReport.setIsUiScenarioExecuting(false);
 
             TestPlanExecutionQueueExample testPlanExecutionQueueExample = new TestPlanExecutionQueueExample();
             testPlanExecutionQueueExample.createCriteria().andReportIdEqualTo(testPlanReportId);
@@ -573,14 +599,15 @@ public class TestPlanReportService {
                 TestPlanExecutionQueue testPlanExecutionQueue = planExecutionQueueList.get(0);
                 TestPlanWithBLOBs testPlan = testPlanMapper.selectByPrimaryKey(testPlanExecutionQueue.getTestPlanId());
                 JSONObject jsonObject = JSONObject.parseObject(testPlan.getRunModeConfig());
-                TestplanRunRequest runRequest = JSON.toJavaObject(jsonObject, TestplanRunRequest.class);
+                TestPlanRequestUtil.changeStringToBoolean(jsonObject);
+                TestPlanRunRequest runRequest = JSON.toJavaObject(jsonObject, TestPlanRunRequest.class);
                 runRequest.setReportId(testPlanExecutionQueue.getReportId());
                 testPlanService.runPlan(runRequest);
             }
             testPlanReportMapper.updateByPrimaryKey(testPlanReport);
-            //发送通知
-            this.checkTestPlanStatusAndSendMessage(testPlanReport, isSendMessage);
         }
+        //发送通知
+        testPlanMessageService.checkTestPlanStatusAndSendMessage(testPlanReport, content, isSendMessage);
         return testPlanReport;
     }
 
@@ -623,7 +650,7 @@ public class TestPlanReportService {
         TestPlanSimpleReportDTO reportDTO = testPlanService.buildPlanReport(testPlan.getId(), false);
         if (!testPlanReportContentList.isEmpty()) {
             testPlanReportContent = testPlanReportContentList.get(0);
-            testPlanReportContentMapper.updateByPrimaryKeySelective(parseReportDaoToReportContent(reportDTO, testPlanReportContent));
+            testPlanReportContentMapper.updateByPrimaryKeySelective(parseReportDaoToReportContent(testPlanReport.getStatus(), reportDTO, testPlanReportContent));
         }
 
         if (reportDTO.getStartTime() == null) {
@@ -637,10 +664,10 @@ public class TestPlanReportService {
         String testPlanStatus = this.getTestPlanReportStatus(testPlanReport, reportDTO);
         testPlanReport.setStatus(testPlanStatus);
         testPlanReportMapper.updateByPrimaryKey(testPlanReport);
-        this.checkTestPlanStatusAndSendMessage(testPlanReport, false);
+        testPlanMessageService.checkTestPlanStatusAndSendMessage(testPlanReport, null, false);
     }
 
-    public TestPlanReportContentWithBLOBs parseReportDaoToReportContent(TestPlanSimpleReportDTO reportDTO, TestPlanReportContentWithBLOBs testPlanReportContentWithBLOBs) {
+    public TestPlanReportContentWithBLOBs parseReportDaoToReportContent(String testPlanReportStatus, TestPlanSimpleReportDTO reportDTO, TestPlanReportContentWithBLOBs testPlanReportContentWithBLOBs) {
         String id = testPlanReportContentWithBLOBs.getId();
         String testPlanReportId = testPlanReportContentWithBLOBs.getTestPlanReportId();
         if (testPlanReportContentWithBLOBs.getEndTime() != null) {
@@ -655,14 +682,17 @@ public class TestPlanReportService {
         if (reportDTO.getApiResult() != null) {
             testPlanReportContentWithBLOBs.setApiResult(JSONObject.toJSONString(reportDTO.getApiResult()));
         }
+        if (reportDTO.getUiResult() != null) {
+            testPlanReportContentWithBLOBs.setUiResult(JSONObject.toJSONString(reportDTO.getUiResult()));
+        }
+        if (reportDTO.getUiAllCases() != null) {
+            testPlanReportContentWithBLOBs.setUiAllCases(JSONObject.toJSONString(reportDTO.getUiAllCases()));
+        }
         if (reportDTO.getLoadResult() != null) {
             testPlanReportContentWithBLOBs.setLoadResult(JSONObject.toJSONString(reportDTO.getLoadResult()));
         }
         if (reportDTO.getFunctionAllCases() != null) {
             testPlanReportContentWithBLOBs.setFunctionAllCases(JSONObject.toJSONString(reportDTO.getFunctionAllCases()));
-        }
-        if (reportDTO.getFunctionFailureCases() != null) {
-            testPlanReportContentWithBLOBs.setFunctionFailureCases(JSONObject.toJSONString(reportDTO.getFunctionFailureCases()));
         }
         if (reportDTO.getIssueList() != null) {
             testPlanReportContentWithBLOBs.setIssueList(JSONObject.toJSONString(reportDTO.getIssueList()));
@@ -698,13 +728,6 @@ public class TestPlanReportService {
             testPlanReportContentWithBLOBs.setUnExecuteScenarios(JSONObject.toJSONString(reportDTO.getUnExecuteScenarios()));
         }
 
-        // 更新测试计划报告通过率字段 passRate
-        TestPlanReportContentExample contentExample = new TestPlanReportContentExample();
-        contentExample.createCriteria().andTestPlanReportIdEqualTo(testPlanReportId);
-        TestPlanReportContentWithBLOBs content = new TestPlanReportContentWithBLOBs();
-        content.setPassRate(reportDTO.getPassRate());
-        testPlanReportContentMapper.updateByExampleSelective(content, contentExample);
-
         return testPlanReportContentWithBLOBs;
     }
 
@@ -723,7 +746,7 @@ public class TestPlanReportService {
                 if (reportDTO != null) {
                     status = TestPlanReportStatus.SUCCESS.name();
                     try {
-                        if (CollectionUtils.isNotEmpty(reportDTO.getFunctionFailureCases())
+                        if (hasFunctionFailedCases(reportDTO.getFunctionAllCases())
                                 || CollectionUtils.isNotEmpty(reportDTO.getApiFailureCases())
                                 || CollectionUtils.isNotEmpty(reportDTO.getScenarioFailureCases())
                                 || CollectionUtils.isNotEmpty(reportDTO.getLoadFailureCases())) {
@@ -741,27 +764,16 @@ public class TestPlanReportService {
         return status;
     }
 
-    public void checkTestPlanStatusAndSendMessage(TestPlanReport report, boolean sendMessage) {
-        if (!report.getIsApiCaseExecuting() && !report.getIsPerformanceExecuting() && !report.getIsScenarioExecuting()) {
-            //更新TestPlan状态为完成
-            TestPlanWithBLOBs testPlan = testPlanMapper.selectByPrimaryKey(report.getTestPlanId());
-            if (testPlan != null && !StringUtils.equals(testPlan.getStatus(), TestPlanStatus.Completed.name())) {
-                testPlan.setStatus(TestPlanStatus.Completed.name());
-                testPlanService.editTestPlan(testPlan);
-            }
-            try {
-                if (sendMessage && testPlan != null && StringUtils.equalsAny(report.getTriggerMode(),
-                        ReportTriggerMode.MANUAL.name(),
-                        ReportTriggerMode.API.name(),
-                        ReportTriggerMode.SCHEDULE.name()) && !StringUtils.equalsIgnoreCase(report.getStatus(), ExecuteResult.RUNNING.name())
-                ) {
-                    //发送通知
-                    testPlanMessageService.sendMessage(testPlan, report, testPlan.getProjectId());
-                }
-            } catch (Exception e) {
-                LogUtil.error(e);
+    private boolean hasFunctionFailedCases(List<TestPlanCaseDTO> functionAllCases) {
+        if (functionAllCases == null) {
+            return false;
+        }
+        for (TestPlanCaseDTO functionAllCase : functionAllCases) {
+            if (StringUtils.equals(functionAllCase.getStatus(), TestPlanTestCaseStatus.Failure.name())) {
+                return true;
             }
         }
+        return false;
     }
 
     public TestPlanReport getTestPlanReport(String planId) {
@@ -774,14 +786,22 @@ public class TestPlanReportService {
     }
 
     public void delete(List<String> testPlanReportIdList) {
-        for (String testPlanReportId : testPlanReportIdList) {
-            testPlanReportMapper.deleteByPrimaryKey(testPlanReportId);
-            TestPlanReportDataExample example = new TestPlanReportDataExample();
-            example.createCriteria().andTestPlanReportIdEqualTo(testPlanReportId);
-            testPlanReportDataMapper.deleteByExample(example);
+        if (CollectionUtils.isNotEmpty(testPlanReportIdList)) {
+            TestPlanReportExample example = new TestPlanReportExample();
+            example.createCriteria().andIdIn(testPlanReportIdList);
+            testPlanReportMapper.deleteByExample(example);
+            TestPlanReportDataExample testPlanReportDataExample = new TestPlanReportDataExample();
+            testPlanReportDataExample.createCriteria().andTestPlanReportIdIn(testPlanReportIdList);
+            testPlanReportDataMapper.deleteByExample(testPlanReportDataExample);
             TestPlanReportContentExample contentExample = new TestPlanReportContentExample();
-            contentExample.createCriteria().andTestPlanReportIdEqualTo(testPlanReportId);
+            contentExample.createCriteria().andTestPlanReportIdIn(testPlanReportIdList);
             testPlanReportContentMapper.deleteByExample(contentExample);
+
+            //删除关联资源对应的报告ID
+            apiDefinitionExecResultService.deleteByRelevanceTestPlanReportIds(testPlanReportIdList);
+            apiScenarioReportService.deleteByRelevanceTestPlanReportIds(testPlanReportIdList);
+            performanceTestService.deleteByRelevanceTestPlanReportIds(testPlanReportIdList);
+
         }
     }
 
@@ -796,20 +816,7 @@ public class TestPlanReportService {
         if (request.isSelectAllDate()) {
             deleteReportIds = this.getAllApiIdsByFrontedSelect(request.getFilters(), request.getName(), request.getProjectId(), request.getUnSelectIds(), request.getCombine());
         }
-        if (CollectionUtils.isNotEmpty(deleteReportIds)) {
-            TestPlanReportExample deleteReportExample = new TestPlanReportExample();
-            deleteReportExample.createCriteria().andIdIn(deleteReportIds);
-            testPlanReportMapper.deleteByExample(deleteReportExample);
-
-
-            TestPlanReportDataExample example = new TestPlanReportDataExample();
-            example.createCriteria().andTestPlanReportIdIn(deleteReportIds);
-            testPlanReportDataMapper.deleteByExample(example);
-
-            TestPlanReportContentExample contentExample = new TestPlanReportContentExample();
-            contentExample.createCriteria().andTestPlanReportIdIn(deleteReportIds);
-            testPlanReportContentMapper.deleteByExample(contentExample);
-        }
+        this.delete(deleteReportIds);
     }
 
     private void deleteReportBatch(List<String> reportIds) {
@@ -820,6 +827,10 @@ public class TestPlanReportService {
         TestPlanReportMapper planReportMapper = sqlSession.getMapper(TestPlanReportMapper.class);
         TestPlanReportDataMapper planReportDataMapper = sqlSession.getMapper(TestPlanReportDataMapper.class);
         TestPlanReportContentMapper planReportContentMapper = sqlSession.getMapper(TestPlanReportContentMapper.class);
+
+        ApiDefinitionExecResultMapper batchDefinitionExecResultMapper = sqlSession.getMapper(ApiDefinitionExecResultMapper.class);
+        ApiScenarioReportMapper batchScenarioReportMapper = sqlSession.getMapper(ApiScenarioReportMapper.class);
+        LoadTestReportMapper batchLoadTestReportMapper = sqlSession.getMapper(LoadTestReportMapper.class);
 
         try {
             while (reportIds.size() > handleCount) {
@@ -845,6 +856,21 @@ public class TestPlanReportService {
                 contentExample.createCriteria().andTestPlanReportIdIn(handleIdList);
                 planReportContentMapper.deleteByExample(contentExample);
 
+                //删除关联的接口用例报告
+                ApiDefinitionExecResultExample apiDefinitionExecResultExample = new ApiDefinitionExecResultExample();
+                apiDefinitionExecResultExample.createCriteria().andRelevanceTestPlanReportIdIn(handleIdList);
+                batchDefinitionExecResultMapper.deleteByExample(apiDefinitionExecResultExample);
+
+                //删除关联的场景和ui用例报告
+                ApiScenarioReportExample apiScenarioReportExample = new ApiScenarioReportExample();
+                apiScenarioReportExample.createCriteria().andRelevanceTestPlanReportIdIn(handleIdList);
+                batchScenarioReportMapper.deleteByExample(apiScenarioReportExample);
+
+                //删除关联的性能测试用例报告
+                LoadTestReportExample loadTestReportExample = new LoadTestReportExample();
+                loadTestReportExample.createCriteria().andRelevanceTestPlanReportIdIn(handleIdList);
+                batchLoadTestReportMapper.deleteByExample(loadTestReportExample);
+
                 sqlSession.flushStatements();
 
                 reportIds = otherIdList;
@@ -863,6 +889,21 @@ public class TestPlanReportService {
                 TestPlanReportContentExample contentExample = new TestPlanReportContentExample();
                 contentExample.createCriteria().andTestPlanReportIdIn(reportIds);
                 planReportContentMapper.deleteByExample(contentExample);
+
+                //删除关联的接口用例报告
+                ApiDefinitionExecResultExample apiDefinitionExecResultExample = new ApiDefinitionExecResultExample();
+                apiDefinitionExecResultExample.createCriteria().andRelevanceTestPlanReportIdIn(reportIds);
+                batchDefinitionExecResultMapper.deleteByExample(apiDefinitionExecResultExample);
+
+                //删除关联的场景和ui用例报告
+                ApiScenarioReportExample apiScenarioReportExample = new ApiScenarioReportExample();
+                apiScenarioReportExample.createCriteria().andRelevanceTestPlanReportIdIn(reportIds);
+                batchScenarioReportMapper.deleteByExample(apiScenarioReportExample);
+
+                //删除关联的性能测试用例报告
+                LoadTestReportExample loadTestReportExample = new LoadTestReportExample();
+                loadTestReportExample.createCriteria().andRelevanceTestPlanReportIdIn(reportIds);
+                batchLoadTestReportMapper.deleteByExample(loadTestReportExample);
 
                 sqlSession.flushStatements();
             }
@@ -927,12 +968,11 @@ public class TestPlanReportService {
             return null;
         }
         if (this.isDynamicallyGenerateReports(testPlanReportContent)) {
-            LogUtil.info("----> GenerateReports: " + JSONObject.toJSONString(testPlanReportContent));
             testPlanReportContent = this.dynamicallyGenerateReports(testPlanReportContent);
-            LogUtil.info("----> GenerateReports OVER: " + JSONObject.toJSONString(testPlanReportContent));
         }
         TestPlanSimpleReportDTO testPlanReportDTO = new TestPlanSimpleReportDTO();
         BeanUtils.copyBean(testPlanReportDTO, testPlanReportContent);
+        this.generateEnvironmentInfo(testPlanReportDTO, reportId);
         if (StringUtils.isNotBlank(testPlanReportContent.getFunctionResult())) {
             testPlanReportDTO.setFunctionResult(JSONObject.parseObject(testPlanReportContent.getFunctionResult(), TestPlanFunctionResultReportDTO.class));
         }
@@ -944,9 +984,6 @@ public class TestPlanReportService {
         }
         if (StringUtils.isNotBlank(testPlanReportContent.getFunctionAllCases())) {
             testPlanReportDTO.setFunctionAllCases(JSONObject.parseArray(testPlanReportContent.getFunctionAllCases(), TestPlanCaseDTO.class));
-        }
-        if (StringUtils.isNotBlank(testPlanReportContent.getFunctionFailureCases())) {
-            testPlanReportDTO.setFunctionFailureCases(JSONObject.parseArray(testPlanReportContent.getFunctionFailureCases(), TestPlanCaseDTO.class));
         }
         if (StringUtils.isNotBlank(testPlanReportContent.getIssueList())) {
             testPlanReportDTO.setIssueList(JSONObject.parseArray(testPlanReportContent.getIssueList(), IssuesDao.class));
@@ -981,15 +1018,114 @@ public class TestPlanReportService {
         if (StringUtils.isNotBlank(testPlanReportContent.getUnExecuteScenarios())) {
             testPlanReportDTO.setUnExecuteScenarios(JSONObject.parseArray(testPlanReportContent.getUnExecuteScenarios(), TestPlanFailureScenarioDTO.class));
         }
+        if (StringUtils.isNotBlank(testPlanReportContent.getUiResult())) {
+            testPlanReportDTO.setUiResult(JSONObject.parseObject(testPlanReportContent.getUiResult(), TestPlanUiResultReportDTO.class));
+        }
+        if (StringUtils.isNotBlank(testPlanReportContent.getUiAllCases())) {
+            testPlanReportDTO.setUiAllCases(JSONObject.parseArray(testPlanReportContent.getUiAllCases(), TestPlanUiScenarioDTO.class));
+        }
+        if (StringUtils.isNotBlank(testPlanReportContent.getUiFailureCases())) {
+            testPlanReportDTO.setUiFailureCases(JSONObject.parseArray(testPlanReportContent.getUiFailureCases(), TestPlanUiScenarioDTO.class));
+        }
         testPlanReportDTO.setId(reportId);
         TestPlanReport testPlanReport = testPlanReportMapper.selectByPrimaryKey(testPlanReportContent.getTestPlanReportId());
         testPlanReportDTO.setName(testPlanReport.getName());
         return testPlanReportDTO;
     }
 
+    private void generateEnvironmentInfo(TestPlanSimpleReportDTO testPlanReportDTO, String reportId) {
+        TestPlanReport testPlanReport = testPlanReportMapper.selectByPrimaryKey(reportId);
+        TestPlanReportRunInfoDTO runInfoDTO = null;
+        if (StringUtils.isNotEmpty(testPlanReport.getRunInfo())) {
+            try {
+                runInfoDTO = JSONObject.parseObject(testPlanReport.getRunInfo(), TestPlanReportRunInfoDTO.class);
+            } catch (Exception e) {
+                LogUtil.error("解析测试计划报告记录的运行环境信息[" + testPlanReport.getRunInfo() + "]时出错!", e);
+            }
+
+        }
+        if (runInfoDTO != null) {
+            if (StringUtils.isNotEmpty(runInfoDTO.getEnvGroupId())) {
+                EnvironmentGroup environmentGroup = environmentGroupService.selectById(runInfoDTO.getEnvGroupId());
+                if (StringUtils.isNotEmpty(environmentGroup.getName())) {
+                    testPlanReportDTO.setEnvGroupName(environmentGroup.getName());
+                }
+            }
+            testPlanReportDTO.setRunMode(StringUtils.equalsIgnoreCase(runInfoDTO.getRunMode(), "serial") ? Translator.get("serial") : Translator.get("parallel"));
+            Map<String, Set<String>> projectEnvMap = new LinkedHashMap<>();
+            if (MapUtils.isNotEmpty(runInfoDTO.getApiCaseRunInfo())) {
+                this.setApiCaseProjectEnvMap(projectEnvMap, runInfoDTO.getApiCaseRunInfo());
+            }
+            if (MapUtils.isNotEmpty(runInfoDTO.getScenarioRunInfo())) {
+                this.setScenarioProjectEnvMap(projectEnvMap, runInfoDTO.getScenarioRunInfo());
+            }
+            Map<String, List<String>> showProjectEnvMap = new LinkedHashMap<>();
+            for (Map.Entry<String, Set<String>> entry : projectEnvMap.entrySet()) {
+                String projectId = entry.getKey();
+                Set<String> envIdSet = entry.getValue();
+                String projectName = projectService.selectNameById(projectId);
+                List<String> envNames = apiTestEnvironmentService.selectNameByIds(envIdSet);
+                if (StringUtils.isNotEmpty(projectName) && CollectionUtils.isNotEmpty(envNames)) {
+                    showProjectEnvMap.put(projectName, envNames);
+                }
+            }
+            if (MapUtils.isNotEmpty(showProjectEnvMap)) {
+                testPlanReportDTO.setProjectEnvMap(showProjectEnvMap);
+            }
+        }
+    }
+
+    private void setScenarioProjectEnvMap(Map<String, Set<String>> projectEnvMap, Map<String, Map<String, List<String>>> caseEnvironmentMap) {
+        if (projectEnvMap == null || caseEnvironmentMap == null) {
+            return;
+        }
+        for (Map<String, List<String>> map : caseEnvironmentMap.values()) {
+            if (MapUtils.isEmpty(map)) {
+                continue;
+            }
+            for (Map.Entry<String, List<String>> entry : map.entrySet()) {
+                String projectId = entry.getKey();
+                List<String> envIdList = entry.getValue();
+                if (CollectionUtils.isNotEmpty(envIdList)) {
+                    envIdList.forEach(envId -> {
+                        if (projectEnvMap.containsKey(projectId)) {
+                            projectEnvMap.get(projectId).add(envId);
+                        } else {
+                            projectEnvMap.put(projectId, new LinkedHashSet<>() {{
+                                this.add(envId);
+                            }});
+                        }
+                    });
+                }
+            }
+        }
+    }
+
+    private void setApiCaseProjectEnvMap(Map<String, Set<String>> projectEnvMap, Map<String, Map<String, String>> caseEnvironmentMap) {
+        if (projectEnvMap == null || caseEnvironmentMap == null) {
+            return;
+        }
+        for (Map<String, String> map : caseEnvironmentMap.values()) {
+            if (MapUtils.isEmpty(map)) {
+                continue;
+            }
+            for (Map.Entry<String, String> entry : map.entrySet()) {
+                String projectId = entry.getKey();
+                String envId = entry.getValue();
+                if (projectEnvMap.containsKey(projectId)) {
+                    projectEnvMap.get(projectId).add(envId);
+                } else {
+                    projectEnvMap.put(projectId, new LinkedHashSet<>() {{
+                        this.add(envId);
+                    }});
+                }
+            }
+        }
+    }
+
     private boolean isDynamicallyGenerateReports(TestPlanReportContentWithBLOBs testPlanReportContent) {
         return testPlanReportContent != null &&
-                (StringUtils.isNotEmpty(testPlanReportContent.getPlanApiCaseReportStruct()) || StringUtils.isNotEmpty(testPlanReportContent.getPlanScenarioReportStruct()) || StringUtils.isNotEmpty(testPlanReportContent.getPlanLoadCaseReportStruct()));
+                (StringUtils.isNotEmpty(testPlanReportContent.getPlanApiCaseReportStruct()) || StringUtils.isNotEmpty(testPlanReportContent.getPlanScenarioReportStruct()) || StringUtils.isNotEmpty(testPlanReportContent.getPlanLoadCaseReportStruct()) || StringUtils.isNotEmpty(testPlanReportContent.getPlanUiScenarioReportStruct()));
     }
 
     private TestPlanReportContentWithBLOBs dynamicallyGenerateReports(TestPlanReportContentWithBLOBs testPlanReportContent) {
@@ -998,7 +1134,7 @@ public class TestPlanReportService {
         return testPlanReportContent;
     }
 
-    public void createTestPlanReportContentReportIds(String testPlanReportID, Map<String, String> apiCaseReportMap, Map<String, String> scenarioReportIdMap, Map<String, String> loadCaseReportIdMap) {
+    public void createTestPlanReportContentReportIds(String testPlanReportID, Map<String, String> apiCaseReportMap, Map<String, String> scenarioReportIdMap, Map<String, String> loadCaseReportIdMap, Map<String, String> uiScenarioReportMap) {
         TestPlanReportContentWithBLOBs content = new TestPlanReportContentWithBLOBs();
         content.setId(UUID.randomUUID().toString());
         content.setTestPlanReportId(testPlanReportID);
@@ -1021,17 +1157,29 @@ public class TestPlanReportService {
         if (MapUtils.isNotEmpty(loadCaseReportIdMap)) {
             content.setPlanLoadCaseReportStruct(JSONObject.toJSONString(loadCaseReportIdMap));
         }
+        if (MapUtils.isNotEmpty(uiScenarioReportMap)) {
+            List<TestPlanUiScenarioDTO> uiScenarios =
+                    extTestPlanUiScenarioCaseMapper.getFailureListByIds(uiScenarioReportMap.keySet(), null);
+            for (TestPlanUiScenarioDTO dto : uiScenarios) {
+                dto.setReportId(uiScenarioReportMap.get(dto.getId()));
+            }
+            content.setPlanUiScenarioReportStruct(JSONObject.toJSONString(uiScenarios));
+        }
         testPlanReportContentMapper.insert(content);
     }
 
     public TestPlanExecuteReportDTO genTestPlanExecuteReportDTOByTestPlanReportContent(TestPlanReportContentWithBLOBs testPlanReportContentWithBLOBs) {
-        Map<String, String> testPlanApiCaseIdAndReportIdMap = new HashMap<>();
-        Map<String, String> testPlanScenarioIdAndReportIdMap = new HashMap<>();
-        Map<String, String> testPlanLoadCaseIdAndReportIdMap = new HashMap<>();
-        List<TestPlanFailureApiDTO> apiCaseInfoDTOList = null;
-        List<TestPlanFailureScenarioDTO> scenarioInfoDTOList = null;
+        Map<String, String> testPlanApiCaseIdAndReportIdMap = new LinkedHashMap<>();
+        Map<String, String> testPlanScenarioIdAndReportIdMap = new LinkedHashMap<>();
+        Map<String, String> testPlanUiScenarioIdAndReportIdMap = new LinkedHashMap<>();
+        Map<String, String> testPlanLoadCaseIdAndReportIdMap = new LinkedHashMap<>();
+        Map<String, TestPlanFailureApiDTO> apiCaseInfoDTOMap = new LinkedHashMap<>();
+        Map<String, TestPlanFailureScenarioDTO> scenarioInfoDTOMap = new LinkedHashMap<>();
+        Map<String, TestPlanUiScenarioDTO> uiScenarioInfoDTOMap = new LinkedHashMap<>();
+
         if (testPlanReportContentWithBLOBs != null) {
             if (StringUtils.isNotEmpty(testPlanReportContentWithBLOBs.getPlanApiCaseReportStruct())) {
+                List<TestPlanFailureApiDTO> apiCaseInfoDTOList = null;
                 try {
                     apiCaseInfoDTOList = JSONArray.parseArray(testPlanReportContentWithBLOBs.getPlanApiCaseReportStruct(), TestPlanFailureApiDTO.class);
                 } catch (Exception ignored) {
@@ -1044,10 +1192,12 @@ public class TestPlanReportService {
                 } else {
                     for (TestPlanFailureApiDTO item : apiCaseInfoDTOList) {
                         testPlanApiCaseIdAndReportIdMap.put(item.getId(), item.getReportId());
+                        apiCaseInfoDTOMap.put(item.getId(), item);
                     }
                 }
             }
             if (StringUtils.isNotEmpty(testPlanReportContentWithBLOBs.getPlanScenarioReportStruct())) {
+                List<TestPlanFailureScenarioDTO> scenarioInfoDTOList = null;
                 try {
                     scenarioInfoDTOList = JSONArray.parseArray(testPlanReportContentWithBLOBs.getPlanScenarioReportStruct(), TestPlanFailureScenarioDTO.class);
                 } catch (Exception ignored) {
@@ -1060,6 +1210,26 @@ public class TestPlanReportService {
                 } else {
                     for (TestPlanFailureScenarioDTO item : scenarioInfoDTOList) {
                         testPlanScenarioIdAndReportIdMap.put(item.getId(), item.getReportId());
+                        scenarioInfoDTOMap.put(item.getId(), item);
+                    }
+                }
+            }
+            if (StringUtils.isNotEmpty(testPlanReportContentWithBLOBs.getPlanUiScenarioReportStruct())) {
+                List<TestPlanUiScenarioDTO> scenarioInfoDTOList = null;
+                try {
+                    scenarioInfoDTOList = JSONArray.parseArray(testPlanReportContentWithBLOBs.getPlanUiScenarioReportStruct(), TestPlanUiScenarioDTO.class);
+                } catch (Exception ignored) {
+                }
+                if (scenarioInfoDTOList == null) {
+                    try {
+                        testPlanUiScenarioIdAndReportIdMap = JSONObject.parseObject(testPlanReportContentWithBLOBs.getPlanUiScenarioReportStruct(), Map.class);
+                    } catch (Exception ignored) {
+                    }
+                } else {
+                    for (TestPlanUiScenarioDTO item : scenarioInfoDTOList) {
+                        testPlanUiScenarioIdAndReportIdMap.put(item.getId(), item.getReportId());
+                        uiScenarioInfoDTOMap.put(item.getId(), item);
+
                     }
                 }
             }
@@ -1070,7 +1240,7 @@ public class TestPlanReportService {
                 }
             }
         }
-        TestPlanExecuteReportDTO returnDTO = new TestPlanExecuteReportDTO(testPlanApiCaseIdAndReportIdMap, testPlanScenarioIdAndReportIdMap, testPlanLoadCaseIdAndReportIdMap, apiCaseInfoDTOList, scenarioInfoDTOList);
+        TestPlanExecuteReportDTO returnDTO = new TestPlanExecuteReportDTO(testPlanApiCaseIdAndReportIdMap, testPlanScenarioIdAndReportIdMap, testPlanUiScenarioIdAndReportIdMap, testPlanLoadCaseIdAndReportIdMap, apiCaseInfoDTOMap, scenarioInfoDTOMap, uiScenarioInfoDTOMap);
         return returnDTO;
     }
 
@@ -1096,5 +1266,127 @@ public class TestPlanReportService {
             testPlanReport.setName(planName);
             testPlanReportMapper.updateByPrimaryKey(testPlanReport);
         }
+    }
+
+    public TestPlanReport checkTestPlanReportHasErrorCase(TestPlanReport report, TestPlanReportContentWithBLOBs testPlanReportContent) {
+        if (testPlanReportContent != null) {
+            boolean hasErrorCase = this.isTestPlanReportHasErrorCase(testPlanReportContent);
+            if (hasErrorCase) {
+                report.setStatus(TestPlanReportStatus.FAILED.name());
+            } else {
+                report.setStatus(TestPlanReportStatus.SUCCESS.name());
+            }
+            testPlanReportMapper.updateByPrimaryKeySelective(report);
+        }
+        return report;
+    }
+
+    private boolean isTestPlanReportHasErrorCase(TestPlanReportContentWithBLOBs content) {
+        //更新测试计划里用例的执行结果，并检查是否有错误用例。
+        boolean hasErrorCase = false;
+        if (content != null) {
+            //更新接口用例、场景用例的最终执行状态
+            if (!hasErrorCase && StringUtils.isNotEmpty(content.getPlanApiCaseReportStruct())) {
+                try {
+                    List<TestPlanFailureApiDTO> apiTestCases = JSONArray.parseArray(content.getPlanApiCaseReportStruct(), TestPlanFailureApiDTO.class);
+                    List<String> reportIdList = new ArrayList<>();
+                    apiTestCases.forEach(item -> {
+                        if (StringUtils.isNotEmpty(item.getReportId())) {
+                            reportIdList.add(item.getReportId());
+                        }
+                    });
+                    Map<String, String> reportResult = apiDefinitionExecResultService.selectReportResultByReportIds(reportIdList);
+                    String defaultStatus = "error";
+                    for (TestPlanFailureApiDTO dto : apiTestCases) {
+                        String reportId = dto.getReportId();
+                        if (StringUtils.isEmpty(reportId)) {
+                            dto.setExecResult(defaultStatus);
+                        } else {
+                            String execStatus = reportResult.get(reportId);
+                            if (execStatus == null) {
+                                execStatus = defaultStatus;
+                            }
+                            dto.setExecResult(execStatus);
+                        }
+                        if (!StringUtils.equalsAnyIgnoreCase(dto.getExecResult(), "success")) {
+                            hasErrorCase = true;
+                        }
+                    }
+                } catch (Exception e) {
+                    LogUtil.error("Parse test plan report api case error! ", e);
+                }
+            }
+
+            if (!hasErrorCase && StringUtils.isNotEmpty(content.getPlanScenarioReportStruct())) {
+                try {
+                    List<TestPlanFailureScenarioDTO> scenarioCases = JSONArray.parseArray(content.getPlanScenarioReportStruct(), TestPlanFailureScenarioDTO.class);
+                    List<String> reportIdList = new ArrayList<>();
+                    scenarioCases.forEach(item -> {
+                        if (StringUtils.isNotEmpty(item.getReportId())) {
+                            reportIdList.add(item.getReportId());
+                        }
+                    });
+                    String defaultStatus = "Fail";
+                    Map<String, String> reportStatus = apiScenarioReportService.getReportStatusByReportIds(reportIdList);
+
+                    for (TestPlanFailureScenarioDTO dto : scenarioCases) {
+                        String reportId = dto.getReportId();
+                        if (StringUtils.isNotEmpty(reportId)) {
+                            String execStatus = reportStatus.get(reportId);
+                            if (execStatus == null) {
+                                execStatus = defaultStatus;
+                            } else {
+                                if (StringUtils.equalsIgnoreCase(execStatus, "Error")) {
+                                    execStatus = "Fail";
+                                }
+                            }
+                            dto.setLastResult(execStatus);
+                            dto.setStatus(execStatus);
+                            if (!StringUtils.equalsAnyIgnoreCase(execStatus, "success")) {
+                                hasErrorCase = true;
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    LogUtil.error("Parse test plan report cenario case error!", e);
+                }
+            }
+
+            if (!hasErrorCase && StringUtils.isNotEmpty(content.getPlanUiScenarioReportStruct())) {
+                try {
+                    List<TestPlanUiScenarioDTO> scenarioCases = JSONArray.parseArray(content.getPlanUiScenarioReportStruct(), TestPlanUiScenarioDTO.class);
+                    List<String> reportIdList = new ArrayList<>();
+                    scenarioCases.forEach(item -> {
+                        if (StringUtils.isNotEmpty(item.getReportId())) {
+                            reportIdList.add(item.getReportId());
+                        }
+                    });
+                    String defaultStatus = "Fail";
+                    Map<String, String> reportStatus = apiScenarioReportService.getReportStatusByReportIds(reportIdList);
+
+                    for (TestPlanUiScenarioDTO dto : scenarioCases) {
+                        String reportId = dto.getReportId();
+                        if (StringUtils.isNotEmpty(reportId)) {
+                            String execStatus = reportStatus.get(reportId);
+                            if (execStatus == null) {
+                                execStatus = defaultStatus;
+                            } else {
+                                if (StringUtils.equalsIgnoreCase(execStatus, "Error")) {
+                                    execStatus = "Fail";
+                                }
+                            }
+                            dto.setLastResult(execStatus);
+                            dto.setStatus(execStatus);
+                            if (!StringUtils.equalsAnyIgnoreCase(execStatus, "success")) {
+                                hasErrorCase = true;
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    LogUtil.error("Parse test plan report ui scenario case error!", e);
+                }
+            }
+        }
+        return hasErrorCase;
     }
 }

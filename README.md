@@ -38,7 +38,7 @@ MeterSphere 是一站式开源持续测试平台, 涵盖测试跟踪、接口测
 
 ### 在线体验
 
-> 2022 年 5 月 5 日，MeterSphere 专业测试云（Beta）正式上线！
+> 2022 年 7 月 1 日，MeterSphere 专业测试云正式上线！
 
 **[免费试用](https://www.metersphere.com/)**
 
@@ -50,13 +50,13 @@ MeterSphere 是一站式开源持续测试平台, 涵盖测试跟踪、接口测
 2.  以 root 用户执行如下命令一键安装 MeterSphere。
 
 ```sh
-curl -sSL https://github.com/metersphere/metersphere/releases/latest/download/quick_start.sh | sh
+curl -sSL https://github.com/metersphere/metersphere/releases/latest/download/quick_start.sh | bash
 ```
 
-文档和演示视频：
+在线文档和教学视频：
 
--   [完整文档](https://metersphere.io/docs/)
--   [演示视频](https://www.bilibili.com/video/BV1yp4y1p72C/)
+-   [在线文档](https://metersphere.io/docs/)
+-   [教学视频](https://space.bilibili.com/510493147/channel/collectiondetail?sid=397323)
 
 ### 社区
 

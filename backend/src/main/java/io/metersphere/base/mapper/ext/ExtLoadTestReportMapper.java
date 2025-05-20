@@ -1,5 +1,6 @@
 package io.metersphere.base.mapper.ext;
 
+import io.metersphere.base.domain.FileMetadata;
 import io.metersphere.base.domain.LoadTestReport;
 import io.metersphere.base.domain.LoadTestReportWithBLOBs;
 import io.metersphere.dto.DashboardTestDTO;
@@ -26,5 +27,12 @@ public interface ExtLoadTestReportMapper {
 
     List<PlanReportCaseDTO> selectForPlanReport(@Param("ids") List<String> reportIds);
 
-    int updateReportVumStatus(String reportId,String reportKey ,String nextStatus, String preStatus);
+    int updateReportVumStatus(String reportId, String reportKey, String nextStatus, String preStatus);
+
+    List<FileMetadata> getFileMetadataById(@Param("reportId") String reportId);
+
+    List<String> selectReportIdByTestId(@Param("testId") String testId);
+
+    String selectStatusById(String id);
+
 }

@@ -28,7 +28,7 @@
                         :rules="{required: true, message: $t('user.select_group'), trigger: 'change'}"
           >
             <el-select filterable v-model="group.type" :placeholder="$t('user.select_group')"
-                       class="edit-user-select" @change="getResource(group.type, index)">
+                       class="edit-user-select" :disabled="form.groups[index].type != null && form.groups[index].type !== '' " @change="getResource(group.type, index)">
               <el-option
                 v-for="item in activeGroup(group)"
                 :key="item.id"
@@ -188,6 +188,11 @@ export default {
         });
         this.form = Object.assign({}, row);
       }
+
+      if (this.$refs.createUserForm) {
+        this.$refs.createUserForm.clearValidate();
+      }
+
       this.createVisible = true;
       this.getAllUserGroup();
     },
@@ -222,6 +227,16 @@ export default {
       if (!isRemove) {
         return;
       }
+      if (item.type) {
+        let _type = item.type.split("+")[1];
+        if (_type === 'WORKSPACE') {
+          this.currentWSGroupIndex = -1;
+        } else {
+          if (this.currentWSGroupIndex > index) {
+            this.currentWSGroupIndex = this.currentWSGroupIndex-1
+          }
+        }
+      }
       if (index !== -1) {
         this.form.groups.splice(index, 1)
       }
@@ -230,6 +245,9 @@ export default {
       }
     },
     checkRemove(item,index){
+      if (!item.type) {
+        return true;
+      }
       let type = item.type.split("+")[1];
       if (type === this.ws) {
         let isHaveWorkspace = 0;
@@ -253,6 +271,8 @@ export default {
         if (isHaveWorkspace === 0 && isHaveProject >0 ) {
           this.$message.warning(this.$t('commons.not_eligible_for_deletion'))
           return false;
+        } else {
+          this.currentGroupWSIds = new Set;
         }
       }
       return true;
@@ -310,13 +330,13 @@ export default {
       }
       let id = idType.split("+")[0];
       let type = idType.split("+")[1];
+      if (index>0 && this.form.groups[index].ids && this.form.groups[index].ids.length >0) {
+       return;
+      }
       let isHaveWorkspace = false;
       if (type === 'PROJECT') {
         for (let i = 0; i < this.form.groups.length; i++) {
           let group = this.form.groups[i];
-          if (i === this.currentWSGroupIndex) {
-            this.form.groups[i].ids = [];
-          }
           let _type = group.type.split("+")[1];
           if (_type === 'WORKSPACE') {
             isHaveWorkspace = true;
@@ -348,16 +368,25 @@ export default {
       }
     },
     addWorkspaceGroup(id,index){
+      let isHaveWorkSpace ;
+      this.form.groups.forEach(item =>{
+        if (item.type === "ws_member+WORKSPACE") {
+          isHaveWorkSpace = true;
+        }
+      })
+      if (isHaveWorkSpace) {
+        return;
+      }
       this.result = this.$get('/workspace/list/resource/' + id + "/WORKSPACE", res => {
         let data = res.data;
         if (data) {
           let roleInfo = {};
           roleInfo.selects = [];
+          roleInfo.type = "ws_member+WORKSPACE";
           let ids = this.form.groups.map(r => r.type);
           ids.forEach(id => {
             roleInfo.selects.push(id);
           })
-          roleInfo.type = "ws_member+WORKSPACE";
           if (this.currentGroupWSIds.size > 0) {
             roleInfo.ids = [];
             this.currentGroupWSIds.forEach(item =>{

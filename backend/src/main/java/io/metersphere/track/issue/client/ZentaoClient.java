@@ -1,21 +1,20 @@
 package io.metersphere.track.issue.client;
 
 import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONException;
 import com.alibaba.fastjson.JSONObject;
 import io.metersphere.commons.exception.MSException;
 import io.metersphere.commons.utils.LogUtil;
+import io.metersphere.commons.utils.UnicodeConvertUtils;
 import io.metersphere.i18n.Translator;
 import io.metersphere.track.issue.domain.zentao.*;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.ResponseEntity;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.http.*;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
+import java.io.File;
 import java.util.Map;
 
 public abstract class ZentaoClient extends BaseClient {
@@ -85,7 +84,11 @@ public abstract class ZentaoClient extends BaseClient {
             MSException.throwException(e.getMessage());
         }
         AddIssueResponse addIssueResponse = (AddIssueResponse) getResultForObject(AddIssueResponse.class, response);
-        return JSONObject.parseObject(addIssueResponse.getData(), AddIssueResponse.Issue.class);
+        AddIssueResponse.Issue issue = JSONObject.parseObject(addIssueResponse.getData(), AddIssueResponse.Issue.class);
+        if (issue == null) {
+            MSException.throwException(UnicodeConvertUtils.unicodeToCn(response.getBody()));
+        }
+        return issue;
     }
 
     public void updateIssue(String id, MultiValueMap<String, Object> paramMap) {
@@ -153,11 +156,17 @@ public abstract class ZentaoClient extends BaseClient {
         return JSONObject.parseObject(response.getBody()).getJSONObject("data").getInnerMap();
     }
 
-    public JSONArray getBugsByProjectId(String projectId, int pageNum, int pageSize) {
+    public JSONObject getBugsByProjectId(String projectId, int pageNum, int pageSize) {
         String sessionId = login();
         ResponseEntity<String> response = restTemplate.exchange(requestUrl.getBugList(),
                 HttpMethod.GET, null, String.class, projectId, 9999999, pageSize, pageNum, sessionId);
-        return JSONObject.parseObject(response.getBody()).getJSONObject("data").getJSONArray("bugs");
+        try {
+            return JSONObject.parseObject(response.getBody()).getJSONObject("data");
+        } catch (Exception e) {
+            LogUtil.error(e);
+            MSException.throwException("请检查配置信息是否填写正确！");
+        }
+        return null;
     }
 
     public String getBaseUrl() {
@@ -201,8 +210,42 @@ public abstract class ZentaoClient extends BaseClient {
                 return true;
             }
         } catch (Exception e) {
-            LogUtil.info("query zentao product info error. product id: " + relateId);
+            LogUtil.error("checkProjectExist error: " + response.getBody());
         }
         return false;
+    }
+
+    public void uploadAttachment(String objectType, String objectId, File file) {
+        String sessionId = login();
+        HttpHeaders authHeader = new HttpHeaders();
+        authHeader.setContentType(MediaType.parseMediaType("multipart/form-data; charset=UTF-8"));
+
+        MultiValueMap<String, Object> paramMap = new LinkedMultiValueMap<>();
+        FileSystemResource fileResource = new FileSystemResource(file);
+        paramMap.add("files", fileResource);
+        HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(paramMap, authHeader);
+
+        try {
+           restTemplate.exchange(requestUrl.getFileUpload(), HttpMethod.POST, requestEntity,
+                    String.class, objectType, objectId, sessionId);
+        } catch (Exception e) {
+            LogUtil.info("upload zentao attachment error");
+        }
+    }
+
+    public void deleteAttachment(String fileId) {
+        String sessionId = login();
+        try {
+            restTemplate.exchange(requestUrl.getFileDelete(), HttpMethod.GET, null, String.class, fileId, sessionId);
+        } catch (Exception e) {
+            LogUtil.info("delete zentao attachment error");
+        }
+    }
+
+    public byte[] getAttachmentBytes(String fileId) {
+        String sessionId = login();
+        ResponseEntity<byte[]> response = restTemplate.exchange(requestUrl.getFileDownload(), HttpMethod.GET,
+                null, byte[].class, fileId, sessionId);
+        return response.getBody();
     }
 }

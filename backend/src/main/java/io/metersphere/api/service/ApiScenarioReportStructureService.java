@@ -8,12 +8,13 @@ import io.metersphere.api.dto.ApiScenarioReportBaseInfoDTO;
 import io.metersphere.api.dto.ApiScenarioReportDTO;
 import io.metersphere.api.dto.RequestResultExpandDTO;
 import io.metersphere.api.dto.StepTreeDTO;
-import io.metersphere.api.dto.definition.request.ElementUtil;
+import io.metersphere.api.exec.scenario.ApiScenarioEnvService;
 import io.metersphere.api.exec.utils.ResultParseUtil;
 import io.metersphere.api.service.vo.ApiDefinitionExecResultVo;
 import io.metersphere.base.domain.*;
 import io.metersphere.base.mapper.*;
 import io.metersphere.base.mapper.ext.ExtApiScenarioReportResultMapper;
+import io.metersphere.commons.constants.CommandType;
 import io.metersphere.commons.constants.ExecuteResult;
 import io.metersphere.commons.constants.MsTestElementConstants;
 import io.metersphere.commons.constants.ReportTypeConstants;
@@ -21,12 +22,16 @@ import io.metersphere.commons.utils.BeanUtils;
 import io.metersphere.commons.utils.CommonBeanFactory;
 import io.metersphere.commons.utils.LogUtil;
 import io.metersphere.constants.RunModeConstants;
+import io.metersphere.constants.SystemConstants;
 import io.metersphere.dto.RequestResult;
+import io.metersphere.dto.UiCommandResult;
+import io.metersphere.service.ProjectService;
 import io.metersphere.utils.LoggerUtil;
-import io.metersphere.commons.constants.CommandType;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +45,20 @@ import java.util.stream.Collectors;
 @Service
 @Transactional(rollbackFor = Exception.class)
 public class ApiScenarioReportStructureService {
+    private static final List<String> REQUESTS = Arrays.asList("HTTPSamplerProxy", "DubboSampler", "JDBCSampler", "TCPSampler", "JSR223Processor", "AbstractSampler");
+    private static final List<String> CONTROLS = Arrays.asList("Assertions", "IfController", "ConstantTimer");
+    private static final String RESOURCE_ID = "resourceId";
+    private static final String REFERENCED = "referenced";
+    private static final String ERROR_CODE = "errorCode";
+    private static final String ID = "id";
+    private static final String NAME = "name";
+    private static final String SCENARIO = "scenario";
+    private static final String TYPE = "type";
+    private static final String HASH_TREE = "hashTree";
+    private static final String ENABLE = "enable";
+    private static final String UI_COMMAND = "MsUiCommand";
+    private static final String ERROR_REPORT = "errorReportResult";
+    private static final String ERROR = "Error";
 
     @Resource
     private ApiScenarioReportStructureMapper mapper;
@@ -50,12 +69,17 @@ public class ApiScenarioReportStructureService {
     @Resource
     private ApiDefinitionExecResultMapper definitionExecResultMapper;
     @Resource
-    private ApiScenarioReportResultService apiScenarioReportResultService;
-    @Resource
     private ExtApiScenarioReportResultMapper extApiScenarioReportResultMapper;
-
-    private static final List<String> requests = Arrays.asList("HTTPSamplerProxy", "DubboSampler", "JDBCSampler", "TCPSampler", "JSR223Processor", "AbstractSampler");
-    private static final List<String> controls = Arrays.asList("Assertions", "IfController", "ConstantTimer");
+    @Lazy
+    @Resource
+    private ProjectService projectService;
+    @Resource
+    private ApiTestEnvironmentService apiTestEnvironmentService;
+    @Lazy
+    @Resource
+    private ApiScenarioEnvService apiScenarioEnvService;
+    @Resource
+    private ApiScenarioReportMapper apiScenarioReportMapper;
 
     public void save(List<ApiScenarioWithBLOBs> apiScenarios, String reportId, String reportType) {
         List<StepTreeDTO> dtoList = new LinkedList<>();
@@ -63,10 +87,16 @@ public class ApiScenarioReportStructureService {
             StepTreeDTO dto = dataFormatting(bos, reportType);
             dtoList.add(dto);
         }
-        if (LoggerUtil.getLogger().isDebugEnabled()) {
-            LoggerUtil.debug("Scenario run-执行脚本装载-生成场景报告结构：" + JSON.toJSONString(dtoList));
-        }
         this.save(reportId, dtoList);
+    }
+
+    public List<StepTreeDTO> get(List<ApiScenarioWithBLOBs> apiScenarios, String reportType) {
+        List<StepTreeDTO> dtoList = new LinkedList<>();
+        for (ApiScenarioWithBLOBs bos : apiScenarios) {
+            StepTreeDTO dto = dataFormatting(bos, reportType);
+            dtoList.add(dto);
+        }
+        return dtoList;
     }
 
     public void saveUi(List<UiScenarioWithBLOBs> uiScenarios, String reportId, String reportType) {
@@ -104,6 +134,17 @@ public class ApiScenarioReportStructureService {
         mapper.insert(structure);
     }
 
+    public void update(String reportId, List<StepTreeDTO> dtoList) {
+        ApiScenarioReportStructureExample example = new ApiScenarioReportStructureExample();
+        example.createCriteria().andReportIdEqualTo(reportId);
+        List<ApiScenarioReportStructureWithBLOBs> structures = mapper.selectByExampleWithBLOBs(example);
+        if (CollectionUtils.isNotEmpty(structures)) {
+            ApiScenarioReportStructureWithBLOBs structure = structures.get(0);
+            structure.setResourceTree(JSON.toJSONString(dtoList).getBytes(StandardCharsets.UTF_8));
+            mapper.updateByPrimaryKeySelective(structure);
+        }
+    }
+
     public void update(String reportId, String console) {
         ApiScenarioReportStructureExample example = new ApiScenarioReportStructureExample();
         example.createCriteria().andReportIdEqualTo(reportId);
@@ -119,37 +160,43 @@ public class ApiScenarioReportStructureService {
     }
 
     public static StepTreeDTO dataFormatting(UiScenarioWithBLOBs uiScenario, String reportType) {
-        return dataFormatting(uiScenario.getId(), uiScenario.getName(), uiScenario.getScenarioDefinition(), reportType);
+        return dataFormatting(null, uiScenario.getName(), uiScenario.getScenarioDefinition(), reportType);
+    }
+
+    private static String combinationResourceId(JSONObject element, String reportType, String id) {
+        element = getRefElement(element);
+        String resourceId = StringUtils.isNotEmpty(element.getString(ID))
+                ? element.getString(ID) : element.getString(RESOURCE_ID);
+        if (StringUtils.equals(reportType, RunModeConstants.SET_REPORT.toString())) {
+            if (StringUtils.equals(element.getString(TYPE), SCENARIO)) {
+                resourceId = id;
+            } else if (StringUtils.isNotEmpty(resourceId) && StringUtils.isNotEmpty(id) && !resourceId.contains(id)) {
+                resourceId = id + "=" + resourceId;
+            }
+        }
+        return resourceId;
     }
 
     public static StepTreeDTO dataFormatting(String id, String name, String scenarioDefinition, String reportType) {
         JSONObject element = JSON.parseObject(scenarioDefinition, Feature.DisableSpecialKeyDetect);
-        StepTreeDTO dto = null;
-        if (element != null && element.getBoolean("enable")) {
-            element = getRefElement(element);
-            String resourceId = StringUtils.isNotEmpty(element.getString("id"))
-                    ? element.getString("id") : element.getString("resourceId");
-
-            if (StringUtils.equals(reportType, RunModeConstants.SET_REPORT.toString())) {
-                if (StringUtils.isNotEmpty(resourceId) && StringUtils.isNotEmpty(id) && !resourceId.contains(id)) {
-                    resourceId = id + "=" + resourceId;
-                }
-            }
-            dto = new StepTreeDTO(name, resourceId, element.getString("type"), resourceId, 1);
+        if (element != null && element.getBoolean(ENABLE)) {
+            String resourceId = combinationResourceId(element, reportType, id);
+            StepTreeDTO dto = new StepTreeDTO(name, resourceId, element.getString(TYPE), resourceId, 1);
             dto.setAllIndex(null);
-            if (element.containsKey("hashTree") && !requests.contains(dto.getType())) {
-                JSONArray elementJSONArray = element.getJSONArray("hashTree");
+            if (element.containsKey(HASH_TREE) && !REQUESTS.contains(dto.getType())) {
+                JSONArray elementJSONArray = element.getJSONArray(HASH_TREE);
                 dataFormatting(elementJSONArray, dto, id, reportType);
             }
+            return dto;
         }
-        return dto;
+        return null;
     }
 
     private static JSONObject getRefElement(JSONObject element) {
-        String referenced = element.getString("referenced");
+        String referenced = element.getString(REFERENCED);
         if (StringUtils.equals(referenced, MsTestElementConstants.REF.name())) {
-            if (StringUtils.equals(element.getString("type"), "scenario")) {
-                ApiScenarioWithBLOBs scenarioWithBLOBs = CommonBeanFactory.getBean(ApiScenarioMapper.class).selectByPrimaryKey(element.getString("id"));
+            if (StringUtils.equals(element.getString(TYPE), SCENARIO)) {
+                ApiScenarioWithBLOBs scenarioWithBLOBs = CommonBeanFactory.getBean(ApiScenarioMapper.class).selectByPrimaryKey(element.getString(ID));
                 if (scenarioWithBLOBs != null) {
                     return JSON.parseObject(scenarioWithBLOBs.getScenarioDefinition(), Feature.DisableSpecialKeyDetect);
                 }
@@ -161,19 +208,12 @@ public class ApiScenarioReportStructureService {
     public static void dataFormatting(JSONArray hashTree, StepTreeDTO dto, String id, String reportType) {
         for (int i = 0; i < hashTree.size(); i++) {
             JSONObject element = hashTree.getJSONObject(i);
-            if (element != null && element.getBoolean("enable")) {
-                element = getRefElement(element);
-                String resourceId = StringUtils.isNotEmpty(element.getString("id"))
-                        ? element.getString("id") : element.getString("resourceId");
-                if (StringUtils.equals(reportType, RunModeConstants.SET_REPORT.toString())) {
-                    if (StringUtils.isNotEmpty(resourceId) && StringUtils.isNotEmpty(id) && !resourceId.contains(id)) {
-                        resourceId = id + "=" + resourceId;
-                    }
-                }
-                StepTreeDTO children = new StepTreeDTO(element.getString("name"), resourceId, element.getString("type"), resourceId, element.getIntValue("index"));
-                if (StringUtils.isNotBlank(children.getType()) && children.getType().equals("MsUiCommand")) {
+            if (element != null && element.getBoolean(ENABLE)) {
+                String resourceId = combinationResourceId(element, reportType, id);
+                StepTreeDTO children = new StepTreeDTO(element.getString(NAME), resourceId, element.getString(TYPE), resourceId, element.getIntValue("index"));
+                if (StringUtils.isNotBlank(children.getType()) && children.getType().equals(UI_COMMAND)) {
                     children.setResourceId(resourceId);
-                    children.setLabel(element.getString("name"));
+                    children.setLabel(element.getString(NAME));
                     children.setCmdType(element.getString("commandType"));
                 } else if (StringUtils.isNotEmpty(dto.getAllIndex())) {
                     children.setAllIndex(dto.getAllIndex() + "_" + (children.getIndex() == 0 ? (i + 1) : children.getIndex()));
@@ -183,8 +223,8 @@ public class ApiScenarioReportStructureService {
                     children.setResourceId(resourceId + "_" + children.getAllIndex());
                 }
                 dto.getChildren().add(children);
-                if (element.containsKey("hashTree") && !requests.contains(children.getType())) {
-                    JSONArray elementJSONArray = element.getJSONArray("hashTree");
+                if (element.containsKey(HASH_TREE) && !REQUESTS.contains(children.getType())) {
+                    JSONArray elementJSONArray = element.getJSONArray(HASH_TREE);
                     dataFormatting(elementJSONArray, children, id, reportType);
                 }
             }
@@ -195,11 +235,11 @@ public class ApiScenarioReportStructureService {
                                     AtomicLong totalScenario, AtomicLong scenarioError, AtomicLong errorReport, AtomicLong unExecute) {
         for (StepTreeDTO step : dtoList) {
             totalScenario.set(totalScenario.longValue() + 1);
-            if (StringUtils.equalsIgnoreCase(step.getTotalStatus(), "fail")) {
+            if (StringUtils.equalsIgnoreCase(step.getTotalStatus(), ExecuteResult.FAIL.getValue())) {
                 scenarioError.set(scenarioError.longValue() + 1);
-            } else if (StringUtils.equalsIgnoreCase(step.getTotalStatus(), "errorCode")) {
+            } else if (StringUtils.equalsAnyIgnoreCase(step.getTotalStatus(), ERROR_CODE, ExecuteResult.ERROR_REPORT_RESULT.toString())) {
                 errorReport.set(errorReport.longValue() + 1);
-            } else if (!StringUtils.equalsIgnoreCase(step.getTotalStatus(), "success")) {
+            } else if (!StringUtils.equalsIgnoreCase(step.getTotalStatus(), ExecuteResult.API_SUCCESS.getValue())) {
                 unExecute.set(unExecute.longValue() + 1);
             }
         }
@@ -207,7 +247,7 @@ public class ApiScenarioReportStructureService {
 
     private void calculate(List<StepTreeDTO> dtoList, AtomicLong totalTime) {
         for (StepTreeDTO step : dtoList) {
-            if (!StringUtils.equalsAny(step.getType(), "scenario", "UiScenario") && step.getValue() != null) {
+            if (!StringUtils.equalsAny(step.getType(), SCENARIO, "UiScenario") && step.getValue() != null) {
                 if (step.getValue().getStartTime() == 0 || step.getValue().getEndTime() == 0) {
                     totalTime.set(totalTime.longValue() + 0);
                 } else if (step.getValue().getStartTime() > step.getValue().getEndTime() && step.getValue().getResponseResult() != null) {
@@ -225,100 +265,75 @@ public class ApiScenarioReportStructureService {
 
     private void calculateStep(List<StepTreeDTO> dtoList, AtomicLong stepTotal, AtomicLong stepError, AtomicLong stepErrorCode, AtomicLong stepUnExecute) {
         for (StepTreeDTO root : dtoList) {
+            int unExecSize = 0;
             if (CollectionUtils.isNotEmpty(root.getChildren())) {
                 stepTotal.set((stepTotal.longValue() + root.getChildren().size()));
                 for (StepTreeDTO step : root.getChildren()) {
-                    if (StringUtils.equalsAnyIgnoreCase(step.getTotalStatus(), "fail", "error")) {
+                    if (StringUtils.equalsAnyIgnoreCase(step.getTotalStatus(), ExecuteResult.FAIL.getValue(), ERROR)) {
                         stepError.set(stepError.longValue() + 1);
-                    } else if (StringUtils.equalsAnyIgnoreCase(step.getTotalStatus(), "errorCode", "errorReportResult")) {
+                    } else if (StringUtils.equalsAnyIgnoreCase(step.getTotalStatus(), ERROR_CODE, ERROR_REPORT)) {
                         stepErrorCode.set(stepErrorCode.longValue() + 1);
-                    } else if (!StringUtils.equalsIgnoreCase(step.getTotalStatus(), "success")) {
+                    } else if (!StringUtils.equalsIgnoreCase(step.getTotalStatus(), ExecuteResult.API_SUCCESS.getValue())) {
                         stepUnExecute.set(stepUnExecute.longValue() + 1);
+                        unExecSize++;
                     }
                 }
             }
+            root.setUnExecuteTotal(unExecSize);
         }
     }
 
-    public void reportFormatting(List<StepTreeDTO> dtoList, Map<String, List<ApiScenarioReportResultWithBLOBs>> maps) {
+    public void reportFormatting(List<StepTreeDTO> dtoList, Map<String, List<ApiScenarioReportResultWithBLOBs>> maps, String reportType) {
+        // 按照创建时间排序
         for (int index = 0; index < dtoList.size(); index++) {
             StepTreeDTO dto = dtoList.get(index);
             dto.setIndex((index + 1));
             List<ApiScenarioReportResultWithBLOBs> reportResults = maps.get(dto.getResourceId());
             if (CollectionUtils.isNotEmpty(reportResults)) {
-                if (reportResults.size() > 1) {
-                    for (int i = 0; i < reportResults.size(); i++) {
-                        ApiScenarioReportResultWithBLOBs reportResult = reportResults.get(i);
-                        //来自报告导出的数据
-                        if (i == 0) {
-                            if (reportResult.getContent() != null) {
-                                dto.setValue(JSON.parseObject(new String(reportResults.get(i).getContent(), StandardCharsets.UTF_8), RequestResult.class));
-                                dto.setErrorCode(reportResults.get(0).getErrorCode());
-                            } else {
-                                RequestResultExpandDTO requestResultExpandDTO = new RequestResultExpandDTO(reportResult);
-                                dto.setStepId(reportResults.get(i).getId());
-                                dto.setValue(requestResultExpandDTO);
-                                dto.setErrorCode(reportResults.get(0).getErrorCode());
-                            }
+                for (int i = 0; i < reportResults.size(); i++) {
+                    ApiScenarioReportResultWithBLOBs reportResult = reportResults.get(i);
+                    StepTreeDTO step = i == 0 ? dto :
+                            new StepTreeDTO(dto.getLabel(), UUID.randomUUID().toString(), dto.getType(), reportResults.get(i).getId(), (i + 1));
+                    step.setStepId(reportResults.get(i).getId());
+                    RequestResult result = new RequestResultExpandDTO(reportResult);
+                    if (reportResult.getContent() != null) {
+                        if (reportType.startsWith(SystemConstants.TestTypeEnum.UI.name())) {
+                            result = getUIRequestResult(reportResults, i, result);
                         } else {
-                            if (reportResult.getContent() != null) {
-                                StepTreeDTO step = new StepTreeDTO(dto.getLabel(), UUID.randomUUID().toString(), dto.getType(), reportResults.get(i).getId(), (i + 1));
-                                step.setValue(JSON.parseObject(new String(reportResults.get(i).getContent(), StandardCharsets.UTF_8), RequestResult.class));
-                                step.setErrorCode(reportResults.get(i).getErrorCode());
-                                dtoList.add(step);
-                            } else {
-                                StepTreeDTO step = new StepTreeDTO(dto.getLabel(), UUID.randomUUID().toString(), dto.getType(), reportResults.get(i).getId(), (i + 1));
-                                RequestResultExpandDTO requestResultExpandDTO = new RequestResultExpandDTO(reportResult);
-                                step.setValue(requestResultExpandDTO);
-                                step.setErrorCode(reportResults.get(i).getErrorCode());
-                                dtoList.add(step);
-                            }
+                            result = JSON.parseObject(new String(reportResults.get(i).getContent(), StandardCharsets.UTF_8), RequestResult.class);
                         }
                     }
-                } else {
-                    ApiScenarioReportResultWithBLOBs reportResult = reportResults.get(0);
-                    if (reportResult.getContent() != null) {
-                        String content = new String(reportResults.get(0).getContent(), StandardCharsets.UTF_8);
-                        dto.setValue(JSON.parseObject(content, RequestResult.class));
-                        dto.setErrorCode(reportResults.get(0).getErrorCode());
-                    } else {
-                        RequestResultExpandDTO requestResultExpandDTO = new RequestResultExpandDTO(reportResult);
-                        dto.setStepId(reportResults.get(0).getId());
-                        dto.setValue(requestResultExpandDTO);
-                        dto.setErrorCode(reportResults.get(0).getErrorCode());
-                        dto.setTotalStatus(requestResultExpandDTO.getStatus());
+                    step.setValue(result);
+                    step.setTotalStatus(reportResult.getStatus());
+                    step.setErrorCode(reportResults.get(i).getErrorCode());
+                    if (i > 0) {
+                        dtoList.add(step);
                     }
                 }
             }
-            if (StringUtils.isNotEmpty(dto.getType()) && requests.contains(dto.getType()) && dto.getValue() == null || isUiUnExecuteCommand(dto)) {
-                RequestResultExpandDTO requestResultExpandDTO = new RequestResultExpandDTO();
-                requestResultExpandDTO.setStatus("unexecute");
-                requestResultExpandDTO.setName(dto.getLabel());
-                dto.setTotalStatus("unexecute");
-                dto.setValue(requestResultExpandDTO);
-            } else if (StringUtils.isNotEmpty(dto.getType()) && controls.contains(dto.getType()) && dto.getValue() == null) {
-                RequestResultExpandDTO requestResultExpandDTO = new RequestResultExpandDTO();
-                requestResultExpandDTO.setStatus("success");
-                requestResultExpandDTO.setName(dto.getLabel());
-                dto.setTotalStatus("success");
-                dto.setValue(requestResultExpandDTO);
-            } else {
-                if (dto.getValue() instanceof RequestResultExpandDTO && StringUtils.isNotEmpty(((RequestResultExpandDTO) dto.getValue()).getStatus())) {
-                    dto.setTotalStatus(((RequestResultExpandDTO) dto.getValue()).getStatus());
-                } else if (dto.getValue() != null) {
-                    if (dto.getValue().getError() > 0 || BooleanUtils.isNotTrue(dto.getValue().isSuccess())) {
-                        dto.setTotalStatus("fail");
-                    } else {
-                        dto.setTotalStatus("success");
-                    }
+            // 未执行请求
+            if (StringUtils.isNotEmpty(dto.getType()) && REQUESTS.contains(dto.getType()) && dto.getValue() == null || isUiUnExecuteCommand(dto)) {
+                dto.setTotalStatus(ExecuteResult.UN_EXECUTE.getValue());
+                dto.setValue(new RequestResultExpandDTO(dto.getLabel(), ExecuteResult.UN_EXECUTE.getValue()));
+            } else if (StringUtils.isNotEmpty(dto.getType()) && CONTROLS.contains(dto.getType()) && dto.getValue() == null) {
+                // 条件控制步骤
+                dto.setTotalStatus(ExecuteResult.API_SUCCESS.getValue());
+                dto.setValue(new RequestResultExpandDTO(dto.getLabel(), ExecuteResult.API_SUCCESS.getValue()));
+            } else if (dto.getValue() instanceof RequestResultExpandDTO && StringUtils.isNotEmpty(((RequestResultExpandDTO) dto.getValue()).getStatus())) {
+                dto.setTotalStatus(((RequestResultExpandDTO) dto.getValue()).getStatus());
+            } else if (dto.getValue() != null && StringUtils.isEmpty(dto.getTotalStatus())) {
+                if (dto.getValue().getError() > 0 || BooleanUtils.isNotTrue(dto.getValue().isSuccess())) {
+                    dto.setTotalStatus(ExecuteResult.FAIL.getValue());
+                } else {
+                    dto.setTotalStatus(ExecuteResult.API_SUCCESS.getValue());
                 }
             }
             if (StringUtils.isNotEmpty(dto.getErrorCode()) && StringUtils.isEmpty(dto.getTotalStatus())) {
-                dto.setTotalStatus("errorCode");
+                dto.setTotalStatus(ERROR_CODE);
             }
 
             if (CollectionUtils.isNotEmpty(dto.getChildren())) {
-                reportFormatting(dto.getChildren(), maps);
+                reportFormatting(dto.getChildren(), maps, reportType);
 
                 if (StringUtils.isEmpty(dto.getErrorCode())) {
                     //统计child的errorCode，合并到parent中
@@ -337,72 +352,112 @@ public class ApiScenarioReportStructureService {
                 int errorReportCount = 0;
                 int successCount = 0;
                 for (StepTreeDTO child : dto.getChildren()) {
-                    if (StringUtils.equalsIgnoreCase(child.getTotalStatus(), "fail")) {
+                    if (StringUtils.equalsIgnoreCase(child.getTotalStatus(), ExecuteResult.FAIL.getValue())) {
                         failCount++;
-                    } else if (StringUtils.equalsIgnoreCase(child.getTotalStatus(), "success")) {
+                    } else if (StringUtils.equalsIgnoreCase(child.getTotalStatus(), ExecuteResult.API_SUCCESS.getValue())) {
                         successCount++;
-                    } else if (StringUtils.equalsAnyIgnoreCase(child.getTotalStatus(), "errorCode", "errorReportResult")) {
+                    } else if (StringUtils.equalsAnyIgnoreCase(child.getTotalStatus(), ERROR_CODE, ERROR_REPORT)) {
                         errorReportCount++;
                     }
                 }
 
                 //当有多个子步骤结果时，如果当前步骤不是场景，则：失败>误报>未执行>成功>未执行； 如果是场景：误报>失败>成功>未执行
                 if (failCount == 0 && errorReportCount == 0 && successCount == 0) {
-                    dto.setTotalStatus(ExecuteResult.unexecute.name());
+                    dto.setTotalStatus(ExecuteResult.UN_EXECUTE.toString());
                 } else if (successCount == dto.getChildren().size() || (successCount > 0 && errorReportCount == 0 && failCount == 0)) {
-                    dto.setTotalStatus("success");
+                    dto.setTotalStatus(ExecuteResult.API_SUCCESS.getValue());
                 } else {
-                    if (StringUtils.equalsIgnoreCase(dto.getType(), "scenario")) {
+                    if (StringUtils.equalsIgnoreCase(dto.getType(), SCENARIO)) {
                         if (failCount > 0) {
-                            dto.setTotalStatus("fail");
+                            dto.setTotalStatus(ExecuteResult.FAIL.getValue());
                         } else if (errorReportCount > 0) {
-                            dto.setTotalStatus("errorCode");
+                            dto.setTotalStatus(ERROR_CODE);
                         } else {
-                            dto.setTotalStatus("success");
+                            dto.setTotalStatus(ExecuteResult.API_SUCCESS.getValue());
                         }
                     } else {
                         if (failCount > 0) {
-                            dto.setTotalStatus("fail");
+                            dto.setTotalStatus(ExecuteResult.FAIL.getValue());
                         } else if (errorReportCount > 0) {
-                            dto.setTotalStatus("errorCode");
+                            dto.setTotalStatus(ERROR_CODE);
                         } else {
-                            dto.setTotalStatus("success");
+                            dto.setTotalStatus(ExecuteResult.API_SUCCESS.getValue());
                         }
                     }
                 }
             }
             if (StringUtils.isEmpty(dto.getTotalStatus())) {
-                dto.setTotalStatus(ExecuteResult.unexecute.name());
-            } else if (StringUtils.equalsAnyIgnoreCase(dto.getTotalStatus(), "error")) {
-                dto.setTotalStatus("fail");
+                dto.setTotalStatus(ExecuteResult.UN_EXECUTE.toString());
+            } else if (StringUtils.equalsAnyIgnoreCase(dto.getTotalStatus(), ERROR)) {
+                dto.setTotalStatus(ExecuteResult.FAIL.getValue());
             }
         }
-        // 循环步骤请求从新排序
+        if (!reportType.startsWith("UI")) {
+            this.orderLoops(dtoList);
+        }
+    }
+
+    /**
+     * ui 的报告内容不进行懒加载，统一从 content 中取，由于 v2.1 中合并图片存在 baseInfo
+     * 这里做一个兼容处理
+     *
+     * @param reportResults
+     * @param i
+     * @param result
+     * @return
+     */
+    private RequestResult getUIRequestResult(List<ApiScenarioReportResultWithBLOBs> reportResults, int i, RequestResult result) {
+        String combinationImg = ((RequestResultExpandDTO) result).getCombinationImg();
+        result = JSON.parseObject(new String(reportResults.get(i).getContent(), StandardCharsets.UTF_8), UiCommandResult.class);
+        ((UiCommandResult) result).calTime();
+        if (StringUtils.isNotBlank(combinationImg)) {
+            ((UiCommandResult) result).setCombinationImg(combinationImg);
+        }
+        return result;
+    }
+
+    /**
+     * 循环步骤请求从新排序
+     */
+    private void orderLoops(List<StepTreeDTO> dtoList) {
         try {
-            if (dtoList.stream().filter(e -> e.getValue() != null && ElementUtil.requests.contains(e.getType())).collect(Collectors.toList()).size() == dtoList.size()) {
-                List<StepTreeDTO> unList = dtoList.stream().filter(e -> e.getValue() != null
-                        && ((StringUtils.equalsIgnoreCase(e.getType(), "DubboSampler") && e.getValue().getStartTime() == 0) || StringUtils.equalsIgnoreCase(e.getTotalStatus(), ExecuteResult.unexecute.name())))
-                        .collect(Collectors.toList());
-                List<StepTreeDTO> list = dtoList.stream().filter(e -> e.getValue().getStartTime() != 0).collect(Collectors.toList());
-                list = list.stream().sorted(Comparator.comparing(x -> x.getValue().getStartTime())).collect(Collectors.toList());
-                unList = unList.stream().sorted(Comparator.comparing(x -> x.getIndex())).collect(Collectors.toList());
-                for (StepTreeDTO unListDTO : unList) {
-                    int index = unListDTO.getIndex();
+            List<StepTreeDTO> steps = dtoList.stream().filter(e -> e.getValue() == null || e.getValue().getStartTime() == 0)
+                    .collect(Collectors.toList());
+            // 都是没有结果的步骤，不需要再次排序
+            if (dtoList.size() == steps.size()) {
+                return;
+            }
+            // 非正常执行结束的请求结果
+            List<StepTreeDTO> unList = dtoList.stream().filter(e -> e.getValue() != null
+                    && ((StringUtils.equalsIgnoreCase(e.getType(), "DubboSampler") && e.getValue().getStartTime() == 0)
+                    || StringUtils.equalsIgnoreCase(e.getTotalStatus(), ExecuteResult.UN_EXECUTE.toString())))
+                    .collect(Collectors.toList());
+
+            // 有效数据按照时间排序
+            List<StepTreeDTO> list = dtoList.stream().filter(e -> e.getValue() != null && e.getValue().getStartTime() != 0).collect(Collectors.toList());
+            list = list.stream().sorted(Comparator.comparing(x -> x.getValue().getStartTime())).collect(Collectors.toList());
+            unList = unList.stream().sorted(Comparator.comparing(x -> x.getIndex())).collect(Collectors.toList());
+            unList.addAll(steps);
+            List<StepTreeDTO> mergeList = unList.stream().distinct().collect(Collectors.toList());
+            // 处理请求结果开始时间为0的数据
+            for (StepTreeDTO unListDTO : mergeList) {
+                int index = unListDTO.getIndex();
+                if (index > 0) {
                     list.add(index - 1, unListDTO);
                 }
-                for (int index = 0; index < list.size(); index++) {
-                    list.get(index).setIndex((index + 1));
-                }
-                dtoList.clear();
-                dtoList.addAll(list);
             }
+            for (int index = 0; index < list.size(); index++) {
+                list.get(index).setIndex((index + 1));
+            }
+            dtoList.clear();
+            dtoList.addAll(list);
         } catch (Exception e) {
             LogUtil.error(e);
         }
     }
 
     private boolean isUiUnExecuteCommand(StepTreeDTO dto) {
-        if (dto.getType().equals("MsUiCommand") && dto.getValue() == null
+        if (dto.getType().equals(UI_COMMAND) && dto.getValue() == null
                 && (StringUtils.isBlank(dto.getCmdType()) || !dto.getCmdType().equalsIgnoreCase(CommandType.COMMAND_TYPE_COMBINATION))) {
             return true;
         }
@@ -413,10 +468,10 @@ public class ApiScenarioReportStructureService {
         ApiDefinitionExecResultExample example = new ApiDefinitionExecResultExample();
         example.createCriteria().andIntegratedReportIdEqualTo(reportId);
         example.setOrderByClause("create_time asc");
-        List<ApiDefinitionExecResult> reportResults = definitionExecResultMapper.selectByExampleWithBLOBs(example);
+        List<ApiDefinitionExecResultWithBLOBs> reportResults = definitionExecResultMapper.selectByExampleWithBLOBs(example);
         List<ApiDefinitionExecResultVo> resultVos = new LinkedList<>();
         for (int i = 0; i < reportResults.size(); i++) {
-            ApiDefinitionExecResult item = reportResults.get(i);
+            ApiDefinitionExecResultWithBLOBs item = reportResults.get(i);
             if (StringUtils.equalsIgnoreCase(item.getErrorCode(), "null")) {
                 item.setErrorCode(null);
             }
@@ -437,7 +492,7 @@ public class ApiScenarioReportStructureService {
             }
             if (vo.getRequestResult() == null) {
                 RequestResultExpandDTO requestResultExpandDTO = new RequestResultExpandDTO();
-                requestResultExpandDTO.setStatus(ExecuteResult.unexecute.name());
+                requestResultExpandDTO.setStatus(ExecuteResult.UN_EXECUTE.toString());
                 requestResultExpandDTO.setName(item.getName());
                 vo.setRequestResult(requestResultExpandDTO);
             }
@@ -445,18 +500,17 @@ public class ApiScenarioReportStructureService {
             treeDTO.setValue(vo.getRequestResult());
             if (vo.getRequestResult() != null && vo.getRequestResult() instanceof RequestResultExpandDTO) {
                 RequestResultExpandDTO expandDTO = (RequestResultExpandDTO) vo.getRequestResult();
-                if (expandDTO.getAttachInfoMap() != null && expandDTO.getAttachInfoMap().get("errorReportResult") != null) {
-                    treeDTO.setErrorCode(expandDTO.getAttachInfoMap().get("errorReportResult"));
-                    treeDTO.setTotalStatus("errorCode");
-                    vo.setStatus("errorReportResult");
+                if (expandDTO.getAttachInfoMap() != null && expandDTO.getAttachInfoMap().get(ERROR_REPORT) != null) {
+                    treeDTO.setErrorCode(expandDTO.getAttachInfoMap().get(ERROR_REPORT));
+                    treeDTO.setTotalStatus(vo.getStatus());
                 } else if (StringUtils.isNotEmpty(expandDTO.getStatus())) {
                     vo.setStatus(expandDTO.getStatus());
                     treeDTO.setTotalStatus(expandDTO.getStatus());
                 } else {
                     if (expandDTO.isSuccess()) {
-                        treeDTO.setTotalStatus("success");
+                        treeDTO.setTotalStatus(ExecuteResult.API_SUCCESS.getValue());
                     } else {
-                        treeDTO.setTotalStatus("fail");
+                        treeDTO.setTotalStatus(ExecuteResult.FAIL.getValue());
                     }
                 }
             }
@@ -474,9 +528,9 @@ public class ApiScenarioReportStructureService {
         // 组装报告
         if (CollectionUtils.isNotEmpty(reportResults)) {
             reportDTO.setTotal(reportResults.size());
-            reportDTO.setError(reportResults.stream().filter(e -> StringUtils.equalsAnyIgnoreCase(e.getStatus(), "Error")).collect(Collectors.toList()).size());
-            reportDTO.setUnExecute(reportResults.stream().filter(e -> StringUtils.equalsAnyIgnoreCase(e.getStatus(), "STOP", ExecuteResult.unexecute.name())).collect(Collectors.toList()).size());
-            reportDTO.setErrorCode(reportResults.stream().filter(e -> StringUtils.equalsAnyIgnoreCase(e.getStatus(), "errorReportResult")).collect(Collectors.toList()).size());
+            reportDTO.setError(reportResults.stream().filter(e -> StringUtils.equalsAnyIgnoreCase(e.getStatus(), ERROR)).collect(Collectors.toList()).size());
+            reportDTO.setUnExecute(reportResults.stream().filter(e -> StringUtils.equalsAnyIgnoreCase(e.getStatus(), "STOP", ExecuteResult.UN_EXECUTE.toString())).collect(Collectors.toList()).size());
+            reportDTO.setErrorCode(reportResults.stream().filter(e -> StringUtils.equalsAnyIgnoreCase(e.getStatus(), ERROR_REPORT)).collect(Collectors.toList()).size());
             reportDTO.setPassAssertions(reportResults.stream().mapToLong(ApiDefinitionExecResultVo::getPassAssertions).sum());
             reportDTO.setTotalAssertions(reportResults.stream().mapToLong(ApiDefinitionExecResultVo::getTotalAssertions).sum());
 
@@ -502,17 +556,34 @@ public class ApiScenarioReportStructureService {
     }
 
     public ApiScenarioReportDTO assembleReport(String reportId, boolean selectReportContent) {
-        ApiScenarioReport report = scenarioReportMapper.selectByPrimaryKey(reportId);
+        ApiScenarioReportWithBLOBs report = scenarioReportMapper.selectByPrimaryKey(reportId);
         if (report != null && report.getReportType().equals(ReportTypeConstants.API_INTEGRATED.name())) {
             return this.apiIntegratedReport(reportId);
         } else {
-            return this.getReport(reportId, selectReportContent);
+            ApiScenarioReportDTO dto = this.getReport(reportId, selectReportContent);
+            dto.setActuator(report.getActuator());
+            dto.setName(report.getName());
+            dto.setEnvConfig(report.getEnvConfig());
+            this.initProjectEnvironmentByEnvConfig(dto, report.getEnvConfig());
+            return dto;
         }
     }
 
+    public void initProjectEnvironmentByEnvConfig(ApiScenarioReportDTO dto, String envConfig) {
+        if (StringUtils.isNotEmpty(envConfig)) {
+            LinkedHashMap<String, List<String>> projectEnvMap = apiScenarioEnvService.getProjectEnvMapByEnvConfig(envConfig);
+            if (MapUtils.isNotEmpty(projectEnvMap)) {
+                dto.setProjectEnvMap(projectEnvMap);
+            }
+        }
+    }
+
+
     private ApiScenarioReportDTO getReport(String reportId, boolean selectContent) {
+        ApiScenarioReport mainReport = apiScenarioReportMapper.selectByPrimaryKey(reportId);
         List<ApiScenarioReportResultWithBLOBs> reportResults = null;
-        if (selectContent) {
+        if (selectContent || mainReport.getReportType().startsWith(SystemConstants.TestTypeEnum.UI.name())) {
+            // UI 报告不执行懒加载
             ApiScenarioReportResultExample example = new ApiScenarioReportResultExample();
             example.createCriteria().andReportIdEqualTo(reportId);
             reportResults = reportResultMapper.selectByExampleWithBLOBs(example);
@@ -552,15 +623,15 @@ public class ApiScenarioReportStructureService {
             reportResults = this.filterProcessResult(reportResults);
 
             reportDTO.setTotal(reportResults.size());
-            reportDTO.setError(reportResults.stream().filter(e -> StringUtils.equals(e.getStatus(), "Error")).collect(Collectors.toList()).size());
-            reportDTO.setErrorCode(reportResults.stream().filter(e -> StringUtils.equals(e.getStatus(), ExecuteResult.errorReportResult.name())).collect(Collectors.toList()).size());
+            reportDTO.setError(reportResults.stream().filter(e -> StringUtils.equals(e.getStatus(), ERROR)).collect(Collectors.toList()).size());
+            reportDTO.setErrorCode(reportResults.stream().filter(e -> StringUtils.equals(e.getStatus(), ExecuteResult.ERROR_REPORT_RESULT.toString())).collect(Collectors.toList()).size());
             reportDTO.setPassAssertions(reportResults.stream().mapToLong(ApiScenarioReportResult::getPassAssertions).sum());
             reportDTO.setTotalAssertions(reportResults.stream().mapToLong(ApiScenarioReportResult::getTotalAssertions).sum());
 
 
             // 匹配结果
             Map<String, List<ApiScenarioReportResultWithBLOBs>> maps = reportResults.stream().collect(Collectors.groupingBy(ApiScenarioReportResult::getResourceId));
-            this.reportFormatting(stepList, maps);
+            this.reportFormatting(stepList, maps, mainReport.getReportType());
 
             reportDTO = this.countReportNum(stepList, reportDTO);
             // 统计场景数据
@@ -584,8 +655,10 @@ public class ApiScenarioReportStructureService {
 
             //统计未执行的请求数量
             AtomicLong allUnExecute = new AtomicLong();
-            this.countAllUnexecute(stepList, allUnExecute);
+            this.countAllUnexpected(stepList, allUnExecute);
             reportDTO.setUnExecute(allUnExecute.longValue());
+            //之前的total中请求数是按照获得报告的响应数来算的。这里要加上未执行的数量
+            reportDTO.setTotal(reportDTO.getTotal() + allUnExecute.longValue());
         }
         return reportDTO;
     }
@@ -633,16 +706,16 @@ public class ApiScenarioReportStructureService {
         }
     }
 
-    private void countAllUnexecute(List<StepTreeDTO> stepList, AtomicLong allUnExecute) {
+    private void countAllUnexpected(List<StepTreeDTO> stepList, AtomicLong allUnExecute) {
         for (StepTreeDTO step : stepList) {
             if (step.getValue() != null) {
                 if (step.getValue() instanceof RequestResultExpandDTO
-                        && StringUtils.equalsIgnoreCase(((RequestResultExpandDTO) step.getValue()).getStatus(), ExecuteResult.unexecute.name())) {
+                        && StringUtils.equalsIgnoreCase(((RequestResultExpandDTO) step.getValue()).getStatus(), ExecuteResult.UN_EXECUTE.toString())) {
                     allUnExecute.set(allUnExecute.longValue() + 1);
                 }
             }
             if (CollectionUtils.isNotEmpty(step.getChildren())) {
-                this.countAllUnexecute(step.getChildren(), allUnExecute);
+                this.countAllUnexpected(step.getChildren(), allUnExecute);
             }
         }
     }
@@ -664,24 +737,6 @@ public class ApiScenarioReportStructureService {
             reportDTO.setScenarioUnExecute(unExecute.longValue());
         }
         return reportDTO;
-    }
-
-    private void stepChildrenErrorCalculate(List<StepTreeDTO> dtoList, AtomicLong isError, AtomicLong isErrorReport, AtomicLong isUnExecute) {
-        for (StepTreeDTO step : dtoList) {
-            if (step.getValue() != null) {
-                if (step.getValue() instanceof RequestResultExpandDTO
-                        && StringUtils.equalsIgnoreCase(((RequestResultExpandDTO) step.getValue()).getStatus(), ExecuteResult.unexecute.name())) {
-                    isUnExecute.set(isUnExecute.longValue() + 1);
-                } else if (step.getValue().getError() > 0 || !step.getValue().isSuccess()) {
-                    isError.set(isError.longValue() + 1);
-                }
-                if (StringUtils.isNotEmpty(step.getErrorCode())) {
-                    isErrorReport.set(isErrorReport.longValue() + 1);
-                }
-            } else if (CollectionUtils.isNotEmpty(step.getChildren())) {
-                stepChildrenErrorCalculate(step.getChildren(), isError, isErrorReport, isUnExecute);
-            }
-        }
     }
 
     public RequestResult selectReportContent(String stepId) {

@@ -1,11 +1,10 @@
 package io.metersphere.service;
 
 import com.alibaba.fastjson.JSONObject;
-import io.metersphere.base.domain.CustomField;
-import io.metersphere.base.domain.Project;
+import io.metersphere.base.domain.*;
 import io.metersphere.base.domain.ext.CustomFieldResource;
+import io.metersphere.base.mapper.CustomFieldIssuesMapper;
 import io.metersphere.base.mapper.CustomFieldMapper;
-import io.metersphere.base.mapper.ext.ExtBaseMapper;
 import io.metersphere.base.mapper.ext.ExtCustomFieldResourceMapper;
 import io.metersphere.base.mapper.ext.ExtIssuesMapper;
 import io.metersphere.base.mapper.ext.ExtTestCaseMapper;
@@ -15,9 +14,11 @@ import io.metersphere.commons.constants.TemplateConstants;
 import io.metersphere.commons.exception.MSException;
 import io.metersphere.commons.utils.LogUtil;
 import io.metersphere.commons.utils.ServiceUtils;
+import io.metersphere.commons.utils.SubListUtil;
 import io.metersphere.controller.request.customfield.CustomFieldResourceRequest;
 import io.metersphere.dto.CustomFieldDao;
 import io.metersphere.dto.CustomFieldItemDTO;
+import io.metersphere.dto.CustomFieldResourceDTO;
 import io.metersphere.track.dto.CustomFieldResourceCompatibleDTO;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -31,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional(rollbackFor = Exception.class)
@@ -43,10 +45,6 @@ public class CustomFieldResourceService {
     @Resource
     ProjectService projectService;
 
-    @Lazy
-    @Resource
-    WorkspaceService workspaceService;
-
     @Resource
     ExtTestCaseMapper extTestCaseMapper;
 
@@ -57,14 +55,14 @@ public class CustomFieldResourceService {
     CustomFieldService customFieldService;
 
     @Resource
-    ExtBaseMapper extBaseMapper;
-
-    @Resource
     ExtCustomFieldResourceMapper extCustomFieldResourceMapper;
 
     @Lazy
     @Resource
     SystemParameterService systemParameterService;
+
+    @Resource
+    CustomFieldIssuesMapper customFieldIssuesMapper;
 
     private int initCount = 0;
 
@@ -72,9 +70,7 @@ public class CustomFieldResourceService {
         if (CollectionUtils.isNotEmpty(addFields)) {
             this.checkInit();
             addFields.forEach(field -> {
-                if (StringUtils.isNotBlank(field.getValue()) && StringUtils.isNotBlank(field.getTextValue())) {
-                    createOrUpdateFields(tableName, resourceId, field);
-                }
+                createOrUpdateFields(tableName, resourceId, field);
             });
         }
     }
@@ -108,6 +104,50 @@ public class CustomFieldResourceService {
         }
     }
 
+
+    protected void batchEditFields(String tableName, HashMap<String, List<CustomFieldResource>> customFieldMap) {
+        if (customFieldMap == null || customFieldMap.size() == 0) {
+            return;
+        }
+        this.checkInit();
+        SqlSession sqlSession = ServiceUtils.getBatchSqlSession();
+        ExtCustomFieldResourceMapper batchMapper = sqlSession.getMapper(ExtCustomFieldResourceMapper.class);
+        List<CustomFieldResource> addList = new ArrayList<>();
+        List<CustomFieldResource> updateList = new ArrayList<>();
+
+        Set<String> set = customFieldMap.keySet();
+        if (CollectionUtils.isEmpty(set)) {
+            return;
+        }
+        CustomFieldIssuesExample example = new CustomFieldIssuesExample();
+        example.createCriteria().andResourceIdIn(new ArrayList<>(set));
+        List<CustomFieldIssues> customFieldIssues = customFieldIssuesMapper.selectByExample(example);
+        Map<String, List<String>> resourceFieldMap = customFieldIssues.stream()
+                .collect(Collectors.groupingBy(CustomFieldIssues::getResourceId, Collectors.mapping(CustomFieldIssues::getFieldId, Collectors.toList())));
+
+        for (String resourceId : customFieldMap.keySet()) {
+            List<CustomFieldResource> list = customFieldMap.get(resourceId);
+            if (CollectionUtils.isEmpty(list)) {
+                continue;
+            }
+            List<String> fieldIds = resourceFieldMap.get(resourceId);
+            for (CustomFieldResource customFieldResource : list) {
+                customFieldResource.setResourceId(resourceId);
+                if (CollectionUtils.isEmpty(fieldIds) || !fieldIds.contains(customFieldResource.getFieldId())) {
+                    addList.add(customFieldResource);
+                } else {
+                    updateList.add(customFieldResource);
+                }
+            }
+        }
+        addList.forEach(l -> batchMapper.insert(tableName, l));
+        updateList.forEach(l -> batchMapper.updateByPrimaryKeySelective(tableName, l));
+        sqlSession.flushStatements();
+        if (sqlSession != null && sqlSessionFactory != null) {
+            SqlSessionUtils.closeSqlSession(sqlSession, sqlSessionFactory);
+        }
+    }
+
     private void createOrUpdateFields(String tableName, String resourceId, CustomFieldResource field) {
         long count = extCustomFieldResourceMapper.countFieldResource(tableName, resourceId, field.getFieldId());
         field.setResourceId(resourceId);
@@ -130,7 +170,22 @@ public class CustomFieldResourceService {
         return extCustomFieldResourceMapper.getByResourceId(tableName, resourceId);
     }
 
-    protected List<CustomFieldResource>  getByResourceIds(String tableName, List<String> resourceIds) {
+    public void batchUpdateByResourceIds(String tableName, List<String> resourceIds, CustomFieldResourceDTO customField) {
+        if (CollectionUtils.isEmpty(resourceIds)) {
+            return;
+        }
+        SubListUtil.dealForSubList(resourceIds, 5000, (subIds) ->
+                extCustomFieldResourceMapper.batchUpdateByResourceIds(tableName, subIds, customField));
+    }
+
+    public void batchInsertIfNotExists(String tableName, List<String> resourceIds, CustomFieldResourceDTO customField) {
+        ServiceUtils.batchOperate(resourceIds, 5000, ExtCustomFieldResourceMapper.class, (resourceId, batchMapper) -> {
+            customField.setResourceId((String) resourceId);
+            ((ExtCustomFieldResourceMapper) batchMapper).batchInsertIfNotExists(tableName, customField);
+        });
+    }
+
+    protected List<CustomFieldResource> getByResourceIds(String tableName, List<String> resourceIds) {
         if (CollectionUtils.isEmpty(resourceIds)) {
             return new ArrayList<>();
         }
@@ -216,13 +271,13 @@ public class CustomFieldResourceService {
         this.compatibleCommon(param);
     }
 
-    public void compatibleIssue( CustomFieldResourceRequest param, Project project) {
+    public void compatibleIssue(CustomFieldResourceRequest param, Project project) {
         // 是否勾选了自动获取模板
         boolean enableJiraSync = project.getPlatform().equals(IssuesManagePlatform.Jira.toString()) &&
-                (project.getThirdPartTemplate() == null ? false : project.getThirdPartTemplate() );
+                (project.getThirdPartTemplate() == null ? false : project.getThirdPartTemplate());
         param.setEnableJiraSync(enableJiraSync);
         param.setResourceType(TemplateConstants.FieldTemplateScene.ISSUE.name());
-       this.compatibleCommon(param);
+        this.compatibleCommon(param);
     }
 
     /**
@@ -252,7 +307,9 @@ public class CustomFieldResourceService {
                             fields.forEach(field -> {
                                 try {
                                     CustomField customField;
-                                    if (StringUtils.isBlank(field.getName())) { return; }
+                                    if (StringUtils.isBlank(field.getName())) {
+                                        return;
+                                    }
                                     if (param.isEnableJiraSync()) {
                                         if (StringUtils.isBlank(field.getId()) || field.getId().length() == 36) {
                                             // 自定义字段中id为空，或者是uuid的，就不处理了
@@ -287,6 +344,7 @@ public class CustomFieldResourceService {
     /**
      * 如果是jira勾选了自动获取模板
      * 则创建对应的自定义字段，并标记成 thirdPart 为 true
+     *
      * @param projectId
      * @param field
      * @param param
@@ -348,5 +406,28 @@ public class CustomFieldResourceService {
                 initCount = 0;
             }
         }
+    }
+
+    public List<IssuesDao> getPlatformIssueByIds(List<String> platformIds, String projectId) {
+        List<IssuesDao> issues = extIssuesMapper.getPlatformIssueByIds(platformIds, projectId);
+        if (CollectionUtils.isEmpty(issues)) {
+            return issues;
+        }
+        List<String> issueIds = issues.stream().map(IssuesDao::getId).collect(Collectors.toList());
+        List<IssuesDao> issuesList = extIssuesMapper.getIssueCustomFields(issueIds);
+        Map<String, List<CustomFieldItemDTO>> map = new HashMap<>();
+        issuesList.forEach(f -> {
+            CustomFieldItemDTO dto = new CustomFieldItemDTO();
+            dto.setId(f.getFieldId());
+            dto.setName(f.getFieldName());
+            dto.setType(f.getFieldType());
+            dto.setValue(f.getFieldValue());
+            dto.setCustomData(f.getCustomData());
+            List<CustomFieldItemDTO> list = Optional.ofNullable(map.get(f.getId())).orElse(new ArrayList<>());
+            map.put(f.getId(), list);
+            list.add(dto);
+        });
+        issues.forEach(i -> i.setCustomFieldList(map.getOrDefault(i.getId(), new ArrayList<>())));
+        return issues;
     }
 }

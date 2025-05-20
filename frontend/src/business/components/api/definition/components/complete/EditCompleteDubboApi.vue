@@ -8,12 +8,12 @@
         <div style="float: right;margin-right: 20px;margin-top: 20px" class="ms-opt-btn">
           <el-tooltip :content="$t('commons.follow')" placement="bottom" effect="dark" v-if="!showFollow">
             <i class="el-icon-star-off"
-               style="color: #783987; font-size: 25px; margin-right: 5px; position: relative; top: 5px; cursor: pointer "
+               style="color: var(--primary_color); font-size: 25px; margin-right: 5px; position: relative; top: 5px; cursor: pointer "
                @click="saveFollow"/>
           </el-tooltip>
           <el-tooltip :content="$t('commons.cancel')" placement="bottom" effect="dark" v-if="showFollow">
             <i class="el-icon-star-on"
-               style="color: #783987; font-size: 28px; margin-right: 5px; position: relative; top: 5px; cursor: pointer "
+               style="color: var(--primary_color); font-size: 28px; margin-right: 5px; position: relative; top: 5px; cursor: pointer "
                @click="saveFollow"/>
           </el-tooltip>
           <el-link type="primary" style="margin-right: 5px" @click="openHis" v-if="basisData.id">
@@ -27,16 +27,6 @@
                               @compare="compare" @checkout="checkout" @create="create" @del="del"/>
           <el-button type="primary" size="small" @click="saveApi" title="ctrl + s">{{ $t('commons.save') }}</el-button>
         </div>
-      </el-col>
-    </el-row>
-    <!-- 基础信息 -->
-    <p class="tip">{{ $t('test_track.plan_view.base_info') }} </p>
-    <br/>
-    <el-row>
-      <el-col>
-        <ms-basis-api @createRootModelInTree="createRootModelInTree" :moduleOptions="moduleOptions"
-                      :basisData="basisData" ref="basicForm"
-                      @callback="callback"/>
       </el-col>
     </el-row>
 
@@ -175,26 +165,18 @@ export default {
     callback() {
       this.validated = true;
     },
-    validateApi() {
-      this.validated = false;
-      this.basisData.method = this.request.protocol;
-      this.$refs['basicForm'].validate();
-    },
     saveApi() {
-      this.validateApi();
-      if (this.validated) {
-        this.basisData.request = this.request;
-        if (this.basisData.tags instanceof Array) {
-          this.basisData.tags = JSON.stringify(this.basisData.tags);
-        }
-        this.$emit('saveApi', this.basisData);
-        this.$store.state.apiStatus.set("fromChange", false);
-        this.$store.state.apiMap.set(this.basisData.id, this.$store.state.apiStatus);
-      } else {
-        if (this.$refs.versionHistory) {
-          this.$refs.versionHistory.loading = false;
-        }
+      this.basisData.request = this.request;
+      if (this.basisData.tags instanceof Array) {
+        this.basisData.tags = JSON.stringify(this.basisData.tags);
       }
+      this.$emit('saveApi', this.basisData);
+      this.$store.state.apiStatus.set("fromChange", false);
+      this.$store.state.apiMap.set(this.basisData.id, this.$store.state.apiStatus);
+      if (this.$refs.versionHistory) {
+        this.$refs.versionHistory.loading = false;
+      }
+
     },
     runTest() {
       this.validateApi();
@@ -247,7 +229,7 @@ export default {
     },
     compare(row) {
       this.basisData.createTime = this.$refs.versionHistory.versionOptions.filter(v => v.id === this.basisData.versionId)[0].createTime;
-      this.$get('/api/definition/get/' +  row.id+"/"+this.basisData.refId, response => {
+      this.$get('/api/definition/get/' + row.id + "/" + this.basisData.refId, response => {
         this.$get('/api/definition/get/' + response.data.id, res => {
           if (res.data) {
             this.newData = res.data;
@@ -279,14 +261,14 @@ export default {
       }
       return false;
     },
-    dealWithTag(api){
-      if(api.tags){
-        if(Object.prototype.toString.call(api.tags)==="[object String]"){
+    dealWithTag(api) {
+      if (api.tags) {
+        if (Object.prototype.toString.call(api.tags) === "[object String]") {
           api.tags = JSON.parse(api.tags);
         }
       }
-      if(this.basisData.tags){
-        if(Object.prototype.toString.call(this.basisData.tags)==="[object String]"){
+      if (this.basisData.tags) {
+        if (Object.prototype.toString.call(this.basisData.tags) === "[object String]") {
           this.basisData.tags = JSON.parse(this.basisData.tags);
         }
       }

@@ -10,6 +10,7 @@
         @search="search">
       </ms-search>
       <el-button type="primary" style="float: right;margin-right: 10px" icon="el-icon-plus" size="small"
+                 v-permission="['PROJECT_API_DEFINITION:READ+CREATE_CASE']"
                  @click="addTestCase" v-if="apiDefinitionId">{{ $t('commons.add') }}
       </el-button>
       <ms-table
@@ -32,6 +33,7 @@
         operator-width="190px"
         @refresh="initTable"
         ref="caseTable"
+        class="api-case-simple-list"
       >
         <ms-table-column
           prop="deleteTime"
@@ -90,15 +92,26 @@
             </template>
           </ms-table-column>
 
-          <ms-table-column
-            prop="caseStatus"
-            :filters="STATUS_FILTERS"
-            :field="item"
-            :fields-width="fieldsWidth"
-            min-width="120px"
-            :label="$t('commons.status')">
+          <ms-table-column v-if="!trashEnable"
+                           prop="caseStatus"
+                           :filters="STATUS_FILTERS"
+                           :field="item"
+                           :fields-width="fieldsWidth"
+                           min-width="120px"
+                           :label="$t('commons.status')">
             <template v-slot:default="scope">
               <plan-status-table-item :value="scope.row.caseStatus"/>
+            </template>
+          </ms-table-column>
+
+          <ms-table-column v-if="trashEnable"
+                           prop="caseStatus"
+                           :field="item"
+                           :fields-width="fieldsWidth"
+                           min-width="120px"
+                           :label="$t('commons.status')">
+            <template v-slot:default="scope">
+              <plan-status-table-item :value="scope.row.status"/>
             </template>
           </ms-table-column>
 
@@ -136,13 +149,20 @@
             min-width="180px"
             :field="item"
             :fields-width="fieldsWidth"
+            :show-overflow-tooltip=false
             :label="'API'+ $t('api_test.definition.api_path')"/>
 
-          <ms-table-column v-if="item.id=='tags'" prop="tags" width="120px" :label="$t('commons.tag')">
+          <ms-table-column v-if="item.id=='tags'" prop="tags" width="120px" :label="$t('commons.tag')"
+                           :show-overflow-tooltip=false>
             <template v-slot:default="scope">
-              <ms-tag v-for="(itemName,index)  in scope.row.tags" :key="index" type="success" effect="plain"
-                      :show-tooltip="scope.row.tags.length===1&&itemName.length*12<=120"
-                      :content="itemName" style="margin-left: 0px; margin-right: 2px"/>
+              <el-tooltip class="item" effect="dark" placement="top">
+              <div v-html="getTagToolTips(scope.row.tags)" slot="content"></div>
+              <div class="oneLine">
+                <ms-tag v-for="(itemName,index)  in scope.row.tags" :key="index" type="success" effect="plain"
+                        :show-tooltip="scope.row.tags.length===1&&itemName.length*12<=100" :content="itemName"
+                        style="margin-left: 0px; margin-right: 2px"/>
+              </div>
+            </el-tooltip>
               <span/>
             </template>
           </ms-table-column>
@@ -162,7 +182,9 @@
           <ms-table-column
             prop="environment"
             :field="item"
+            :filters="environmentsFilters"
             :fields-width="fieldsWidth"
+            min-width="100px"
             :label="$t('commons.environment')"
           >
           </ms-table-column>
@@ -171,6 +193,7 @@
             prop="createUser"
             :field="item"
             :fields-width="fieldsWidth"
+            :filters="userFilters"
             :label="$t('commons.create_user')"/>
 
           <ms-table-column
@@ -237,6 +260,16 @@
                :visible.sync="resVisible" class="api-import" destroy-on-close @close="resVisible=false">
       <ms-request-result-tail :response="response" ref="debugResult"/>
     </el-dialog>
+
+    <el-dialog :visible.sync="batchSyncCaseVisible" :title="$t('commons.batch')+$t('workstation.sync')">
+      <span>{{ $t('workstation.sync') + $t('commons.setting') }}</span><br/>
+      <sync-setting ref="synSetting"></sync-setting>
+      <span style="color: red">{{ $t('workstation.batch_sync_api_tips') }}</span>
+      <span slot="footer" class="dialog-footer">
+        <el-button @click="batchSyncCaseVisible = false">{{ $t('commons.cancel') }}</el-button>
+        <el-button type="primary" @click="batchSync()">{{ $t('commons.confirm') }}</el-button>
+      </span>
+    </el-dialog>
   </span>
 
 </template>
@@ -286,6 +319,7 @@ import {editApiTestCaseOrder} from "@/network/api";
 import {TYPE_TO_C} from "@/business/components/api/automation/scenario/Setting";
 import i18n from "@/i18n/i18n";
 import MsSearch from "@/business/components/common/components/search/MsSearch";
+import SyncSetting from "@/business/components/api/definition/util/SyncSetting";
 
 export default {
   name: "ApiCaseSimpleList",
@@ -313,6 +347,7 @@ export default {
     MsRequestResultTail,
     MsApiCaseRunModeWithEnv,
     MsSearch,
+    SyncSetting,
     PlanStatusTableItem: () => import("../../../../track/common/tableItems/plan/PlanStatusTableItem"),
     MsTaskCenter: () => import("@/business/components/task/TaskCenter"),
   },
@@ -347,6 +382,28 @@ export default {
           name: this.$t('api_test.automation.batch_execute'),
           handleClick: this.handleRunBatch,
           permissions: ['PROJECT_API_DEFINITION:READ+RUN']
+        },
+      ],
+      batchButtons: [
+        {
+          name: this.$t('api_test.definition.request.batch_delete'),
+          handleClick: this.handleDeleteToGcBatch,
+          permissions: ['PROJECT_API_DEFINITION:READ+DELETE_CASE']
+        },
+        {
+          name: this.$t('api_test.definition.request.batch_edit'),
+          handleClick: this.handleEditBatch,
+          permissions: ['PROJECT_API_DEFINITION:READ+EDIT_CASE']
+        },
+        {
+          name: this.$t('api_test.automation.batch_execute'),
+          handleClick: this.handleRunBatch,
+          permissions: ['PROJECT_API_DEFINITION:READ+RUN']
+        },
+        {
+          name: this.$t('commons.batch') + this.$t('workstation.sync'),
+          handleClick: this.openBatchSync,
+          permissions: ['PROJECT_TRACK_PLAN:READ+SCHEDULE']
         },
       ],
       trashButtons: [
@@ -402,7 +459,8 @@ export default {
         },
       ],
       typeArr: [
-        {id: 'priority', name: this.$t('test_track.case.priority')}
+        {id: 'priority', name: this.$t('test_track.case.priority')},
+        {id: 'tags', name: this.$t('commons.tag')},
       ],
       priorityFilters: [
         {text: 'P0', value: 'P0'},
@@ -432,7 +490,7 @@ export default {
       currentPage: 1,
       pageSize: 10,
       total: 0,
-      screenHeight: 'calc(100vh - 220px)',//屏幕高度
+      screenHeight: 'calc(100vh - 180px)',//屏幕高度
       environmentId: undefined,
       selectAll: false,
       unSelection: [],
@@ -445,6 +503,9 @@ export default {
       versionName: '',
       runCaseIds: [],
       versionEnable: false,
+      userFilters: [],
+      environmentsFilters: [],
+      batchSyncCaseVisible: false,
     };
   },
   props: {
@@ -485,19 +546,32 @@ export default {
       this.buttons = this.trashButtons;
     } else {
       this.operators = this.simpleOperators;
-      this.buttons = this.simpleButtons;
+      if (hasLicense()) {
+        this.buttons = this.batchButtons;
+      } else {
+        this.buttons = this.simpleButtons;
+      }
+
     }
     // 切换tab之后版本查询
     this.condition.versionId = this.currentVersion;
     this.initTable();
+    this.getVersionOptions();
+    this.checkVersionEnable();
+    this.getMaintainerOptions();
+    this.showEnvironment();
+  },
+  mounted() {
     // 通知过来的数据跳转到编辑
     if (this.$route.query.caseId) {
       this.$get('/api/testcase/findById/' + this.$route.query.caseId, (response) => {
+        if (!response.data) {
+          this.$error(this.$t('api_test.case_jump_message'));
+          return;
+        }
         this.handleTestCase(response.data);
       });
     }
-    this.getVersionOptions();
-    this.checkVersionEnable();
   },
   watch: {
     selectNodeIds() {
@@ -559,6 +633,13 @@ export default {
     }
   },
   methods: {
+    getMaintainerOptions() {
+      this.$get('/user/project/member/list', response => {
+        this.userFilters = response.data.map(u => {
+          return {text: u.name, value: u.id};
+        });
+      });
+    },
     openHis(row) {
       this.$refs.taskCenter.openHistory(row.id);
     },
@@ -673,7 +754,6 @@ export default {
         }
       }
       this.initCondition();
-
       let isNext = false;
       if (this.condition.projectId) {
         this.result = this.$post('/api/testcase/list/' + this.currentPage + "/" + this.pageSize, this.condition, response => {
@@ -704,6 +784,9 @@ export default {
           }
         });
       }
+      if (this.$refs.caseTable) {
+        this.$refs.caseTable.clearSelection();
+      }
     },
     setRunning(id) {
       this.tableData.forEach(item => {
@@ -730,12 +813,15 @@ export default {
       if (this.currentProtocol != null) {
         this.condition.protocol = this.currentProtocol;
       }
-      //检查是否只查询本周数据
-      this.isSelectThisWeekData();
+      //检查是否有跳转数据筛选
+      this.isRedirectFilter();
       this.condition.selectThisWeedData = false;
       this.condition.id = null;
+      this.condition.redirectFilter = null;
       if (this.selectDataRange == 'thisWeekCount') {
         this.condition.selectThisWeedData = true;
+      } else if (this.selectDataRange === 'executionPassCount' || this.selectDataRange === 'unexecuteCount' || this.selectDataRange === 'executionFailedCount' || this.selectDataRange === 'fakeErrorCount' || this.selectDataRange === 'notSuccessCount') {
+        this.condition.redirectFilter = this.selectDataRange;
       } else if (this.selectDataRange != null) {
         let selectParamArr = this.selectDataRange.split(":");
         if (selectParamArr.length === 2) {
@@ -817,7 +903,7 @@ export default {
         }
         selectApi.url = request.path;
         this.$refs.caseList.runTestCase(selectApi, testCase.id);
-        let obj = {id:testCase.id};
+        let obj = {id: testCase.id};
         this.$post('/api/testcase/updateExecuteInfo', obj);
       });
     },
@@ -858,14 +944,28 @@ export default {
       });
     },
     handleCopy(row) {
-      this.$get('/api/testcase/findById/' + row.id, (response) => {
+      this.$get('/api/definition/get/' + row.apiDefinitionId, (response) => {
+        let api = response.data;
+        if (api) {
+          this.getCaseAndOpen(row.id, api.name, row.apiDefinitionId);
+        }
+      });
+    },
+    getCaseAndOpen(id, apiName, apiId) {
+      this.$get('/api/testcase/findById/' + id, (response) => {
         let data = response.data;
         let uuid = getUUID();
         let apiCaseRequest = JSON.parse(data.request);
         apiCaseRequest.id = uuid;
+        if (apiCaseRequest.type === "TCPSampler") {
+          apiCaseRequest.method = "TCP";
+        } else if (apiCaseRequest.type === "JDBCSampler") {
+          apiCaseRequest.method = "SQL";
+        }
+        apiCaseRequest.name = apiName;
         let obj = {
           name: "copy_" + data.name,
-          apiDefinitionId: row.apiDefinitionId,
+          apiDefinitionId: apiId,
           versionId: data.versionId,
           priority: data.priority,
           active: true,
@@ -951,7 +1051,13 @@ export default {
       let arr = Array.from(this.selectRows);
       let ids = arr.map(row => row.id);
       let param = {};
-      param[form.type] = form.value;
+      if (form.type === 'tags') {
+        param.type = form.type;
+        param.appendTag = form.appendTag;
+        param.tagList = form.tags;
+      } else {
+        param[form.type] = form.value;
+      }
       param.ids = ids;
       param.projectId = this.projectId;
       param.selectAllDate = this.selectAll;
@@ -961,6 +1067,22 @@ export default {
         this.$success(this.$t('commons.save_success'));
         this.initTable();
       });
+    },
+    openBatchSync() {
+      this.batchSyncCaseVisible = true;
+    },
+    batchSync() {
+      let selectIds = this.$refs.caseTable.selectIds;
+      let fromData = this.$refs.synSetting.fromData;
+      fromData.ids = selectIds;
+      this.condition.syncConfig = fromData
+      if (hasLicense()) {
+        this.$post('/api/sync/case/batch', this.condition, response => {
+          this.batchSyncCaseVisible = false;
+          this.$message.success(this.$t('commons.save_success'));
+          this.initTable();
+        });
+      }
     },
     handleDelete(apiCase) {
       this.$alert(this.$t('api_test.definition.request.delete_case_confirm') + ' ' + apiCase.name + " ？", '', {
@@ -1076,7 +1198,7 @@ export default {
       }
     },
     //判断是否只显示本周的数据。  从首页跳转过来的请求会带有相关参数
-    isSelectThisWeekData() {
+    isRedirectFilter() {
       this.selectDataRange = "all";
       let routeParam = this.$route.params.dataSelectRange;
       let dataType = this.$route.params.dataType;
@@ -1105,12 +1227,17 @@ export default {
           this.environments.forEach(environment => {
             parseEnvironment(environment);
           });
+          this.environmentsFilters = response.data.map(u => {
+            return {text: u.name, value: u.id};
+          });
         });
       } else {
         this.environment = undefined;
       }
-      this.clickRow = row;
-      this.$refs.setEnvironment.open(row);
+      if (row) {
+        this.clickRow = row;
+        this.$refs.setEnvironment.open(row);
+      }
     },
     headerDragend(newWidth, oldWidth, column, event) {
       let finalWidth = newWidth;
@@ -1206,21 +1333,26 @@ export default {
       let url = "/api/genPerformanceTestXml";
 
       this.$fileUpload(url, null, bodyFiles, reqObj, response => {
-        let jmxObj = {};
-        jmxObj.name = response.data.name;
-        jmxObj.xml = response.data.xml;
-        jmxObj.attachFiles = response.data.attachFiles;
-        jmxObj.attachByteFiles = response.data.attachByteFiles;
-        jmxObj.caseId = reqObj.id;
-        jmxObj.version = row.version;
-        jmxObj.envId = environment.id;
-        this.$store.commit('setTest', {
-          name: row.name,
-          jmx: jmxObj
-        });
-        this.$router.push({
-          path: "/performance/test/create"
-        });
+        let jmxInfo = response.data.jmxInfoDTO;
+        if (jmxInfo) {
+          let projectEnvMap = response.data.projectEnvMap;
+          let jmxObj = {};
+          jmxObj.name = jmxInfo.name;
+          jmxObj.xml = jmxInfo.xml;
+          jmxObj.attachFiles = jmxInfo.attachFiles;
+          jmxObj.attachByteFiles = jmxInfo.attachByteFiles;
+          jmxObj.caseId = reqObj.id;
+          jmxObj.version = row.version;
+          jmxObj.envId = environment.id;
+          jmxObj.projectEnvMap = projectEnvMap;
+          this.$store.commit('setTest', {
+            name: row.name,
+            jmx: jmxObj
+          });
+          this.$router.push({
+            path: "/performance/test/create"
+          });
+        }
       }, erro => {
         this.$emit('runRefresh', {});
       });
@@ -1251,6 +1383,17 @@ export default {
             this.fields = this.fields.filter(f => f.id !== 'versionId');
           }
         });
+      }
+    },
+    getTagToolTips(tags) {
+      try {
+        let showTips = "";
+        tags.forEach(item => {
+          showTips += item + ",";
+        })
+        return showTips.substr(0, showTips.length - 1);
+      } catch (e) {
+        return "";
       }
     }
   },
@@ -1300,9 +1443,20 @@ export default {
 }
 
 .ms-running {
-  color: #6D317C;
+  color: #783887;
+}
+
+.oneLine {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .ms-unexecute {
 }
+
+.api-case-simple-list >>> .el-table {
+  height: calc(100vh - 185px) !important;
+}
+
 </style>

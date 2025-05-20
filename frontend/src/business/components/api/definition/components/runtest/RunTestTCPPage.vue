@@ -6,11 +6,12 @@
     </div>
     <el-card class="card-content">
 
-      <el-form :model="api" :rules="rules" ref="apiData" :inline="true" label-position="right" style="height: 100%">
+      <el-form :model="api" ref="apiData" :inline="true" label-position="right" style="height: 100%">
 
         <!-- 操作按钮 -->
         <el-dropdown split-button type="primary" class="ms-api-buttion" @click="handleCommand('add')"
-                     @command="handleCommand" size="small" style="float: right;margin-right: 20px" v-if="!runLoading">
+                     @command="handleCommand" size="small" style="float: right;margin-right: 20px" v-if="!runLoading"
+                     v-permission="['PROJECT_API_DEFINITION:READ+EDIT_API']">
           {{ $t('commons.test') }}
           <el-dropdown-menu slot="dropdown">
             <el-dropdown-item command="load_case">{{ $t('api_test.definition.request.load_case') }}
@@ -66,7 +67,7 @@
                       ref="caseList"/>
 
     <!-- 执行组件 -->
-    <ms-run :debug="false" :environment="api.environment" :reportId="reportId" :run-data="runData"
+    <ms-run :debug="false" :reportId="reportId" :run-data="runData"
             @runRefresh="runRefresh" @errorRefresh="errorRefresh" ref="runTest"/>
 
   </div>
@@ -84,6 +85,7 @@ import MsTcpFormatParameters from "@/business/components/api/definition/componen
 import {REQ_METHOD} from "../../model/JsonData";
 import EnvironmentSelect from "../environment/EnvironmentSelect";
 import {TYPE_TO_C} from "@/business/components/api/automation/scenario/Setting";
+import {mergeRequestDocumentData} from "@/business/components/api/definition/api-definition";
 
 const requireComponent = require.context('@/business/components/xpack/', true, /\.vue$/);
 const esbDefinition = (requireComponent != null && requireComponent.keys().length) > 0 ? requireComponent("./apidefinition/EsbDefinition.vue") : {};
@@ -115,9 +117,6 @@ export default {
       environments: [],
       refreshSign: "",
       createCase: "",
-      rules: {
-        environmentId: [{required: true, message: this.$t('api_test.definition.request.run_env'), trigger: 'change'}],
-      },
       runData: [],
       reportId: "",
       showXpackCompnent: false,
@@ -128,6 +127,9 @@ export default {
   props: {apiData: {}, currentProtocol: String, syncTabs: Array, projectId: String},
   watch: {
     '$store.state.useEnvironment': function () {
+      if (this.api && this.api.request) {
+        this.api.request.useEnvironment = this.$store.state.useEnvironment;
+      }
       this.api.environmentId = this.$store.state.useEnvironment;
     }
   },
@@ -165,6 +167,7 @@ export default {
       }
     },
     handleCommand(e) {
+      mergeRequestDocumentData(this.api.request);
       switch (e) {
         case "load_case":
           return this.loadCase();
@@ -182,6 +185,10 @@ export default {
       this.$emit('refresh');
     },
     runTest() {
+      if (!this.api.environmentId) {
+        this.$warning(this.$t('api_test.environment.select_environment'));
+        return;
+      }
       this.$refs['apiData'].validate((valid) => {
         if (valid) {
           this.runLoading = true;
@@ -209,8 +216,9 @@ export default {
     },
     loadCase() {
       this.refreshSign = getUUID();
-      this.$refs.caseList.open();
       this.visible = true;
+      this.loaded = true;
+      this.$refs.caseList.open();
     },
     apiCaseClose() {
       this.visible = false;
@@ -335,6 +343,9 @@ export default {
       this.getResult();
       if (requireComponent != null && JSON.stringify(esbDefinition) !== '{}') {
         this.showXpackCompnent = true;
+      }
+      if (this.api.environmentId) {
+        this.api.request.useEnvironment = this.api.environmentId;
       }
       this.checkVersionEnable();
     }

@@ -11,7 +11,7 @@ import lombok.ToString;
 public class ApiDefinitionExecResultWithBLOBs extends ApiDefinitionExecResult implements Serializable {
     private String content;
 
-    private String errorCode;
+    private String envConfig;
 
     private static final long serialVersionUID = 1L;
 }

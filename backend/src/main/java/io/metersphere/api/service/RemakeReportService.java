@@ -28,6 +28,8 @@ public class RemakeReportService {
     @Resource
     private ApiTestCaseMapper apiTestCaseMapper;
     @Resource
+    private ApiDefinitionMapper apiDefinitionMapper;
+    @Resource
     private ApiDefinitionExecResultMapper execResultMapper;
     @Resource
     private TestPlanApiCaseMapper testPlanApiCaseMapper;
@@ -40,7 +42,7 @@ public class RemakeReportService {
         try {
             // 清理零时报告
             if (StringUtils.equalsAnyIgnoreCase(request.getRunMode(), ApiRunMode.API_PLAN.name(), ApiRunMode.SCHEDULE_API_PLAN.name(), ApiRunMode.JENKINS_API_PLAN.name())) {
-                ApiDefinitionExecResult result = execResultMapper.selectByPrimaryKey(request.getReportId());
+                ApiDefinitionExecResultWithBLOBs result = execResultMapper.selectByPrimaryKey(request.getReportId());
                 if (result != null) {
                     result.setStatus("error");
                     result.setEndTime(System.currentTimeMillis());
@@ -60,7 +62,7 @@ public class RemakeReportService {
                     }
                 }
             } else if (StringUtils.equals(request.getRunMode(), ApiRunMode.DEFINITION.name())) {
-                ApiDefinitionExecResult result = execResultMapper.selectByPrimaryKey(request.getReportId());
+                ApiDefinitionExecResultWithBLOBs result = execResultMapper.selectByPrimaryKey(request.getReportId());
                 if (result != null) {
                     result.setStatus("error");
                     result.setEndTime(System.currentTimeMillis());
@@ -70,6 +72,12 @@ public class RemakeReportService {
                         apiTestCase.setStatus("error");
                         apiTestCase.setUpdateTime(System.currentTimeMillis());
                         apiTestCaseMapper.updateByPrimaryKeySelective(apiTestCase);
+                        ApiDefinitionWithBLOBs apiDefinitionWithBLOBs = apiDefinitionMapper.selectByPrimaryKey(apiTestCase.getApiDefinitionId());
+                        if (apiDefinitionWithBLOBs.getProtocol().equals("HTTP")) {
+                            apiDefinitionWithBLOBs.setToBeUpdated(true);
+                            apiDefinitionWithBLOBs.setToBeUpdateTime(System.currentTimeMillis());
+                            apiDefinitionMapper.updateByPrimaryKey(apiDefinitionWithBLOBs);
+                        }
                     }
                 }
             } else if (StringUtils.equals(request.getRunMode(), ApiRunMode.SCENARIO_PLAN.name())) {
@@ -89,7 +97,7 @@ public class RemakeReportService {
                     apiScenarioReportMapper.updateByPrimaryKey(report);
                 }
             } else if (StringUtils.equalsAny(request.getRunMode(), ApiRunMode.SCHEDULE_SCENARIO_PLAN.name(), ApiRunMode.JENKINS_SCENARIO_PLAN.name())) {
-                ApiScenarioReport report = apiScenarioReportMapper.selectByPrimaryKey(request.getReportId());
+                ApiScenarioReportWithBLOBs report = apiScenarioReportMapper.selectByPrimaryKey(request.getReportId());
                 if (report != null) {
                     report.setEndTime(System.currentTimeMillis());
                     report.setStatus(APITestStatus.Error.name());
@@ -107,8 +115,11 @@ public class RemakeReportService {
                     }
                     apiScenarioReportMapper.updateByPrimaryKeySelective(report);
                 }
+            } else if (StringUtils.equalsAny(request.getRunMode(), ApiRunMode.UI_SCENARIO_PLAN.name(),
+                    request.getRunMode(), ApiRunMode.UI_SCHEDULE_SCENARIO_PLAN.name(), ApiRunMode.UI_JENKINS_SCENARIO_PLAN.name())) {
+                remarkUiScenarioPlan(request);
             } else {
-                ApiScenarioReport report = apiScenarioReportMapper.selectByPrimaryKey(request.getReportId());
+                ApiScenarioReportWithBLOBs report = apiScenarioReportMapper.selectByPrimaryKey(request.getReportId());
                 if (report != null) {
                     report.setStatus(APITestStatus.Error.name());
                     apiScenarioReportMapper.updateByPrimaryKeySelective(report);
@@ -135,7 +146,12 @@ public class RemakeReportService {
         }
     }
 
-    public void remakeScenario(String runMode, String scenarioId, ApiScenarioWithBLOBs scenarioWithBLOBs, ApiScenarioReport report) {
+    private void remarkUiScenarioPlan(JmeterRunRequestDTO request) {
+        // todo
+    }
+
+
+    public void remakeScenario(String runMode, String scenarioId, ApiScenarioWithBLOBs scenarioWithBLOBs, ApiScenarioReportWithBLOBs report) {
         // 生成失败报告
         if (StringUtils.equalsAny(runMode, ApiRunMode.SCHEDULE_SCENARIO_PLAN.name(), ApiRunMode.JENKINS_SCENARIO_PLAN.name(), ApiRunMode.SCENARIO_PLAN.name())) {
             TestPlanApiScenario testPlanApiScenario = testPlanApiScenarioMapper.selectByPrimaryKey(scenarioId);
@@ -170,10 +186,10 @@ public class RemakeReportService {
             if (JMeterEngineCache.runningEngine.containsKey(dto.getReportId())) {
                 JMeterEngineCache.runningEngine.remove(dto.getReportId());
             }
-            LoggerUtil.info("进入异常结果处理报告【" + dto.getReportId() + " 】" + dto.getRunMode() + " 整体执行完成");
+            LoggerUtil.info("进入异常结果处理：" + dto.getRunMode() + " 整体处理完成", dto.getReportId());
             // 全局并发队列
             PoolExecBlockingQueueUtil.offer(dto.getReportId());
-            String consoleMsg = FixedCapacityUtils.getJmeterLogger(dto.getReportId());
+            String consoleMsg = FixedCapacityUtils.getJmeterLogger(dto.getReportId(), true);
             dto.setConsole(consoleMsg + "\n" + errorMsg);
             // 整体执行结束更新资源状态
             CommonBeanFactory.getBean(TestResultService.class).testEnded(dto);
@@ -183,11 +199,11 @@ public class RemakeReportService {
             }
             // 更新测试计划报告
             if (StringUtils.isNotEmpty(dto.getTestPlanReportId())) {
-                LoggerUtil.info("Check Processing Test Plan report status：" + dto.getQueueId() + "，" + dto.getTestId());
+                LoggerUtil.info("Check Processing Test Plan report status：" + dto.getQueueId() + "，" + dto.getTestId(), dto.getReportId());
                 CommonBeanFactory.getBean(ApiExecutionQueueService.class).testPlanReportTestEnded(dto.getTestPlanReportId());
             }
         } catch (Exception e) {
-            LoggerUtil.error(e);
+            LoggerUtil.error("回退报告异常", request.getReportId(), e);
         }
     }
 }

@@ -4,6 +4,8 @@ import {updateCustomFieldTemplate} from "@/network/custom-field-template";
 import i18n from "@/i18n/i18n";
 import Sortable from 'sortablejs'
 import {timestampFormatDate} from "@/common/js/filter";
+import {CUSTOM_FIELD_TYPE_OPTION} from "@/common/js/table-constants";
+import _ from "lodash"
 
 export function _handleSelectAll(component, selection, tableData, selectRows, condition) {
   if (selection.length > 0) {
@@ -147,6 +149,12 @@ export function _sort(column, condition) {
     condition.orders = [];
   }
   if (column.order == null) {
+    if (condition.orders && condition.orders.length) {
+      let index = _.findIndex(condition.orders, {"name": column.column.columnKey});
+      if (index != -1) {
+        condition.orders.splice(index, 1);
+      }
+    }
     return;
   }
   let hasProp = false;
@@ -283,11 +291,18 @@ function getCustomTableHeaderByFiledSetting(key, fieldSetting) {
  * @param customFields
  * @returns {[]|*}
  */
-export function getTableHeaderWithCustomFields(key, customFields) {
+export function getTableHeaderWithCustomFields(key, customFields, projectMembers=[]) {
   let fieldSetting = [...CUSTOM_TABLE_HEADER[key]];
   fieldSetting = JSON.parse(JSON.stringify(fieldSetting)); // 复制，国际化
   translateLabel(fieldSetting);
   let keys = getCustomFieldsKeys(customFields);
+  projectMembers.forEach(member => {
+    member['text'] = member.name;
+    // 高级搜索使用
+    member['label'] = member.name;
+    member['value'] = member.id;
+    member['showLabel'] = member.name + "(" + member.id + ")";
+  })
   customFields.forEach(item => {
     if (!item.key) {
       // 兼容旧版，更新key
@@ -301,6 +316,9 @@ export function getTableHeaderWithCustomFields(key, customFields) {
       isCustom: true
     }
     fieldSetting.push(field);
+    if ((item.type === 'member' || item.type === 'multipleMember' ) && projectMembers && projectMembers.length > 0) {
+      item.options = projectMembers;
+    }
   });
   return getCustomTableHeaderByFiledSetting(key, fieldSetting);
 }
@@ -430,6 +448,17 @@ export function saveCustomTableWidth(key, fieldKey, colWith) {
   localStorage.setItem(key + '_WITH', JSON.stringify(fields));
 }
 
+function parseStatus(row, options) {
+  if (options) {
+    for (let option of options) {
+      if (option.value === row.status) {
+        return option.system ? i18n.t(option.text) : option.text;
+      }
+    }
+  }
+  return row.status;
+}
+
 /**
  * 获取列表的自定义字段的显示值
  * @param row
@@ -438,6 +467,9 @@ export function saveCustomTableWidth(key, fieldKey, colWith) {
  * @returns {VueI18n.TranslateResult|*}
  */
 export function getCustomFieldValue(row, field, members) {
+  if (field.name === '用例状态' && field.system) {
+    return parseStatus(row, field.options);
+  }
   if (row.fields) {
     for (let i = 0; i < row.fields.length; i++) {
       let item = row.fields[i];
@@ -509,13 +541,13 @@ export function getCustomFieldValue(row, field, members) {
             }
           }
           return val;
-        }  else if (field.type === 'multipleInput') {
+        }  else if (field.type === 'multipleInput' && item.value instanceof Array) {
           let val = '';
           item.value.forEach(i => {
             val += i + ' ';
           });
           return val;
-        } else if (field.type === 'datetime') {
+        } else if (field.type === 'datetime' || field.type === 'date') {
           return timestampFormatDate(item.value);
         } else if (['richText', 'textarea'].indexOf(field.type) > -1) {
           return item.textValue;
@@ -577,10 +609,14 @@ export function parseCustomFilesForList(data) {
 
 export function parseCustomFilesForItem(data) {
   if (data.value) {
-    data.value = JSON.parse(data.value);
+    try {
+      data.value = JSON.parse(data.value);
+    } catch (e) {
+      window.console.error(e);
+    }
   }
   if (data.textValue) {
-    // data.textValue = data.textValue;
+    data.value = data.textValue;
   }
 }
 
@@ -593,9 +629,9 @@ export function clearShareDragParam() {
   shareDragParam.data = null;
 }
 
-export function handleRowDrop(data, callback) {
+export function handleRowDrop(data, callback, msTableKey) {
   setTimeout(() => {
-    const tbody = document.querySelector('.el-table__body-wrapper tbody');
+    const tbody = document.querySelector(`#${msTableKey} .el-table__body-wrapper tbody`);
     if (!tbody) {
       return;
     }
@@ -655,4 +691,20 @@ export function handleRowDrop(data, callback) {
       }
     });
   }, 100);
+}
+
+export function getCustomFieldFilter(field, userFilter) {
+  if (field.type === 'multipleMember') {
+    return null;
+  }
+  if (field.type === 'member' && userFilter) {
+    return userFilter;
+  }
+
+  let optionTypes = CUSTOM_FIELD_TYPE_OPTION
+        .filter(x => x.hasOption)
+        .map(x => x.value);
+
+  return optionTypes.indexOf(field.type) > -1 && Array.isArray(field.options) ?
+    (field.options.length > 0 ? field.options : null) : null;
 }

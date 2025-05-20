@@ -31,6 +31,10 @@
       @refresh="refreshIssue"
       ref="issueEdit"/>
 
+    <is-change-confirm
+      @confirm="changeConfirm"
+      ref="isChangeConfirm"/>
+
   </div>
 
 </template>
@@ -59,12 +63,14 @@ import {getTestCasesForMinder, getMinderExtraNode, getMinderTreeExtraNodeCount} 
 import {addIssueHotBox, getSelectedNodeData, handleIssueAdd, handleIssueBatch} from "./minderUtils";
 import IssueRelateList from "@/business/components/track/case/components/IssueRelateList";
 import TestPlanIssueEdit from "@/business/components/track/case/components/TestPlanIssueEdit";
+import {setPriorityView} from "vue-minder-editor-plus/src/script/tool/utils";
+import IsChangeConfirm from "@/business/components/common/components/IsChangeConfirm";
 
 const {getIssuesListById} = require("@/network/Issue");
 const {getCurrentWorkspaceId} = require("@/common/js/utils");
 export default {
 name: "TestCaseMinder",
-  components: {TestPlanIssueEdit, IssueRelateList, MsModuleMinder},
+  components: {IsChangeConfirm, TestPlanIssueEdit, IssueRelateList, MsModuleMinder},
   data() {
     return{
       testCase: [],
@@ -72,6 +78,8 @@ name: "TestCaseMinder",
       tags: [this.$t('api_test.definition.request.case'), this.$t('test_track.case.prerequisite'), this.$t('commons.remark'), this.$t('test_track.module.module')],
       result: {loading: false},
       needRefresh: false,
+      noRefresh: false,
+      noRefreshMinder: false,
       saveCases: [],
       saveModules: [],
       saveModuleNodeMap: new Map(),
@@ -87,8 +95,10 @@ name: "TestCaseMinder",
         return []
       }
     },
+    currentVersion: String,
     condition: Object,
     projectId: String,
+    activeName: String
   },
   computed: {
     selectNodeIds() {
@@ -120,6 +130,15 @@ name: "TestCaseMinder",
       if (this.$refs.minder) {
         this.$refs.minder.handleNodeSelect(this.selectNode);
       }
+    },
+    currentVersion() {
+      this.$refs.minder.initData();
+    },
+    treeNodes(newVal, oldVal) {
+      if (newVal !== oldVal && this.activeName === 'default')  {
+        // 模块刷新并且当前 tab 是用例列表时，提示是否刷新脑图
+        this.handleNodeUpdateForMinder();
+      }
     }
   },
   mounted() {
@@ -132,6 +151,36 @@ name: "TestCaseMinder",
     }
   },
   methods: {
+    handleNodeUpdateForMinder() {
+      if (this.noRefreshMinder) {
+        // 如果是保存触发的刷新模块，则不刷新脑图
+        this.noRefreshMinder = false;
+        return;
+      }
+      this.noRefresh = true;
+      // 如果脑图没有修改直接刷新，有修改提示
+      if (!this.$store.state.isTestCaseMinderChanged) {
+        if (this.$refs.minder) {
+          this.$refs.minder.initData();
+        }
+      } else {
+        this.$refs.isChangeConfirm.open();
+      }
+    },
+    changeConfirm(isSave) {
+      if (isSave) {
+        this.save(() => {
+          this.initData();
+        });
+      } else {
+        this.initData();
+      }
+    },
+    initData() {
+      if (this.$refs.minder) {
+        this.$refs.minder.initData();
+      }
+    },
     getMinderTreeExtraNodeCount() {
       return getMinderTreeExtraNodeCount;
     },
@@ -152,7 +201,11 @@ name: "TestCaseMinder",
           }
           if (node.data.type === 'issue') {
             getIssuesListById(node.data.id, this.projectId,this.workspaceId,(data) => {
-              data.customFields = JSON.parse(data.customFields);
+              if (data.customFields && data.customFields.toString().trim() !== '') {
+                data.customFields = JSON.parse(data.customFields);
+              } else {
+                data.customFields = null;
+              }
               this.$refs.issueEdit.open(data);
             });
           }
@@ -165,14 +218,30 @@ name: "TestCaseMinder",
       listenBeforeExecCommand((even) => {
         if (even.commandName === 'expandtolevel') {
           let level = Number.parseInt(even.commandArgs);
-          handleExpandToLevel(level, even.minder.getRoot(), this.getParam(), getTestCasesForMinder);
+          handleExpandToLevel(level, even.minder.getRoot(), this.getParam(), getTestCasesForMinder, null, getMinderExtraNode);
         }
 
         if (handleMinderIssueDelete(even.commandName))  return; // 删除缺陷不算有编辑脑图信息
 
-        if (['priority', 'resource', 'removenode', 'appendchildnode', 'appendparentnode', 'appendsiblingnode'].indexOf(even.commandName) > -1) {
+        if (['priority', 'resource', 'removenode', 'appendchildnode', 'appendparentnode', 'appendsiblingnode', 'paste'].indexOf(even.commandName) > -1) {
           // 这些情况则脑图有改变
           this.setIsChange(true);
+        }
+
+        if ('removenode' === even.commandName) {
+          let nodes = window.minder.getSelectedNodes();
+          if (nodes) {
+            nodes.forEach((node) => {
+              if (isModuleNodeData(node.data) && node.children && node.children.length > 0) {
+                this.$warning('删除模块将删除模块下的所有资源');
+              }
+            });
+          }
+        }
+
+        if ('resource' === even.commandName) {
+          // 设置完标签后，优先级显示有问题，重新设置下
+          setTimeout(() => setPriorityView(true, 'P'), 100);
         }
       });
 
@@ -182,6 +251,7 @@ name: "TestCaseMinder",
       return {
         request: {
           projectId: this.projectId,
+          versionId: this.currentVersion,
           orders: this.condition.orders
         },
         result: this.result,
@@ -191,7 +261,7 @@ name: "TestCaseMinder",
     setIsChange(isChanged) {
       this.$store.commit('setIsTestCaseMinderChanged', isChanged);
     },
-    save() {
+    save(callback) {
       this.saveCases = [];
       this.saveModules = [];
       this.deleteNodes = []; // 包含测试模块、用例和临时节点
@@ -224,8 +294,18 @@ name: "TestCaseMinder",
           item.isExtraNode = false;
         });
         this.extraNodeChanged = [];
-        this.$emit('refresh');
+        if (!this.noRefresh) {
+          this.$emit('refresh');
+          // 保存会刷新模块，刷新完模块，脑图也会自动刷新
+          // 如果是保存触发的刷新模块，则不刷新脑图
+          this.noRefreshMinder = true;
+        }
+        // 由于模块修改刷新的脑图，不刷新模块
+        this.noRefresh = false;
         this.setIsChange(false);
+        if (callback && callback instanceof Function) {
+          callback();
+        }
       });
 
     },
@@ -322,20 +402,16 @@ name: "TestCaseMinder",
     buildExtraNode(data, parent, root) {
       if (data.type !== 'node' && data.type !== 'tmp' && parent && isModuleNodeData(parent) && data.changed === true) {
         // 保存额外信息，只保存模块下的一级子节点
-        let nodes = this.saveExtraNode[parent.id];
+        let pId = parent.newId ? parent.newId : parent.id;
+        let nodes = this.saveExtraNode[pId];
         if (!nodes) {
           nodes = [];
         }
         nodes.push(JSON.stringify(this._buildExtraNode(root)));
-        this.saveExtraNode[parent.newId ? parent.newId : parent.id] = nodes;
+        this.saveExtraNode[pId] = nodes;
       }
     },
-    buildSaveCase(node, parent, preNode, nextNode) {
-      let data = node.data;
-      if (!data.text) {
-        return;
-      }
-
+    validate(parent, data) {
       if (parent.id === 'root') {
         this.throwError(this.$t('test_track.case.minder_all_module_tip'));
       }
@@ -347,6 +423,14 @@ name: "TestCaseMinder",
       if (data.type === 'node') {
         this.throwError(this.$t('test_track.case.minder_is_module_tip', [data.text]));
       }
+    },
+    buildSaveCase(node, parent, preNode, nextNode) {
+      let data = node.data;
+      if (!data.text) {
+        return;
+      }
+
+      this.validate(parent, data);
 
       let isChange = false;
 
@@ -384,13 +468,27 @@ name: "TestCaseMinder",
       let steps = [];
       let stepNum = 1;
       if (node.children) {
+        let prerequisiteNodes = node.children.filter(childNode => childNode.data.resource && childNode.data.resource.indexOf(this.$t('test_track.case.prerequisite'))  > -1);
+        if (prerequisiteNodes.length > 1) {
+          this.throwError('[' + testCase.name + ']' + this.$t('test_track.case.exists_multiple_prerequisite_node'));
+        }
+        let remarkNodes = node.children.filter(childNode => childNode.data.resource && childNode.data.resource.indexOf(this.$t('commons.remark'))  > -1);
+        if (remarkNodes.length > 1) {
+          this.throwError('[' + testCase.name + ']' + this.$t('test_track.case.exists_multiple_remark_node'));
+        }
         node.children.forEach((childNode) => {
           let childData = childNode.data;
           if (childData.type === 'issue') return;
           if (childData.resource && childData.resource.indexOf(this.$t('test_track.case.prerequisite')) > -1) {
             testCase.prerequisite = childData.text;
+            if (childNode.children && childNode.children.length > 0) {
+              this.throwError('[' + testCase.name + ']前置条件下不能添加子节点！');
+            }
           } else if (childData.resource && childData.resource.indexOf(this.$t('commons.remark')) > -1) {
             testCase.remark = childData.text;
+             if (childNode.children && childNode.children.length > 0) {
+               this.throwError('[' + testCase.name + ']备注下不能添加子节点！');
+             }
           } else {
             // 测试步骤
             let step = {};
@@ -400,7 +498,9 @@ name: "TestCaseMinder",
               let result = "";
               childNode.children.forEach((child) => {
                 result += child.data.text;
-                if (child.data.changed) isChange = true;
+                if (child.data.changed) {
+                  isChange = true;
+                }
               })
               step.result = result;
             }
@@ -411,7 +511,15 @@ name: "TestCaseMinder",
               testCase.expectedResult = step.result;
             }
           }
-          if (childData.changed) isChange = true;
+          if (childData.changed) {
+            isChange = true;
+          }
+
+          childNode.children.forEach((child) => {
+            if (child.children && child.children.length > 0) {
+              this.throwError('['+ testCase.name + ']用例下子节点不能超过两层！');
+            }
+          });
         })
       }
       testCase.steps = JSON.stringify(steps);
@@ -433,8 +541,10 @@ name: "TestCaseMinder",
             if (preId && preId.length > 15) {
               testCase.targetId = preId;
               testCase.moveMode = 'AFTER';
+            } else {
+              testCase.moveMode = 'APPEND';
             }
-          } else if (this.isCaseNode(nextNode)) {
+          } else if (this.isCaseNode(nextNode) && !nextNode.data.isExtraNode) {
             let nextId = nextNode.data.id;
             if (nextId && nextId.length > 15) {
               testCase.targetId = nextId;

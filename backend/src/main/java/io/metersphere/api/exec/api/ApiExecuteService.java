@@ -16,10 +16,12 @@ import io.metersphere.api.dto.scenario.Body;
 import io.metersphere.api.dto.scenario.environment.EnvironmentConfig;
 import io.metersphere.api.exec.utils.ApiDefinitionExecResultUtil;
 import io.metersphere.api.jmeter.JMeterService;
+import io.metersphere.api.jmeter.NewDriverManager;
 import io.metersphere.api.service.ApiTestEnvironmentService;
 import io.metersphere.api.service.TcpApiParamService;
 import io.metersphere.base.domain.*;
 import io.metersphere.base.mapper.ApiDefinitionExecResultMapper;
+import io.metersphere.base.mapper.ApiDefinitionMapper;
 import io.metersphere.base.mapper.ApiTestCaseMapper;
 import io.metersphere.base.mapper.TestPlanApiCaseMapper;
 import io.metersphere.base.mapper.ext.ExtApiTestCaseMapper;
@@ -54,6 +56,8 @@ public class ApiExecuteService {
     @Resource
     private ApiDefinitionExecResultMapper apiDefinitionExecResultMapper;
     @Resource
+    private ApiDefinitionMapper apiDefinitionMapper;
+    @Resource
     private TestPlanApiCaseMapper testPlanApiCaseMapper;
     @Resource
     private ApiTestEnvironmentService environmentService;
@@ -82,7 +86,7 @@ public class ApiExecuteService {
             request.setEnvironmentId(extApiTestCaseMapper.getApiCaseEnvironment(request.getCaseId()));
         }
         //提前生成报告
-        ApiDefinitionExecResult report = ApiDefinitionExecResultUtil.add(caseWithBLOBs.getId(), APITestStatus.Running.name(), request.getReportId(),Objects.requireNonNull(SessionUtils.getUser()).getId());
+        ApiDefinitionExecResultWithBLOBs report = ApiDefinitionExecResultUtil.add(caseWithBLOBs.getId(), APITestStatus.Running.name(), request.getReportId(), Objects.requireNonNull(SessionUtils.getUser()).getId());
         report.setName(caseWithBLOBs.getName());
         report.setTriggerMode(ApiRunMode.JENKINS.name());
         report.setType(ApiRunMode.JENKINS.name());
@@ -109,7 +113,7 @@ public class ApiExecuteService {
             //通过测试计划id查询环境
             request.setReportId(request.getTestPlanId());
         }
-        LoggerUtil.info("开始执行单条用例【 " + testCaseWithBLOBs.getId() + " 】");
+        LoggerUtil.info("开始执行单条用例【 " + testCaseWithBLOBs.getId() + " 】", request.getReportId());
 
         // 多态JSON普通转换会丢失内容，需要通过 ObjectMapper 获取
         if (testCaseWithBLOBs != null && StringUtils.isNotEmpty(testCaseWithBLOBs.getRequest())) {
@@ -129,6 +133,12 @@ public class ApiExecuteService {
                     ApiTestCaseWithBLOBs caseWithBLOBs = apiTestCaseMapper.selectByPrimaryKey(request.getCaseId());
                     caseWithBLOBs.setStatus("error");
                     apiTestCaseMapper.updateByPrimaryKey(caseWithBLOBs);
+                    ApiDefinitionWithBLOBs apiDefinitionWithBLOBs = apiDefinitionMapper.selectByPrimaryKey(caseWithBLOBs.getApiDefinitionId());
+                    if (apiDefinitionWithBLOBs.getProtocol().equals("HTTP")) {
+                        apiDefinitionWithBLOBs.setToBeUpdated(true);
+                        apiDefinitionWithBLOBs.setToBeUpdateTime(System.currentTimeMillis());
+                        apiDefinitionMapper.updateByPrimaryKey(apiDefinitionWithBLOBs);
+                    }
                 }
                 LogUtil.error(ex.getMessage(), ex);
             }
@@ -177,7 +187,8 @@ public class ApiExecuteService {
         if (StringUtils.isNotBlank(request.getType()) && StringUtils.equals(request.getType(), ApiRunMode.API_PLAN.name())) {
             runMode = ApiRunMode.API_PLAN.name();
         }
-
+        // 加载自定义JAR
+        NewDriverManager.loadJar(request);
         HashTree hashTree = request.getTestElement().generateHashTree(config);
         if (LoggerUtil.getLogger().isDebugEnabled()) {
             LoggerUtil.debug("生成执行JMX内容【 " + request.getTestElement().getJmx(hashTree) + " 】");
@@ -215,6 +226,11 @@ public class ApiExecuteService {
 
         // 测试计划
         MsTestPlan testPlan = new MsTestPlan();
+        // 获取自定义JAR
+        String projectId = testCaseWithBLOBs.getProjectId();
+        testPlan.setJarPaths(NewDriverManager.getJars(new ArrayList<>() {{
+            this.add(projectId);
+        }}));
         testPlan.setHashTree(new LinkedList<>());
         HashTree jmeterHashTree = new ListedHashTree();
 

@@ -9,7 +9,7 @@
       <i class="el-icon-caret-bottom el-icon--right"/>
     </span>
     <template v-slot:dropdown>
-      <el-dropdown-menu style="margin-top: 5px;">
+      <el-dropdown-menu style="margin-top: 5px;" :style="{'color':color}">
         <el-input :placeholder="$t('project.search_by_name')"
                   prefix-icon="el-icon-search"
                   v-model="searchString"
@@ -31,16 +31,21 @@
 import {
   fullScreenLoading,
   getCurrentUser,
-  getCurrentWorkspaceId, hasPermissions,
+  getCurrentWorkspaceId,
   saveLocalStorage,
   stopFullScreenLoading
 } from "@/common/js/utils";
 import {PROJECT_ID, WORKSPACE_ID} from "@/common/js/constants";
+import {getDefaultSecondLevelMenu} from "@/business/components/common/router/router";
 
 export default {
   name: "MsHeaderWs",
   created() {
+    this.$EventBus.$on('changeWs', this._changeWs);
     this.initMenuData();
+  },
+  destroyed() {
+    this.$EventBus.$off('changeWs', this._changeWs);
   },
   inject: [
     'reloadTopMenus',
@@ -59,6 +64,9 @@ export default {
     currentUser: () => {
       return getCurrentUser();
     },
+    color: function () {
+      return `var(--primary_color)`;
+    }
   },
   watch: {
     searchString(val) {
@@ -68,7 +76,7 @@ export default {
   methods: {
     getCurrentWorkspaceId,
     initMenuData() {
-      this.$get("/workspace/list/userworkspace/" + encodeURIComponent(this.currentUserId), response => {
+      this.$get("/workspace/list/userworkspace", response => {
         this.workspaceList = response.data;
         this.wsListCopy = response.data;
         let workspace = response.data.filter(r => r.id === getCurrentWorkspaceId());
@@ -80,17 +88,28 @@ export default {
       });
     },
     getRedirectUrl(user) {
+      // todo refactor permission check
       if (!user.lastProjectId || !user.lastWorkspaceId) {
         // 没有项目级的权限直接回到 /setting/project/:type
         // 只是某一个工作空间的用户组也转到 /setting/project/:type
         return "/setting/project/:type";
       }
       let redirectUrl = sessionStorage.getItem('redirectUrl');
-      if (redirectUrl.startsWith("/")) {
-        redirectUrl = redirectUrl.substring(1);
+      if (!redirectUrl) {
+        return '/setting';
       }
-      redirectUrl = redirectUrl.split("/")[0];
-      return '/' + redirectUrl + '/';
+      if (redirectUrl.startsWith("/track") || redirectUrl.startsWith("/performance")
+        || redirectUrl.startsWith("/api") || redirectUrl.startsWith("/ui")) {
+        // 获取有权限的跳转路径
+        redirectUrl = getDefaultSecondLevelMenu(redirectUrl);
+      } else {
+        if (redirectUrl.startsWith("/")) {
+          redirectUrl = redirectUrl.substring(1);
+        }
+        redirectUrl = redirectUrl.split("/")[0];
+        redirectUrl = '/' + redirectUrl + '/';
+      }
+      return redirectUrl;
     },
     changeWs(data) {
       let workspaceId = data.id;
@@ -98,15 +117,26 @@ export default {
       if (!workspaceId || getCurrentWorkspaceId() === workspaceId) {
         return false;
       }
-      const loading = fullScreenLoading(this);
-      this.$post("/user/switch/source/ws/" + workspaceId, {}, response => {
-        saveLocalStorage(response);
-        sessionStorage.setItem(WORKSPACE_ID, workspaceId);
-        sessionStorage.setItem(PROJECT_ID, response.data.lastProjectId);
-        this.$router.push(this.getRedirectUrl(response.data)).then(() => {
-          this.reloadTopMenus(stopFullScreenLoading(loading));
-        }).catch(err => err);
-      });
+      let isTestCaseMinderChanged = this.$store.state.isTestCaseMinderChanged;
+      if (isTestCaseMinderChanged) {
+        // 脑图提示保存
+        this.$store.commit('setTemWorkspaceId', workspaceId);
+        return;
+      }
+      this._changeWs(workspaceId);
+    },
+    _changeWs(workspaceId) {
+      if (workspaceId) {
+        const loading = fullScreenLoading(this);
+        this.$post("/user/switch/source/ws/" + workspaceId, {}, response => {
+          saveLocalStorage(response);
+          sessionStorage.setItem(WORKSPACE_ID, workspaceId);
+          sessionStorage.setItem(PROJECT_ID, response.data.lastProjectId);
+          this.$router.push(this.getRedirectUrl(response.data)).then(() => {
+            this.reloadTopMenus(stopFullScreenLoading(loading));
+          }).catch(err => err);
+        });
+      }
     },
     query(queryString) {
       this.workspaceList = queryString ? this.wsListCopy.filter(this.createFilter(queryString)) : this.wsListCopy;
@@ -152,7 +182,6 @@ export default {
 
 .search-input >>> .el-input__inner {
   border-radius: 0;
-  color: #d2ced8;
   border-color: #b4aebe;
 }
 
@@ -163,7 +192,6 @@ export default {
 .dropdown-link {
   cursor: pointer;
   font-size: 12px;
-  color: rgb(245, 245, 245);
   line-height: 40px;
   padding-right: 10px;
   padding-left: 5px;
@@ -197,6 +225,10 @@ export default {
 
 .dropdown-content::-webkit-scrollbar-thumb:window-inactive {
   background: rgba(255, 0, 0, 0.4);
+}
+
+.global {
+  color: var(--color);
 }
 
 </style>

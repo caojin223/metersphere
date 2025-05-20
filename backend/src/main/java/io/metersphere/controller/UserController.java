@@ -5,6 +5,7 @@ import com.github.pagehelper.PageHelper;
 import io.metersphere.base.domain.User;
 import io.metersphere.commons.constants.OperLogConstants;
 import io.metersphere.commons.constants.OperLogModule;
+import io.metersphere.commons.constants.PermissionConstants;
 import io.metersphere.commons.exception.MSException;
 import io.metersphere.commons.utils.PageUtils;
 import io.metersphere.commons.utils.Pager;
@@ -16,8 +17,11 @@ import io.metersphere.dto.UserGroupPermissionDTO;
 import io.metersphere.excel.domain.ExcelResponse;
 import io.metersphere.i18n.Translator;
 import io.metersphere.log.annotation.MsAuditLog;
+import io.metersphere.service.CheckPermissionService;
 import io.metersphere.service.UserService;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.shiro.authz.annotation.Logical;
+import org.apache.shiro.authz.annotation.RequiresPermissions;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -26,6 +30,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @RequestMapping("user")
 @RestController
@@ -33,14 +38,18 @@ public class UserController {
 
     @Resource
     private UserService userService;
+    @Resource
+    private CheckPermissionService checkPermissionService;
 
     @PostMapping("/special/add")
     @MsAuditLog(module = OperLogModule.SYSTEM_USER, type = OperLogConstants.CREATE, content = "#msClass.getLogDetails(#user)", msClass = UserService.class)
+    @RequiresPermissions(PermissionConstants.SYSTEM_USER_READ_CREATE)
     public UserDTO insertUser(@RequestBody UserRequest user) {
         return userService.insert(user);
     }
 
     @PostMapping("/special/list/{goPage}/{pageSize}")
+    @RequiresPermissions(PermissionConstants.SYSTEM_USER_READ)
     public Pager<List<User>> getUserList(@PathVariable int goPage, @PathVariable int pageSize, @RequestBody io.metersphere.controller.request.UserRequest request) {
         Page<Object> page = PageHelper.startPage(goPage, pageSize, true);
         return PageUtils.setPageInfo(page, userService.getUserListWithRequest(request));
@@ -53,6 +62,7 @@ public class UserController {
 
     @GetMapping("/special/delete/{userId}")
     @MsAuditLog(module = OperLogModule.SYSTEM_USER, type = OperLogConstants.DELETE, beforeEvent = "#msClass.getLogDetails(#userId)", msClass = UserService.class)
+    @RequiresPermissions(PermissionConstants.SYSTEM_USER_READ_DELETE)
     public void deleteUser(@PathVariable(value = "userId") String userId) {
         userService.deleteUser(userId);
         // 剔除在线用户
@@ -61,23 +71,27 @@ public class UserController {
 
     @PostMapping("/special/update")
     @MsAuditLog(module = OperLogModule.SYSTEM_USER, type = OperLogConstants.UPDATE, beforeEvent = "#msClass.getLogDetails(#user)", content = "#msClass.getLogDetails(#user)", msClass = UserService.class)
+    @RequiresPermissions(PermissionConstants.SYSTEM_USER_READ_EDIT)
     public void updateUser(@RequestBody UserRequest user) {
         userService.updateUserRole(user);
     }
 
     @PostMapping("/special/update_status")
     @MsAuditLog(module = OperLogModule.SYSTEM_USER, type = OperLogConstants.UPDATE, beforeEvent = "#msClass.getLogDetails(#user.id)", content = "#msClass.getLogDetails(#user.id)", msClass = UserService.class)
+    @RequiresPermissions(PermissionConstants.SYSTEM_USER_READ_EDIT)
     public void updateStatus(@RequestBody User user) {
         userService.updateUser(user);
     }
 
     @PostMapping("/special/ws/member/list/{goPage}/{pageSize}")
+    @RequiresPermissions(PermissionConstants.SYSTEM_WORKSPACE_READ)
     public Pager<List<User>> getMemberListByAdmin(@PathVariable int goPage, @PathVariable int pageSize, @RequestBody QueryMemberRequest request) {
         Page<Object> page = PageHelper.startPage(goPage, pageSize, true);
         return PageUtils.setPageInfo(page, userService.getMemberList(request));
     }
 
     @PostMapping("/special/ws/member/list/all")
+    @RequiresPermissions(PermissionConstants.SYSTEM_WORKSPACE_READ)
     public List<User> getMemberListByAdmin(@RequestBody QueryMemberRequest request) {
         return userService.getMemberList(request);
     }
@@ -85,7 +99,7 @@ public class UserController {
     @PostMapping("/special/ws/member/add")
     @MsAuditLog(module = OperLogModule.WORKSPACE_MEMBER, type = OperLogConstants.CREATE, content = "#msClass.getLogDetails(#request.userIds,#request.workspaceId)", msClass = UserService.class)
     public void addMemberByAdmin(@RequestBody AddMemberRequest request) {
-        userService.addMember(request);
+        userService.addWorkspaceMember(request);
     }
 
     @GetMapping("/special/ws/member/delete/{workspaceId}/{userId}")
@@ -95,6 +109,12 @@ public class UserController {
     }
 
     @GetMapping("/list")
+    @RequiresPermissions(value = {
+            PermissionConstants.SYSTEM_WORKSPACE_READ_CREATE,
+            PermissionConstants.SYSTEM_GROUP_READ_CREATE,
+            PermissionConstants.WORKSPACE_USER_READ_CREATE,
+            PermissionConstants.SYSTEM_OPERATING_LOG_READ,
+    }, logical = Logical.OR)
     public List<User> getUserList() {
         return userService.getUserList();
     }
@@ -112,7 +132,7 @@ public class UserController {
 
     @PostMapping("/switch/source/ws/{sourceId}")
     public UserDTO switchWorkspace(@PathVariable(value = "sourceId") String sourceId) {
-        userService.switchUserResource("workspace", sourceId);
+        userService.switchUserResource("workspace", sourceId, Objects.requireNonNull(SessionUtils.getUser()));
         return SessionUtils.getUser();
     }
 
@@ -131,33 +151,44 @@ public class UserController {
      * 获取工作空间成员用户
      */
     @PostMapping("/ws/member/list/{goPage}/{pageSize}")
+    @RequiresPermissions(PermissionConstants.WORKSPACE_USER_READ)
     public Pager<List<User>> getMemberList(@PathVariable int goPage, @PathVariable int pageSize, @RequestBody QueryMemberRequest request) {
         Page<Object> page = PageHelper.startPage(goPage, pageSize, true);
         return PageUtils.setPageInfo(page, userService.getMemberList(request));
     }
 
     @PostMapping("/project/member/list/{goPage}/{pageSize}")
+    @RequiresPermissions(PermissionConstants.PROJECT_USER_READ)
     public Pager<List<User>> getProjectMemberList(@PathVariable int goPage, @PathVariable int pageSize, @RequestBody QueryMemberRequest request) {
         Page<Object> page = PageHelper.startPage(goPage, pageSize, true);
         return PageUtils.setPageInfo(page, userService.getProjectMemberList(request));
     }
 
-    @PostMapping("/project/member/list")
-    public List<User> getProjectMemberListAll(@RequestBody QueryMemberRequest request) {
+    @PostMapping("/ws/project/member/list/{workspaceId}/{goPage}/{pageSize}")
+    @RequiresPermissions(PermissionConstants.WORKSPACE_PROJECT_MANAGER_READ)
+    public Pager<List<User>> getProjectMemberListForWorkspace(@PathVariable int goPage, @PathVariable int pageSize, @PathVariable String workspaceId, @RequestBody QueryMemberRequest request) {
+        checkPermissionService.checkProjectBelongToWorkspace(request.getProjectId(), workspaceId);
+        Page<Object> page = PageHelper.startPage(goPage, pageSize, true);
+        return PageUtils.setPageInfo(page, userService.getProjectMemberList(request));
+    }
+
+    @GetMapping("/project/member/list")
+    public List<User> getProjectMemberListAll() {
+        QueryMemberRequest request = new QueryMemberRequest();
+        request.setProjectId(SessionUtils.getCurrentProjectId());
         return userService.getProjectMemberList(request);
     }
 
-    @GetMapping("/project/member/option/{projectId}")
-    public List<User> getProjectMemberOption(@PathVariable String projectId) {
-        return userService.getProjectMemberOption(projectId);
+    @GetMapping("/project/member/{projectId}")
+    public List<User> getProjectMembers(@PathVariable String projectId) {
+        QueryMemberRequest request = new QueryMemberRequest();
+        request.setProjectId(projectId);
+        return userService.getProjectMemberList(request);
     }
 
-    /**
-     * 获取工作空间成员用户 不分页
-     */
-    @PostMapping("/ws/member/list/all")
-    public List<User> getMemberList(@RequestBody QueryMemberRequest request) {
-        return userService.getMemberList(request);
+    @GetMapping("/project/member/option")
+    public List<User> getProjectMemberOption() {
+        return userService.getProjectMemberOption(SessionUtils.getCurrentProjectId());
     }
 
     @GetMapping("/ws/current/member/list")
@@ -173,16 +204,11 @@ public class UserController {
     @PostMapping("/ws/member/add")
     @MsAuditLog(module = OperLogModule.WORKSPACE_MEMBER, type = OperLogConstants.CREATE, title = "添加工作空间成员")
     public void addMember(@RequestBody AddMemberRequest request) {
-
-        String wsId = request.getWorkspaceId();
-//        workspaceService.checkWorkspaceOwner(wsId);
-        userService.addMember(request);
+        userService.addWorkspaceMember(request);
     }
 
     @PostMapping("/project/member/add")
-//    @MsAuditLog(module = "workspace_member", type = OperLogConstants.CREATE, title = "添加项目成员成员")
     public void addProjectMember(@RequestBody AddMemberRequest request) {
-//        workspaceService.checkWorkspaceOwner(wsId);
         userService.addProjectMember(request);
     }
 
@@ -192,7 +218,6 @@ public class UserController {
     @GetMapping("/ws/member/delete/{workspaceId}/{userId}")
     @MsAuditLog(module = OperLogModule.WORKSPACE_MEMBER, type = OperLogConstants.DELETE, title = "删除工作空间成员")
     public void deleteMember(@PathVariable String workspaceId, @PathVariable String userId) {
-//        workspaceService.checkWorkspaceOwner(workspaceId);
         String currentUserId = SessionUtils.getUser().getId();
         if (StringUtils.equals(userId, currentUserId)) {
             MSException.throwException(Translator.get("cannot_remove_current"));
@@ -201,22 +226,12 @@ public class UserController {
     }
 
     @GetMapping("/project/member/delete/{projectId}/{userId}")
-//    @MsAuditLog(module = "workspace_member", type = OperLogConstants.DELETE, title = "删除工作空间成员")
     public void deleteProjectMember(@PathVariable String projectId, @PathVariable String userId) {
         String currentUserId = SessionUtils.getUser().getId();
         if (StringUtils.equals(userId, currentUserId)) {
             MSException.throwException(Translator.get("cannot_remove_current"));
         }
         userService.deleteProjectMember(projectId, userId);
-    }
-
-
-    /**
-     * ws 下所有相关人员
-     */
-    @GetMapping("/ws/member/list/{workspaceId}")
-    public List<User> getWsMemberList(@PathVariable String workspaceId) {
-        return userService.getWsAllMember(workspaceId);
     }
 
     /*
@@ -231,13 +246,9 @@ public class UserController {
     /*管理员修改用户密码*/
     @PostMapping("/special/password")
     @MsAuditLog(module = OperLogModule.SYSTEM_USER, type = OperLogConstants.UPDATE, beforeEvent = "#msClass.getLogDetails(#request.id)", content = "#msClass.getLogDetails(#request.id)", msClass = UserService.class)
+    @RequiresPermissions(PermissionConstants.SYSTEM_USER_READ_EDIT_PASSWORD)
     public int updateUserPassword(@RequestBody EditPassWordRequest request) {
         return userService.updateUserPassword(request);
-    }
-
-    @PostMapping("/project/member/tester/list")
-    public List<User> getProjectMember(@RequestBody QueryMemberRequest request) {
-        return userService.getProjectMember(request);
     }
 
     @GetMapping("/search/{condition}")

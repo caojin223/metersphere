@@ -172,6 +172,21 @@
                   </el-form-item>
                 </el-col>
               </el-row>
+              <el-row>
+                <el-col>
+                  <el-form-item>
+                    <template v-slot:label>
+                      NodeSelector
+                      <el-tooltip :content="$t('test_resource_pool.node_selector_tip')"
+                                  effect="light"
+                                  trigger="hover">
+                        <i class="el-icon-info"></i>
+                      </el-tooltip>
+                    </template>
+                    <el-input v-model="item.nodeSelector" placeholder='{"disktype": "ssd",...}'/>
+                  </el-form-item>
+                </el-col>
+              </el-row>
             </div>
           </div>
 
@@ -266,7 +281,7 @@ import MsTablePagination from "../../common/pagination/TablePagination";
 import MsTableHeader from "../../common/components/MsTableHeader";
 import MsTableOperator from "../../common/components/MsTableOperator";
 import MsDialogFooter from "../../common/components/MsDialogFooter";
-import {listenGoBack, removeGoBackListener} from "@/common/js/utils";
+import {listenGoBack, operationConfirm, removeGoBackListener} from "@/common/js/utils";
 import BatchAddResource from "@/business/components/settings/system/components/BatchAddResource";
 import {getYaml} from "@/business/components/settings/system/test-resource-pool";
 
@@ -285,7 +300,7 @@ export default {
       pageSize: 10,
       total: 0,
       form: {performance: true, api: true, backendListener: true},
-      screenHeight: 'calc(100vh - 195px)',
+      screenHeight: 'calc(100vh - 155px)',
       requiredRules: [{required: true, message: this.$t('test_resource_pool.fill_the_data'), trigger: 'blur'}],
       rule: {
         name: [
@@ -390,11 +405,12 @@ export default {
       if (this.infoList.length <= 0) {
         return {validate: false, msg: this.$t('test_resource_pool.cannot_empty')};
       }
+      let resourcePoolType = this.form.type;
       let resultValidate = {validate: true, msg: this.$t('test_resource_pool.fill_the_data')};
       this.infoList.forEach(info => {
         for (let key in info) {
           // 排除非必填项
-          if (key === 'apiImage') {
+          if (key === 'nodeSelector' || key === 'apiImage') {
             continue;
           }
           if (info[key] != '0' && !info[key]) {
@@ -406,6 +422,14 @@ export default {
         if (!info.maxConcurrency) {
           resultValidate.validate = false;
           return false;
+        }
+
+        if (resourcePoolType === 'K8S' && info.nodeSelector) {
+          let validate = this.isJsonString(info.nodeSelector);
+          if (!validate) {
+            resultValidate.validate = false;
+            resultValidate.msg = this.$t('test_resource_pool.node_selector_invalid');
+          }
         }
       });
       return resultValidate;
@@ -435,24 +459,17 @@ export default {
           configuration.monitorPort = configuration.monitorPort || '9100';
           configuration.deployType = configuration.deployType || 'DaemonSet';
           configuration.deployName = configuration.deployName || 'ms-node-controller';
-          delete configuration.nodeSelector;
           resources.push(configuration);
         });
       }
       this.infoList = resources;
     },
     del(row) {
-      this.$confirm(this.$t('test_resource_pool.delete_prompt'), this.$t('commons.prompt'), {
-        confirmButtonText: this.$t('commons.confirm'),
-        cancelButtonText: this.$t('commons.cancel'),
-        type: 'warning'
-      }).then(() => {
+      operationConfirm(this.$t('test_resource_pool.delete_prompt'), () => {
         this.result = this.$get(`/testresourcepool/delete/${row.id}`, () => {
           this.initTableData();
           this.$success(this.$t('commons.delete_success'));
         });
-      }).catch(() => {
-        this.$info(this.$t('commons.delete_cancel'));
       });
     },
     createTestResourcePool() {
@@ -532,16 +549,11 @@ export default {
       if (row.status === 'INVALID') {
         this.checkHaveTestUsePool(row).then(() => {
           if (this.updatePool && this.updatePool.haveTestUsePool) {
-            this.$confirm(this.$t('test_resource_pool.update_prompt', [this.updatePool.testName]), this.$t('commons.prompt'), {
-              confirmButtonText: this.$t('commons.confirm'),
-              cancelButtonText: this.$t('commons.cancel'),
-              type: 'warning'
-            }).then(() => {
+            operationConfirm(this.$t('test_resource_pool.update_prompt', [this.updatePool.testName]), () => {
               this.updatePoolStatus(row);
-            }).catch(() => {
+            }, () => {
               row.status = 'VALID';
               this.result.loading = false;
-              this.$info(this.$t('commons.cancel'));
             });
           } else {
             this.updatePoolStatus(row);
@@ -599,6 +611,16 @@ export default {
         let i = response.data.lastIndexOf('-');
         this.apiImageTag = response.data.substring(0, i);
       });
+    },
+    isJsonString(str) {
+      try {
+        if (typeof JSON.parse(str) == "object") {
+          return true;
+        }
+      } catch (e) {
+        return false;
+      }
+      return false;
     }
   }
 };

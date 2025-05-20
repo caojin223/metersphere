@@ -1,12 +1,14 @@
 <template>
   <div>
     <el-table
+        :id="msTableKey"
+        v-if="tableActive"
         border
         class="test-content adjust-table ms-table"
         v-loading="tableIsLoading"
         :data="data"
         :default-sort="defaultSort"
-        :class="{'ms-select-all-fixed': showSelectAll, 'row-click': rowClickStyle}"
+        :class="{'ms-select-all-fixed': (showSelectAll && !hidePopover), 'row-click': rowClickStyle}"
         :height="screenHeight"
         :row-key="rowKey"
         :row-class-name="tableRowClassName"
@@ -19,15 +21,14 @@
         @header-dragend="headerDragend"
         @cell-mouse-enter="showPopover"
         @row-click="handleRowClick"
-        :key="tableActive"
         ref="table">
 
       <el-table-column
-        v-if="enableSelection"
-        width="50"
-        type="selection"/>
+          v-if="enableSelection"
+          width="50"
+          type="selection"/>
 
-      <ms-table-header-select-popover v-if="enableSelection && showSelectAll"
+      <ms-table-header-select-popover v-if="enableSelection && showSelectAll && !hidePopover"
                                       :page-size="pageSize > total ? total : pageSize"
                                       :table-data-count-in-page="data.length"
                                       :total="total"
@@ -45,7 +46,7 @@
 
         <template v-slot:default="scope">
           <!-- 选中记录后浮现的按钮，提供对记录的批量操作 -->
-          <show-more-btn :has-showed="!scope.row.showBatchTip"
+          <show-more-btn :has-showed="hasBatchTipShow"
                          :is-show="scope.row.showMore"
                          :buttons="batchOperators"
                          :size="selectDataCounts"/>
@@ -60,13 +61,13 @@
 
       <!--   拖拽排序   -->
       <el-table-column
-        v-if="enableOrderDrag"
-        width="20"
-        column-key="tableRowDropCol">
+          v-if="enableOrderDrag"
+          width="20"
+          column-key="tableRowDropCol">
         <template v-slot:default="scope">
           <div class="table-row-drop-bar">
-             <i class="el-icon-more ms-icon-more"/>
-             <i class="el-icon-more ms-icon-more"/>
+            <i class="el-icon-more ms-icon-more"/>
+            <i class="el-icon-more ms-icon-more"/>
           </div>
         </template>
       </el-table-column>
@@ -74,30 +75,30 @@
       <slot></slot>
 
       <el-table-column
-        v-if="operators && operators.length > 0"
-        :fixed="operatorFixed"
-        :min-width="operatorWidth"
-        :label="$t('commons.operating')">
+          v-if="operators && operators.length > 0"
+          :fixed="operatorFixed"
+          :min-width="operatorWidth"
+          :label="$t('commons.operating')">
         <template slot="header">
           <header-label-operate
-            v-if="fieldKey"
-            :disable-header-config="disableHeaderConfig"
-            @exec="openCustomHeader"/>
+              v-if="fieldKey"
+              :disable-header-config="disableHeaderConfig"
+              @exec="openCustomHeader"/>
         </template>
         <template
-          v-slot:default="scope">
+            v-slot:default="scope">
           <div>
             <slot
-              name="opt-before"
-              :row="scope.row">
+                name="opt-before"
+                :row="scope.row">
             </slot>
             <ms-table-operators
-              :buttons="operators"
-              :row="scope.row"
-              :index="scope.$index"/>
+                :buttons="operators"
+                :row="scope.row"
+                :index="scope.$index"/>
             <slot
-              name="opt-behind"
-              :row="scope.row">
+                name="opt-behind"
+                :row="scope.row">
             </slot>
           </div>
         </template>
@@ -105,11 +106,11 @@
     </el-table>
 
     <ms-custom-table-header
-      v-if="fieldKey"
-      :type="fieldKey"
-      :custom-fields="customFields"
-      @reload="resetHeader"
-      ref="customTableHeader"/>
+        v-if="fieldKey"
+        :type="fieldKey"
+        :custom-fields="customFields"
+        @reload="resetHeader"
+        ref="customTableHeader"/>
 
   </div>
 </template>
@@ -120,15 +121,15 @@ import {
   _handleSelect,
   _handleSelectAll,
   _sort,
-  getSelectDataCounts,
-  setUnSelectIds,
-  toggleAllSelection,
   checkTableRowIsSelect,
+  clearShareDragParam,
   getCustomTableHeader,
+  getSelectDataCounts,
+  handleRowDrop,
   saveCustomTableWidth,
   saveLastTableSortField,
-  handleRowDrop,
-  clearShareDragParam,
+  setUnSelectIds,
+  toggleAllSelection,
 } from "@/common/js/tableUtils";
 import MsTableHeaderSelectPopover from "@/business/components/common/components/table/MsTableHeaderSelectPopover";
 import MsTablePagination from "@/business/components/common/pagination/TablePagination";
@@ -139,7 +140,7 @@ import HeaderLabelOperate from "@/business/components/common/head/HeaderLabelOpe
 import HeaderCustom from "@/business/components/common/head/HeaderCustom";
 import MsCustomTableHeader from "@/business/components/common/components/table/MsCustomTableHeader";
 import {lineToHump} from "@/common/js/utils";
-import {editTestCaseOrder} from "@/network/testCase";
+import {getUUID} from "@/common/js/utils";
 
 /**
  * 参考 ApiList
@@ -165,15 +166,22 @@ export default {
       selectDataCounts: 0,
       selectRows: new Set(),
       selectIds: [],
-      // hasBatchTipShow: false,
+      hasBatchTipShow: false,
       defaultSort: {},
-      tableActive: true
+      tableActive: true,
+      msTableKey: "msTableKey_" + getUUID(),
     };
   },
   props: {
     screenHeight: {
       type: [String, Number],
       default: 400,
+    },
+    hidePopover: {
+      type: Boolean,
+      default() {
+        return false;
+      }
     },
     selectNodeIds: {
       type: Array,
@@ -253,8 +261,8 @@ export default {
         return false;
       }
     },
-    tableIsLoading:{
-      type:Boolean,
+    tableIsLoading: {
+      type: Boolean,
       default() {
         return false;
       }
@@ -291,11 +299,11 @@ export default {
       // 不知为何，勾选选择框也会进到这里，但是这种情况 newVar === oldVar
       if (newVar !== oldVar) {
         this.$nextTick(() => {
+          this.setDefaultOrders();
           this.clear();
           this.doLayout();
           this.checkTableRowIsSelect();
           this.listenRowDrop();
-          this.initData();
         });
       }
     },
@@ -304,14 +312,6 @@ export default {
     }
   },
   methods: {
-    initData(){
-      //初始化数据是否显示提示块
-      if(this.data && this.data.length > 0){
-        this.$nextTick(() => {
-          this.data[0].showBatchTip = true;
-        });
-      }
-    },
     // 批量操作提示, 第一次勾选提示, 之后不提示
     // 先添加 batch-popper 样式, 全选后再移除样式, 只保留可见框内第一条数据的提示
     removeBatchPopper() {
@@ -332,8 +332,7 @@ export default {
           if (i == index) {
             elements[i].classList.remove('batch-popper');
             setTimeout(() => {
-              // this.hasBatchTipShow = true;
-              this.initData();
+              this.hasBatchTipShow = true;
             }, 1500);
           }
         }
@@ -347,10 +346,10 @@ export default {
           if (this.rowOrderFunc) {
             this.rowOrderFunc(param);
           }
-        });
+        }, this.msTableKey);
       }
     },
-    isScrollShow(column, tableTop){  //判断元素是否因为超过表头
+    isScrollShow(column, tableTop) {  //判断元素是否因为超过表头
       let columnTop = column.getBoundingClientRect().top;
       return columnTop - tableTop > 30;
     },
@@ -376,7 +375,7 @@ export default {
       this.selectDataCounts = getSelectDataCounts(this.condition, this.total, this.selectRows);
       this.selectIds = Array.from(this.selectRows).map(o => o.id);
       //有的组件需要回调父组件的函数，做下一步处理
-      this.$emit('callBackSelectAll',selection);
+      this.$emit('callBackSelectAll', selection);
       this.$nextTick(function () {
         setTimeout(this.removeBatchPopper, 1);
       });
@@ -387,7 +386,7 @@ export default {
       this.selectDataCounts = getSelectDataCounts(this.condition, this.total, this.selectRows);
       this.selectIds = Array.from(this.selectRows).map(o => o.id);
       //有的组件需要回调父组件的函数，做下一步处理
-      this.$emit('callBackSelect',selection);
+      this.$emit('callBackSelect', selection);
       this.$nextTick(function () {
         setTimeout(this.removeBatchPopper, 1);
       });
@@ -405,10 +404,10 @@ export default {
       this.selectIds = Array.from(this.selectRows).map(o => o.id);
     },
     headerDragend(newWidth, oldWidth, column, event) {
-      if(column){
-        if(column.minWidth){
+      if (column) {
+        if (column.minWidth) {
           let minWidth = column.minWidth;
-          if(minWidth > newWidth){
+          if (minWidth > newWidth) {
             column.width = minWidth;
             newWidth = minWidth;
           }
@@ -429,6 +428,7 @@ export default {
     },
     filter(filters) {
       _filter(filters, this.condition);
+      this.$emit('filter');
       this.handleRefresh();
     },
     sort(column) {
@@ -440,6 +440,7 @@ export default {
       if (this.rememberOrder) {
         saveLastTableSortField(this.fieldKey, JSON.stringify(this.condition.orders));
       }
+      this.$emit('order', column);
       this.handleRefresh();
     },
     handleBatchEdit() {
@@ -470,6 +471,8 @@ export default {
     },
     clearSelection() {
       this.clearSelectRows();
+      this.condition.selectAll = false;
+      this.condition.unSelectIds = [];
     },
     getSelectRows() {
       return this.selectRows;
@@ -477,7 +480,7 @@ export default {
     clearSelectRows() {
       this.selectRows.clear();
       this.selectIds = [];
-      if(!this.condition.selectAll){
+      if (!this.condition.selectAll) {
         this.condition.selectAll = false;
         this.condition.unSelectIds = [];
       }
@@ -491,22 +494,25 @@ export default {
     },
     resetHeader() {
       this.$emit('update:fields', getCustomTableHeader(this.fieldKey, this.customFields));
-      this.reloadTable();
-    },
-    toggleRowSelection() {
-      this.$refs.table.toggleRowSelection();
-    },
-    reloadTable() {
       this.tableActive = false;
       this.$nextTick(() => {
         this.doLayout();
         this.tableActive = true;
       });
+      this.listenRowDrop();
+    },
+    toggleRowSelection() {
+      this.$refs.table.toggleRowSelection();
+    },
+    reloadTable() {
+      this.$nextTick(() => {
+        this.doLayout();
+      });
     },
     addPaddingColClass({column}) {
       if (column.columnKey === 'tableRowDropCol'
-        || column.columnKey === 'selectionCol'
-        || column.columnKey ==='batchBtnCol') {
+          || column.columnKey === 'selectionCol'
+          || column.columnKey === 'batchBtnCol') {
         return 'padding-col';
       }
     },
@@ -555,24 +561,24 @@ export default {
   margin-right: -5px;
 }
 
-.ms-table >>> .el-table__body tr.hover-row.current-row>td,
-.ms-table >>>  .el-table__body tr.hover-row.el-table__row--striped.current-row>td,
-.ms-table >>> .el-table__body tr.hover-row.el-table__row--striped>td,
-.ms-table >>> .el-table__body tr.hover-row>td {
+.ms-table >>> .el-table__body tr.hover-row.current-row > td,
+.ms-table >>> .el-table__body tr.hover-row.el-table__row--striped.current-row > td,
+.ms-table >>> .el-table__body tr.hover-row.el-table__row--striped > td,
+.ms-table >>> .el-table__body tr.hover-row > td {
   background-color: #ffffff;
 }
+
 /* 解决拖拽排序后hover阴影错乱问题 */
-.ms-table >>> .el-table__body tr:hover>td
- {
+.ms-table >>> .el-table__body tr:hover > td {
   background-color: #F5F7FA;
 }
 
-.disable-hover >>> tr:hover>td{
+.disable-hover >>> tr:hover > td {
   background-color: #ffffff !important;
 }
 
 .row-click {
-  cursor:pointer;
+  cursor: pointer;
 }
 
 </style>

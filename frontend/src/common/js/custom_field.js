@@ -1,5 +1,6 @@
 import i18n from '../../i18n/i18n'
 import {SYSTEM_FIELD_NAME_MAP} from "@/common/js/table-constants";
+import {getCurrentUserId} from "@/common/js/utils";
 
 function setDefaultValue(item, value) {
   item.defaultValue = value;
@@ -10,7 +11,6 @@ function setDefaultValue(item, value) {
  * 设置默认值，添加自定义校验
  * @param data 原表单值
  * @param template 模板
- * @param customFieldForm 用于自定义表单的校验
  * @param rules 自定义表单的校验规则
  * @param oldFields 用于兼容旧版本数据
  */
@@ -28,7 +28,16 @@ export function parseCustomField(data, template, rules, oldFields) {
   template.customFields.forEach(item => {
 
     if (item.defaultValue && !item.hasParse) {
-      setDefaultValue(item, JSON.parse(item.defaultValue));
+      let val = item.defaultValue;
+      try {
+        val = JSON.parse(item.defaultValue);
+      } catch (e) {
+        //
+      }
+      if (item.name === '责任人' && item.system && val && val === 'CURRENT_USER') {
+        val = getCurrentUserId();
+      }
+      setDefaultValue(item, val);
     }
 
     // 添加自定义字段必填校验
@@ -58,10 +67,14 @@ export function parseCustomField(data, template, rules, oldFields) {
         let customField = data.fields[i];
         if (customField.id === item.id) {
           try {
-            setDefaultValue(item, customField.value);
+            if (item.type === 'textarea' || item.type === 'richText') {
+              setDefaultValue(item, customField.textValue);
+            } else {
+              setDefaultValue(item, customField.value);
+            }
             item.isEdit = true;
           } catch (e) {
-            console.log("JSON parse custom field value error.");
+            console.error("JSON parse custom field value error.", e);
           }
           break;
         }
@@ -92,20 +105,34 @@ export function buildCustomFields(data, param, template) {
 
     let addFields = [];
     let editFields = [];
+    let requestFields = [];
 
     template.customFields.forEach(item => {
-      let customField = {
-        fieldId: item.id,
-        value: item.defaultValue ? JSON.stringify(item.defaultValue): "",
-      };
-      if (item.isEdit) {
+      let customField = {fieldId: item.id};
+      if (['richText', 'textarea'].indexOf(item.type) > -1) {
+        customField['textValue'] = item.defaultValue;
+      } else {
+        customField['value'] = item.defaultValue ? JSON.stringify(item.defaultValue): "";
+      }
+      if (item.isEdit && data.id) {
         editFields.push(customField);
       } else {
         addFields.push(customField);
       }
+      let fieldValue = (item.defaultValue instanceof Array && item.type !== 'multipleInput') ?
+        JSON.stringify(item.defaultValue) : (item.defaultValue || "");
+      let requestField = {
+        id: item.id,
+        name: item.name,
+        customData: item.customData,
+        type: item.type,
+        value: fieldValue
+      }
+      requestFields.push(requestField);
     });
     param.addFields = addFields;
     param.editFields = editFields;
+    param.requestFields = requestFields;
   }
 }
 
@@ -113,6 +140,24 @@ export function buildCustomFields(data, param, template) {
 export function getTemplate(baseUrl, vueObj) {
   return new Promise((resolve) => {
     let template = {};
+    vueObj.$get(baseUrl + vueObj.projectId, (response) => {
+      template = response.data;
+      if (template.customFields) {
+        template.customFields.forEach(item => {
+          if (item.options) {
+            item.options = JSON.parse(item.options);
+          }
+        });
+      }
+      resolve(template);
+    });
+  });
+}
+
+export function getApiFieldTemplate(vueObj) {
+  return new Promise((resolve) => {
+    let template = {};
+    let baseUrl = 'project/field/template/api/get-template/relate/';
     vueObj.$get(baseUrl + vueObj.projectId, (response) => {
       template = response.data;
       if (template.customFields) {

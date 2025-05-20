@@ -16,7 +16,6 @@
     <result column="update_time" jdbcType="BIGINT" property="updateTime" />
     <result column="sort" jdbcType="INTEGER" property="sort" />
     <result column="num" jdbcType="INTEGER" property="num" />
-    <result column="other_test_name" jdbcType="VARCHAR" property="otherTestName" />
     <result column="review_status" jdbcType="VARCHAR" property="reviewStatus" />
     <result column="tags" jdbcType="VARCHAR" property="tags" />
     <result column="demand_id" jdbcType="VARCHAR" property="demandId" />
@@ -33,6 +32,7 @@
     <result column="version_id" jdbcType="VARCHAR" property="versionId" />
     <result column="ref_id" jdbcType="VARCHAR" property="refId" />
     <result column="latest" jdbcType="BIT" property="latest" />
+    <result column="last_execute_result" jdbcType="VARCHAR" property="lastExecuteResult" />
   </resultMap>
   <resultMap extends="BaseResultMap" id="ResultMapWithBLOBs" type="io.metersphere.base.domain.TestCaseWithBLOBs">
     <result column="prerequisite" jdbcType="LONGVARCHAR" property="prerequisite" />
@@ -102,9 +102,9 @@
   </sql>
   <sql id="Base_Column_List">
     id, node_id, test_id, node_path, project_id, `name`, `type`, maintainer, priority, 
-    `method`, create_time, update_time, sort, num, other_test_name, review_status, tags, 
-    demand_id, demand_name, `status`, step_model, custom_num, create_user, original_status, 
-    delete_time, delete_user_id, `order`, case_public, version_id, ref_id, latest
+    `method`, create_time, update_time, sort, num, review_status, tags, demand_id, demand_name, 
+    `status`, step_model, custom_num, create_user, original_status, delete_time, delete_user_id, 
+    `order`, case_public, version_id, ref_id, latest, last_execute_result
   </sql>
   <sql id="Blob_Column_List">
     prerequisite, remark, steps, step_description, expected_result, custom_fields
@@ -162,26 +162,26 @@
       node_path, project_id, `name`, 
       `type`, maintainer, priority, 
       `method`, create_time, update_time, 
-      sort, num, other_test_name, 
-      review_status, tags, demand_id, 
-      demand_name, `status`, step_model, 
-      custom_num, create_user, original_status, 
-      delete_time, delete_user_id, `order`, 
-      case_public, version_id, ref_id, 
-      latest, prerequisite, remark, 
+      sort, num, review_status, 
+      tags, demand_id, demand_name, 
+      `status`, step_model, custom_num, 
+      create_user, original_status, delete_time, 
+      delete_user_id, `order`, case_public, 
+      version_id, ref_id, latest, 
+      last_execute_result, prerequisite, remark, 
       steps, step_description, expected_result, 
       custom_fields)
     values (#{id,jdbcType=VARCHAR}, #{nodeId,jdbcType=VARCHAR}, #{testId,jdbcType=VARCHAR}, 
       #{nodePath,jdbcType=VARCHAR}, #{projectId,jdbcType=VARCHAR}, #{name,jdbcType=VARCHAR}, 
       #{type,jdbcType=VARCHAR}, #{maintainer,jdbcType=VARCHAR}, #{priority,jdbcType=VARCHAR}, 
       #{method,jdbcType=VARCHAR}, #{createTime,jdbcType=BIGINT}, #{updateTime,jdbcType=BIGINT}, 
-      #{sort,jdbcType=INTEGER}, #{num,jdbcType=INTEGER}, #{otherTestName,jdbcType=VARCHAR}, 
-      #{reviewStatus,jdbcType=VARCHAR}, #{tags,jdbcType=VARCHAR}, #{demandId,jdbcType=VARCHAR}, 
-      #{demandName,jdbcType=VARCHAR}, #{status,jdbcType=VARCHAR}, #{stepModel,jdbcType=VARCHAR}, 
-      #{customNum,jdbcType=VARCHAR}, #{createUser,jdbcType=VARCHAR}, #{originalStatus,jdbcType=VARCHAR}, 
-      #{deleteTime,jdbcType=BIGINT}, #{deleteUserId,jdbcType=VARCHAR}, #{order,jdbcType=BIGINT}, 
-      #{casePublic,jdbcType=BIT}, #{versionId,jdbcType=VARCHAR}, #{refId,jdbcType=VARCHAR}, 
-      #{latest,jdbcType=BIT}, #{prerequisite,jdbcType=LONGVARCHAR}, #{remark,jdbcType=LONGVARCHAR}, 
+      #{sort,jdbcType=INTEGER}, #{num,jdbcType=INTEGER}, #{reviewStatus,jdbcType=VARCHAR}, 
+      #{tags,jdbcType=VARCHAR}, #{demandId,jdbcType=VARCHAR}, #{demandName,jdbcType=VARCHAR}, 
+      #{status,jdbcType=VARCHAR}, #{stepModel,jdbcType=VARCHAR}, #{customNum,jdbcType=VARCHAR}, 
+      #{createUser,jdbcType=VARCHAR}, #{originalStatus,jdbcType=VARCHAR}, #{deleteTime,jdbcType=BIGINT}, 
+      #{deleteUserId,jdbcType=VARCHAR}, #{order,jdbcType=BIGINT}, #{casePublic,jdbcType=BIT}, 
+      #{versionId,jdbcType=VARCHAR}, #{refId,jdbcType=VARCHAR}, #{latest,jdbcType=BIT}, 
+      #{lastExecuteResult,jdbcType=VARCHAR}, #{prerequisite,jdbcType=LONGVARCHAR}, #{remark,jdbcType=LONGVARCHAR}, 
       #{steps,jdbcType=LONGVARCHAR}, #{stepDescription,jdbcType=LONGVARCHAR}, #{expectedResult,jdbcType=LONGVARCHAR}, 
       #{customFields,jdbcType=LONGVARCHAR})
   </insert>
@@ -230,9 +230,6 @@
       <if test="num != null">
         num,
       </if>
-      <if test="otherTestName != null">
-        other_test_name,
-      </if>
       <if test="reviewStatus != null">
         review_status,
       </if>
@@ -280,6 +277,9 @@
       </if>
       <if test="latest != null">
         latest,
+      </if>
+      <if test="lastExecuteResult != null">
+        last_execute_result,
       </if>
       <if test="prerequisite != null">
         prerequisite,
@@ -343,9 +343,6 @@
       <if test="num != null">
         #{num,jdbcType=INTEGER},
       </if>
-      <if test="otherTestName != null">
-        #{otherTestName,jdbcType=VARCHAR},
-      </if>
       <if test="reviewStatus != null">
         #{reviewStatus,jdbcType=VARCHAR},
       </if>
@@ -393,6 +390,9 @@
       </if>
       <if test="latest != null">
         #{latest,jdbcType=BIT},
+      </if>
+      <if test="lastExecuteResult != null">
+        #{lastExecuteResult,jdbcType=VARCHAR},
       </if>
       <if test="prerequisite != null">
         #{prerequisite,jdbcType=LONGVARCHAR},
@@ -465,9 +465,6 @@
       <if test="record.num != null">
         num = #{record.num,jdbcType=INTEGER},
       </if>
-      <if test="record.otherTestName != null">
-        other_test_name = #{record.otherTestName,jdbcType=VARCHAR},
-      </if>
       <if test="record.reviewStatus != null">
         review_status = #{record.reviewStatus,jdbcType=VARCHAR},
       </if>
@@ -516,6 +513,9 @@
       <if test="record.latest != null">
         latest = #{record.latest,jdbcType=BIT},
       </if>
+      <if test="record.lastExecuteResult != null">
+        last_execute_result = #{record.lastExecuteResult,jdbcType=VARCHAR},
+      </if>
       <if test="record.prerequisite != null">
         prerequisite = #{record.prerequisite,jdbcType=LONGVARCHAR},
       </if>
@@ -555,7 +555,6 @@
       update_time = #{record.updateTime,jdbcType=BIGINT},
       sort = #{record.sort,jdbcType=INTEGER},
       num = #{record.num,jdbcType=INTEGER},
-      other_test_name = #{record.otherTestName,jdbcType=VARCHAR},
       review_status = #{record.reviewStatus,jdbcType=VARCHAR},
       tags = #{record.tags,jdbcType=VARCHAR},
       demand_id = #{record.demandId,jdbcType=VARCHAR},
@@ -572,6 +571,7 @@
       version_id = #{record.versionId,jdbcType=VARCHAR},
       ref_id = #{record.refId,jdbcType=VARCHAR},
       latest = #{record.latest,jdbcType=BIT},
+      last_execute_result = #{record.lastExecuteResult,jdbcType=VARCHAR},
       prerequisite = #{record.prerequisite,jdbcType=LONGVARCHAR},
       remark = #{record.remark,jdbcType=LONGVARCHAR},
       steps = #{record.steps,jdbcType=LONGVARCHAR},
@@ -598,7 +598,6 @@
       update_time = #{record.updateTime,jdbcType=BIGINT},
       sort = #{record.sort,jdbcType=INTEGER},
       num = #{record.num,jdbcType=INTEGER},
-      other_test_name = #{record.otherTestName,jdbcType=VARCHAR},
       review_status = #{record.reviewStatus,jdbcType=VARCHAR},
       tags = #{record.tags,jdbcType=VARCHAR},
       demand_id = #{record.demandId,jdbcType=VARCHAR},
@@ -614,7 +613,8 @@
       case_public = #{record.casePublic,jdbcType=BIT},
       version_id = #{record.versionId,jdbcType=VARCHAR},
       ref_id = #{record.refId,jdbcType=VARCHAR},
-      latest = #{record.latest,jdbcType=BIT}
+      latest = #{record.latest,jdbcType=BIT},
+      last_execute_result = #{record.lastExecuteResult,jdbcType=VARCHAR}
     <if test="_parameter != null">
       <include refid="Update_By_Example_Where_Clause" />
     </if>
@@ -660,9 +660,6 @@
       </if>
       <if test="num != null">
         num = #{num,jdbcType=INTEGER},
-      </if>
-      <if test="otherTestName != null">
-        other_test_name = #{otherTestName,jdbcType=VARCHAR},
       </if>
       <if test="reviewStatus != null">
         review_status = #{reviewStatus,jdbcType=VARCHAR},
@@ -712,6 +709,9 @@
       <if test="latest != null">
         latest = #{latest,jdbcType=BIT},
       </if>
+      <if test="lastExecuteResult != null">
+        last_execute_result = #{lastExecuteResult,jdbcType=VARCHAR},
+      </if>
       <if test="prerequisite != null">
         prerequisite = #{prerequisite,jdbcType=LONGVARCHAR},
       </if>
@@ -748,7 +748,6 @@
       update_time = #{updateTime,jdbcType=BIGINT},
       sort = #{sort,jdbcType=INTEGER},
       num = #{num,jdbcType=INTEGER},
-      other_test_name = #{otherTestName,jdbcType=VARCHAR},
       review_status = #{reviewStatus,jdbcType=VARCHAR},
       tags = #{tags,jdbcType=VARCHAR},
       demand_id = #{demandId,jdbcType=VARCHAR},
@@ -765,6 +764,7 @@
       version_id = #{versionId,jdbcType=VARCHAR},
       ref_id = #{refId,jdbcType=VARCHAR},
       latest = #{latest,jdbcType=BIT},
+      last_execute_result = #{lastExecuteResult,jdbcType=VARCHAR},
       prerequisite = #{prerequisite,jdbcType=LONGVARCHAR},
       remark = #{remark,jdbcType=LONGVARCHAR},
       steps = #{steps,jdbcType=LONGVARCHAR},
@@ -788,7 +788,6 @@
       update_time = #{updateTime,jdbcType=BIGINT},
       sort = #{sort,jdbcType=INTEGER},
       num = #{num,jdbcType=INTEGER},
-      other_test_name = #{otherTestName,jdbcType=VARCHAR},
       review_status = #{reviewStatus,jdbcType=VARCHAR},
       tags = #{tags,jdbcType=VARCHAR},
       demand_id = #{demandId,jdbcType=VARCHAR},
@@ -804,7 +803,8 @@
       case_public = #{casePublic,jdbcType=BIT},
       version_id = #{versionId,jdbcType=VARCHAR},
       ref_id = #{refId,jdbcType=VARCHAR},
-      latest = #{latest,jdbcType=BIT}
+      latest = #{latest,jdbcType=BIT},
+      last_execute_result = #{lastExecuteResult,jdbcType=VARCHAR}
     where id = #{id,jdbcType=VARCHAR}
   </update>
 </mapper>

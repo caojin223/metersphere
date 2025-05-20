@@ -79,9 +79,16 @@ public class ParameterConfig extends MsParameter {
 
     private String scenarioId;
 
+    /**
+     * 报告 ID
+     */
+    private String reportId;
+
     private String reportType;
 
     private boolean runLocal;
+
+    private String browserLanguage;
 
     /**
      * 排除生成临界控制器的场景
@@ -90,6 +97,15 @@ public class ParameterConfig extends MsParameter {
 
     private List<String> csvFilePaths = new ArrayList<>();
 
+    /**
+     * 是否开始重试
+     */
+    private Boolean retryEnable;
+
+    /**
+     * 重试次数
+     */
+    private Long retryNumber;
 
     public boolean isEffective(String projectId) {
         if (this.config != null && this.config.get(projectId) != null) {
@@ -130,6 +146,10 @@ public class ParameterConfig extends MsParameter {
                         }
                     } else {
                         apiDefinition = apiDefinitionService.get(samplerProxy.getId());
+                        // 兼容导入数据
+                        if(apiDefinition == null ){
+                            apiDefinition = apiDefinitionService.get(samplerProxy.getName());
+                        }
                         ApiTestCaseWithBLOBs apiTestCaseWithBLOBs = apiTestCaseService.get(samplerProxy.getId());
                         if (apiTestCaseWithBLOBs == null) {
                             apiTestCaseWithBLOBs = apiTestCaseService.get(samplerProxy.getName());

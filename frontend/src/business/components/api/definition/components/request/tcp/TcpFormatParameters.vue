@@ -3,8 +3,7 @@
     <el-row>
       <el-col :span="spanNum" style="padding-bottom: 20px">
         <div style="border:1px #DCDFE6 solid; height: 100%;border-radius: 4px ;width: 100% ;">
-          <el-form class="tcp" :model="request" :rules="rules" ref="request" :disabled="isReadOnly"
-                   style="margin: 20px">
+          <el-form class="tcp" :model="request" :rules="rules" ref="request" :disabled="isReadOnly">
             <el-tabs v-model="activeName" class="request-tabs" @tab-click="tabClick">
               <!--test-->
               <el-tab-pane name="parameters">
@@ -15,9 +14,8 @@
                 <ms-api-variable :is-read-only="isReadOnly" :parameters="request.parameters"/>
               </el-tab-pane>
               <!--test-->
-
-              <!--query 参数-->
-              <el-tab-pane v-if="isBodyShow" :label="$t('api_test.definition.document.request_body')" name="request">
+              <el-tab-pane v-if="isBodyShow" :label="$t('api_test.definition.document.request_body')" name="request"
+                           v-loading="result.loading">
                 <el-radio-group v-model="reportType" size="mini" style="margin: 10px 0px;">
                   <el-radio :disabled="isReadOnly" label="json" @change="changeReportType">
                     json
@@ -46,76 +44,60 @@
                     <ms-code-edit mode="text" :read-only="isReadOnly" :data.sync="request.rawDataStruct"
                                   :modes="['text', 'json', 'xml', 'html']" theme="eclipse"/>
                   </div>
+                  <el-button class="ht-btn-add" size="mini" p="$t('commons.add')" icon="el-icon-circle-plus-outline"
+                             @click="toXml">
+                    {{ $t("api_test.buttons.to_xml") }}
+                  </el-button>
                 </div>
               </el-tab-pane>
 
               <el-tab-pane :label="$t('api_test.definition.request.other_config')" name="other" class="other-config">
-                <el-row>
-                  <el-col :span="8">
-                    <el-form-item label="TCPClient" prop="classname">
+                <el-row style="margin: 0px 10px;">
+                  <el-col :span="7">
+                    <el-form-item label="TCPClient" prop="classname" label-width="120px">
                       <el-select v-model="request.classname" style="width: 100%" size="small">
                         <el-option v-for="c in classes" :key="c" :label="c" :value="c"/>
                       </el-select>
                     </el-form-item>
-                  </el-col>
-                  <el-col :span="8">
-                    <el-form-item :label="$t('api_test.request.tcp.connect')" prop="ctimeout">
-                      <el-input-number v-model="request.ctimeout" controls-position="right" :min="0" size="small"/>
+                    <el-form-item :label="$t('api_test.request.tcp.username')" prop="username" label-width="120px">
+                      <el-input v-model="request.username" maxlength="100" show-word-limit size="small"/>
                     </el-form-item>
-                  </el-col>
-                  <el-col :span="8">
-                    <el-form-item :label="$t('api_test.request.tcp.response')" prop="timeout">
-                      <el-input-number v-model="request.timeout" controls-position="right" :min="0" size="small"/>
-                    </el-form-item>
-                  </el-col>
-                </el-row>
-                <el-row :gutter="10">
-                  <el-col :span="6">
-                    <el-form-item :label="$t('api_test.request.tcp.so_linger')" prop="soLinger">
-                      <el-input v-model="request.soLinger" size="small"/>
-                    </el-form-item>
-                  </el-col>
-
-                  <el-col :span="6">
-                    <el-form-item :label="$t('api_test.request.tcp.eol_byte')" prop="eolByte">
+                    <el-form-item :label="$t('api_test.request.tcp.eol_byte')" prop="eolByte" label-width="120px">
                       <el-input v-model="request.eolByte" size="small"/>
                     </el-form-item>
                   </el-col>
-
-                  <el-col :span="6">
-                    <el-form-item :label="$t('api_test.request.tcp.username')" prop="username">
-                      <el-input v-model="request.username" maxlength="100" show-word-limit size="small"/>
+                  <el-col :span="6" label-width="80px">
+                    <el-form-item :label="$t('api_test.request.tcp.so_linger')" prop="soLinger" label-width="120px">
+                      <el-input v-model="request.soLinger" size="small"/>
                     </el-form-item>
-                  </el-col>
-                  <el-col :span="6">
-                    <el-form-item :label="$t('api_test.request.tcp.password')" prop="password">
+                    <el-form-item :label="$t('api_test.request.tcp.password')" prop="password" label-width="120px">
                       <el-input v-model="request.password" maxlength="30" show-word-limit show-password
                                 autocomplete="new-password" size="small"/>
                     </el-form-item>
-                  </el-col>
-                </el-row>
-                <el-row :gutter="10" style="margin-left: 30px">
-                  <el-col :span="6">
-                    <el-form-item :label="$t('api_test.request.tcp.re_use_connection')">
-                      <el-checkbox v-model="request.reUseConnection"/>
-                    </el-form-item>
-                  </el-col>
-                  <el-col :span="6">
-                    <el-form-item :label="$t('api_test.request.tcp.close_connection')">
-                      <el-checkbox v-model="request.closeConnection"/>
-                    </el-form-item>
-                  </el-col>
-                  <el-col :span="6">
-                    <el-form-item :label="$t('api_test.request.tcp.no_delay')">
-                      <el-checkbox v-model="request.nodelay"/>
-                    </el-form-item>
-                  </el-col>
-                  <el-col :span="6">
-                    <el-form-item label="Connect encoding">
-                      <el-select v-model="request.connectEncoding" style="width: 100px" size="small">
+                    <el-form-item label="Encoding" label-width="120px">
+                      <el-select v-model="request.connectEncoding" size="small">
                         <el-option v-for="item in connectEncodingArr" :key="item.key" :label="item.value"
                                    :value="item.key"/>
                       </el-select>
+                    </el-form-item>
+                  </el-col>
+                  <el-col :span="5">
+                    <el-form-item :label="$t('api_test.request.tcp.close_connection')" label-width="140px">
+                      <el-checkbox v-model="request.closeConnection"/>
+                    </el-form-item>
+                    <el-form-item :label="$t('api_test.request.tcp.no_delay')" label-width="140px">
+                      <el-checkbox v-model="request.nodelay"/>
+                    </el-form-item>
+                    <el-form-item :label="$t('api_test.request.tcp.re_use_connection')" label-width="140px">
+                      <el-checkbox v-model="request.reUseConnection"/>
+                    </el-form-item>
+                  </el-col>
+                  <el-col :span="3">
+                    <el-form-item :label="$t('api_test.request.tcp.connect')" prop="ctimeout" label-width="80px">
+                      <el-input-number v-model="request.ctimeout" controls-position="right" :min="0" size="small"/>
+                    </el-form-item>
+                    <el-form-item :label="$t('api_test.request.tcp.response')" prop="timeout" label-width="80px">
+                      <el-input-number v-model="request.timeout" controls-position="right" :min="0" size="small"/>
                     </el-form-item>
                   </el-col>
                 </el-row>
@@ -154,7 +136,8 @@
                     <div class="el-step__icon-inner">{{ request.ruleSize }}</div>
                   </div>
                 </span>
-                <ms-jmx-step :request="request" :apiId="request.id" protocol="TCP" :scenario-id="scenarioId" :response="response"
+                <ms-jmx-step :request="request" :apiId="request.id" protocol="TCP" :scenario-id="scenarioId"
+                             :response="response"
                              @reload="reloadBody"
                              :tab-type="'assertionsRule'" ref="assertionsRule"/>
               </el-tab-pane>
@@ -185,7 +168,7 @@ import ApiDefinitionStepButton from "../components/ApiDefinitionStepButton";
 import TcpXmlTable from "@/business/components/api/definition/components/complete/table/TcpXmlTable";
 import {TYPE_TO_C} from "@/business/components/api/automation/scenario/Setting";
 import MsJmxStep from "../../step/JmxStep";
-import {stepCompute, hisDataProcessing} from "@/business/components/api/definition/api-definition";
+import {hisDataProcessing, stepCompute} from "@/business/components/api/definition/api-definition";
 
 
 export default {
@@ -227,6 +210,7 @@ export default {
   data() {
     return {
       spanNum: 24,
+      result: {},
       activeName: "request",
       classes: TCPSampler.CLASSES,
       reportType: "xml",
@@ -265,6 +249,9 @@ export default {
   },
   created() {
     this.currentProjectId = getCurrentProjectID();
+    if (!this.request.classname) {
+      this.request.classname = "TCPClientImpl";
+    }
     if (!this.request.parameters) {
       this.$set(this.request, 'parameters', []);
       this.request.parameters = [];
@@ -307,6 +294,15 @@ export default {
     }
   },
   methods: {
+    toXml() {
+      let url = "/api/definition/raw-to-xml";
+      this.result = this.$post(url, {"stringData": this.request.rawDataStruct}, response => {
+        if (response.data) {
+          this.request.xmlDataStruct = response.data;
+          this.reportType = "xml";
+        }
+      });
+    },
     tabClick() {
       if (this.activeName === 'preOperate') {
         this.$refs.preStep.filter();
@@ -584,7 +580,13 @@ export default {
 }
 
 .other-config {
-  padding: 15px;
+  padding: 15px 0px;
 }
 
+.ht-btn-add {
+  border: 0px;
+  margin-top: 10px;
+  color: #783887;
+  background-color: white;
+}
 </style>

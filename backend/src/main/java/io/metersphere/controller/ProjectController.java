@@ -7,6 +7,7 @@ import io.metersphere.base.domain.FileMetadata;
 import io.metersphere.base.domain.Project;
 import io.metersphere.commons.constants.OperLogConstants;
 import io.metersphere.commons.constants.OperLogModule;
+import io.metersphere.commons.constants.PermissionConstants;
 import io.metersphere.commons.utils.PageUtils;
 import io.metersphere.commons.utils.Pager;
 import io.metersphere.commons.utils.SessionUtils;
@@ -17,6 +18,8 @@ import io.metersphere.dto.WorkspaceMemberDTO;
 import io.metersphere.log.annotation.MsAuditLog;
 import io.metersphere.service.CheckPermissionService;
 import io.metersphere.service.ProjectService;
+import org.apache.shiro.authz.annotation.Logical;
+import org.apache.shiro.authz.annotation.RequiresPermissions;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -43,9 +46,9 @@ public class ProjectController {
         return projectService.getProjectList(request);
     }
 
-    /*jenkins项目列表*/
     @GetMapping("/listAll/{workspaceId}")
-    public List<ProjectDTO> jlistAll(@PathVariable String workspaceId) {
+    @RequiresPermissions(value = {PermissionConstants.WORKSPACE_PROJECT_MANAGER_READ, PermissionConstants.SYSTEM_USER_READ}, logical = Logical.OR)
+    public List<ProjectDTO> listAll(@PathVariable String workspaceId) {
         ProjectRequest request = new ProjectRequest();
         request.setWorkspaceId(workspaceId);
         return projectService.getProjectList(request);
@@ -72,6 +75,7 @@ public class ProjectController {
 
     @PostMapping("/add")
     @MsAuditLog(module = OperLogModule.PROJECT_PROJECT_MANAGER, type = OperLogConstants.CREATE, content = "#msClass.getLogDetails(#project.id)", msClass = ProjectService.class)
+    @RequiresPermissions(PermissionConstants.WORKSPACE_PROJECT_MANAGER_READ_CREATE)
     public Project addProject(@RequestBody AddProjectRequest project, HttpServletRequest request) {
         Project returnModel = projectService.addProject(project);
         //创建项目的时候默认增加Mock环境
@@ -80,6 +84,7 @@ public class ProjectController {
     }
 
     @PostMapping("/list/{goPage}/{pageSize}")
+    @RequiresPermissions(PermissionConstants.WORKSPACE_PROJECT_MANAGER_READ)
     public Pager<List<ProjectDTO>> getProjectList(@PathVariable int goPage, @PathVariable int pageSize, @RequestBody ProjectRequest request) {
         Page<Object> page = PageHelper.startPage(goPage, pageSize, true);
         return PageUtils.setPageInfo(page, projectService.getProjectList(request));
@@ -99,12 +104,14 @@ public class ProjectController {
 
     @GetMapping("/delete/{projectId}")
     @MsAuditLog(module = OperLogModule.PROJECT_PROJECT_MANAGER, type = OperLogConstants.DELETE, beforeEvent = "#msClass.getLogDetails(#projectId)", msClass = ProjectService.class)
+    @RequiresPermissions(PermissionConstants.WORKSPACE_PROJECT_MANAGER_READ_DELETE)
     public void deleteProject(@PathVariable(value = "projectId") String projectId) {
         projectService.deleteProject(projectId);
     }
 
     @PostMapping("/update")
     @MsAuditLog(module = OperLogModule.PROJECT_PROJECT_MANAGER, type = OperLogConstants.UPDATE, beforeEvent = "#msClass.getLogDetails(#Project.id)", content = "#msClass.getLogDetails(#Project.id)", msClass = ProjectService.class)
+    @RequiresPermissions(value = {PermissionConstants.WORKSPACE_PROJECT_MANAGER_READ_EDIT, PermissionConstants.PROJECT_MANAGER_READ_EDIT}, logical = Logical.OR)
     public void updateProject(@RequestBody AddProjectRequest Project) {
         projectService.updateProject(Project);
     }

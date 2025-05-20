@@ -161,7 +161,7 @@ export default {
     },
 
     initUserList() {
-      this.result = this.$post('/user/project/member/list', {projectId: getCurrentProjectID()}, response => {
+      this.result = this.$get('/user/project/member/list', response => {
         this.jenkinsReceiverOptions = response.data;
         this.reviewReceiverOptions = response.data;
         this.defectReceiverOptions = response.data;
@@ -201,7 +201,7 @@ export default {
 
 <style scoped>
 .task-notification {
-  height: calc(100vh - 230px);
+  height: calc(100vh - 190px);
   overflow: auto;
 }
 

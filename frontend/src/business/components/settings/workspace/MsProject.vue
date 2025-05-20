@@ -5,10 +5,6 @@
         <ms-table-header :create-permission="['WORKSPACE_PROJECT_MANAGER:READ+CREATE']" :condition.sync="condition"
                          @search="search" @create="create"
                          :create-tip="btnTips" :title="$t('project.manager')">
-          <template v-slot:button>
-            <ms-table-button icon="el-icon-box" v-permission="['WORKSPACE_PROJECT_MANAGER:READ+UPLOAD_JAR']"
-                             :content="$t('api_test.jar_config.title')" @click="openJarConfig"/>
-          </template>
         </ms-table-header>
       </template>
       <el-table border class="adjust-table" :data="items" style="width: 100%"
@@ -100,7 +96,7 @@
                class="dialog-css">
       <template v-slot:title>
         <ms-table-header :condition.sync="dialogCondition" @create="open" @search="list" :have-search="false"
-                         :create-permission="['WORKSPACE_USER:READ+CREATE']"
+                         :create-permission="['WORKSPACE_PROJECT_MANAGER:READ+ADD_USER']"
                          :create-tip="$t('member.create')" :title="$t('commons.member')"/>
       </template>
       <div>
@@ -118,8 +114,8 @@
             <template v-slot:default="scope">
               <div>
                 <ms-table-operator :tip2="$t('commons.remove')"
-                                   :edit-permission="['WORKSPACE_USER:READ+EDIT']"
-                                   :delete-permission="['WORKSPACE_USER:READ+DELETE']"
+                                   :edit-permission="['WORKSPACE_PROJECT_MANAGER:READ+EDIT_USER']"
+                                   :delete-permission="['WORKSPACE_PROJECT_MANAGER:READ+DELETE_USER']"
                                    @editClick="editMember(scope.row)"
                                    @deleteClick="delMember(scope.row)"/>
               </div>
@@ -137,16 +133,16 @@
                @close="handleClose">
       <el-form :model="form" label-position="right" label-width="100px" size="small" ref="updateUserForm">
         <el-form-item label="ID" prop="id">
-          <el-input v-model="form.id" autocomplete="off" :disabled="true" />
+          <el-input v-model="form.id" autocomplete="off" :disabled="true"/>
         </el-form-item>
         <el-form-item :label="$t('commons.username')" prop="name">
-          <el-input v-model="form.name" autocomplete="off" :disabled="true" />
+          <el-input v-model="form.name" autocomplete="off" :disabled="true"/>
         </el-form-item>
         <el-form-item :label="$t('commons.email')" prop="email">
           <el-input v-model="form.email" autocomplete="off" :disabled="true"/>
         </el-form-item>
         <el-form-item :label="$t('commons.phone')" prop="phone">
-          <el-input v-model="form.phone" autocomplete="off" :disabled="true" />
+          <el-input v-model="form.phone" autocomplete="off" :disabled="true"/>
         </el-form-item>
         <el-form-item :label="$t('commons.group')" prop="groupIds"
                       :rules="{required: true, message: $t('group.please_select_group'), trigger: 'change'}">
@@ -171,9 +167,10 @@
     <add-member
       :group-type="'PROJECT'"
       :group-scope-id="workspaceId"
+      :project-id="rowProjectId"
       ref="addMember"
       :user-resource-url="'user/ws/current/member/list'"
-      @submit="submitForm"/>'
+      @submit="submitForm"/>
 
     <ms-delete-confirm :title="$t('project.delete')" @delete="_handleDelete" ref="deleteConfirm"/>
 
@@ -195,7 +192,7 @@ import {
   getCurrentProjectID,
   getCurrentUser,
   getCurrentUserId,
-  getCurrentWorkspaceId,
+  getCurrentWorkspaceId, operationConfirm,
   removeGoBackListener
 } from "@/common/js/utils";
 import MsContainer from "../../common/components/MsContainer";
@@ -209,7 +206,6 @@ import MsJarConfig from "@/business/components/settings/workspace/JarConfig";
 import MsTableButton from "../../common/components/MsTableButton";
 import {_filter, _sort} from "@/common/js/tableUtils";
 import MsResourceFiles from "@/business/components/performance/test/components/ResourceFiles";
-import TemplateSelect from "@/business/components/project/template/TemplateSelect";
 import {PROJECT_CONFIGS} from "@/business/components/common/components/search/search-components";
 import MsRolesTag from "@/business/components/common/components/MsRolesTag";
 import AddMember from "@/business/components/settings/common/AddMember";
@@ -221,7 +217,6 @@ export default {
   components: {
     EditProject,
     MsInstructionsIcon,
-    TemplateSelect,
     MsResourceFiles,
     MsTableButton,
     MsJarConfig,
@@ -260,7 +255,7 @@ export default {
           {max: 250, message: this.$t('commons.input_limit', [0, 250]), trigger: 'blur'}
         ],
       },
-      screenHeight: 'calc(100vh - 195px)',
+      screenHeight: 'calc(100vh - 155px)',
       dialogCondition: {},
       memberVisible: false,
       memberLineData: [],
@@ -270,7 +265,8 @@ export default {
       dialogTotal: 0,
       currentProjectId: "",
       userList: [],
-      labelWidth: '150px'
+      labelWidth: '150px',
+      rowProjectId: ""
     };
   },
   props: {
@@ -303,11 +299,10 @@ export default {
       this.currentWorkspaceRow = row;
       this.currentProjectId = row.id;
       let param = {
-        name: '',
         projectId: row.id
       };
-      this.result = this.$post("/user/project/member/list", param, res => {
-        this.memberLineData = res.data;
+      this.result = this.$post("/user/ws/project/member/list/" + row.workspaceId + "/1/100000", param, res => {
+        this.memberLineData = res.data.listObject;
         let arr = this.memberLineData.filter(item => item.id === getCurrentUserId());
         if (arr.length > 0) {
           window.sessionStorage.setItem(PROJECT_ID, row.id);
@@ -321,7 +316,7 @@ export default {
       });
     },
     getMaintainerOptions() {
-      this.$post('/user/project/member/tester/list', {projectId: getCurrentProjectID()}, response => {
+      this.$get('/user/project/member/list', response => {
         this.userFilters = response.data.map(u => {
           return {text: u.name, value: u.id};
         });
@@ -351,11 +346,7 @@ export default {
       this.$refs.deleteConfirm.open(project);
     },
     _handleDelete(project) {
-      this.$confirm(this.$t('project.delete_tip'), '', {
-        confirmButtonText: this.$t('commons.confirm'),
-        cancelButtonText: this.$t('commons.cancel'),
-        type: 'warning'
-      }).then(() => {
+      operationConfirm(this.$t('project.delete_tip'), () => {
         this.$get('/project/delete/' + project.id, () => {
           if (project.id === getCurrentProjectID()) {
             localStorage.removeItem(PROJECT_ID);
@@ -363,11 +354,6 @@ export default {
           }
           Message.success(this.$t('commons.delete_success'));
           this.list();
-        });
-      }).catch(() => {
-        this.$message({
-          type: 'info',
-          message: this.$t('commons.delete_cancelled')
         });
       });
     },
@@ -385,12 +371,11 @@ export default {
         this.items = data.listObject;
         for (let i = 0; i < this.items.length; i++) {
           let param = {
-            name: '',
-            workspaceId: this.items[i].id
+            projectId: this.items[i].id
           };
-          let path = "user/ws/member/list/all";
+          let path = "/user/ws/project/member/list/" + this.condition.workspaceId + "/1/100000";
           this.$post(path, param, res => {
-            let member = res.data;
+            let member = res.data.listObject;
             this.$set(this.items[i], "memberSize", member.length);
           });
         }
@@ -412,6 +397,7 @@ export default {
       return path + "/" + this.dialogCurrentPage + "/" + this.dialogPageSize;
     },
     cellClick(row) {
+      this.rowProjectId = row.id;
       // 保存当前点击的组织信息到currentRow
       this.currentWorkspaceRow = row;
       this.currentProjectId = row.id;
@@ -420,7 +406,7 @@ export default {
         name: '',
         projectId: row.id
       };
-      let path = "/user/project/member/list";
+      let path = "/user/ws/project/member/list/" + row.workspaceId;
       this.result = this.$post(this.buildPagePath(path), param, res => {
         let data = res.data;
         this.memberLineData = data.listObject;
@@ -443,7 +429,7 @@ export default {
       this.dialogWsMemberVisible = true;
       let param = this.dialogCondition;
       this.$set(param, 'projectId', row.id);
-      let path = "/user/project/member/list";
+      let path = "/user/ws/project/member/list/" + row.workspaceId;
       this.result = this.$post(this.buildPagePath(path), param, res => {
         let data = res.data;
         this.memberLineData = data.listObject;
@@ -472,17 +458,11 @@ export default {
       this.$set(this.form, 'groupIds', groupIds);
     },
     delMember(row) {
-      this.$confirm(this.$t('member.remove_member'), '', {
-        confirmButtonText: this.$t('commons.confirm'),
-        cancelButtonText: this.$t('commons.cancel'),
-        type: 'warning'
-      }).then(() => {
+      operationConfirm(this.$t('member.remove_member'), () => {
         this.result = this.$get('/user/project/member/delete/' + this.currentProjectId + '/' + encodeURIComponent(row.id), () => {
           this.$success(this.$t('commons.remove_success'));
           this.dialogSearch();
         });
-      }).catch(() => {
-        this.$info(this.$t('commons.remove_cancel'));
       });
     },
     close: function () {

@@ -2,8 +2,8 @@ package io.metersphere.api.dto.definition.request.dns;
 
 import com.alibaba.fastjson.annotation.JSONType;
 import io.metersphere.api.dto.definition.request.ParameterConfig;
+import io.metersphere.api.dto.definition.request.variable.ScenarioVariable;
 import io.metersphere.api.dto.scenario.HttpConfig;
-import io.metersphere.api.dto.scenario.KeyValue;
 import io.metersphere.api.dto.scenario.environment.EnvironmentConfig;
 import io.metersphere.api.dto.scenario.environment.Host;
 import io.metersphere.plugin.core.MsParameter;
@@ -19,9 +19,7 @@ import org.apache.jmeter.testelement.TestElement;
 import org.apache.jorphan.collections.HashTree;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -33,7 +31,7 @@ public class MsDNSCacheManager extends MsTestElement {
     public void toHashTree(HashTree tree, List<MsTestElement> hashTree, MsParameter msParameter) {
         ParameterConfig config = (ParameterConfig) msParameter;
         // 非导出操作，且不是启用状态则跳过执行
-        if (!config.isOperating() && !this.isEnable()) {
+        if (!this.isEnable()) {
             return;
         }
         for (MsTestElement el : hashTree) {
@@ -67,32 +65,14 @@ public class MsDNSCacheManager extends MsTestElement {
         }
     }
 
-    public static Map<String, String> getEnvironmentDns(EnvironmentConfig config, HttpConfig httpConfig) {
-        Map<String, String> dnsMap = new HashMap<>();
-        if (config.getCommonConfig().isEnableHost() && CollectionUtils.isNotEmpty(config.getCommonConfig().getHosts()) && httpConfig != null && httpConfig.getDomain() != null) {
-            String domain = httpConfig.getDomain().trim();
-            config.getCommonConfig().getHosts().forEach(host -> {
-                if (StringUtils.isNotBlank(host.getDomain())) {
-                    String hostDomain = host.getDomain().trim().replace("http://", "").replace("https://", "");
-                    if (StringUtils.equals(hostDomain, domain)) {
-                        dnsMap.put(hostDomain, host.getIp());
-                    }else if(StringUtils.startsWith(hostDomain,domain+":")){
-                        dnsMap.put(domain,StringUtils.replace(hostDomain,domain,host.getIp()));
-                    }
-                }
-            });
-        }
-        return dnsMap;
-    }
-
-    private static Arguments arguments(String name, List<KeyValue> variables) {
+    private static Arguments arguments(String name, List<ScenarioVariable> variables) {
         Arguments arguments = new Arguments();
         arguments.setEnabled(true);
         arguments.setName(name);
         arguments.setProperty(TestElement.TEST_CLASS, Arguments.class.getName());
         arguments.setProperty(TestElement.GUI_CLASS, SaveService.aliasToClass("ArgumentsPanel"));
-        variables.stream().filter(KeyValue::isValid).filter(KeyValue::isEnable).forEach(keyValue ->
-                arguments.addArgument(keyValue.getName(), keyValue.getValue(), "=")
+        variables.stream().filter(ScenarioVariable::isConstantValid).filter(ScenarioVariable::isEnable).forEach(ScenarioVariable ->
+                arguments.addArgument(ScenarioVariable.getName(), ScenarioVariable.getValue(), "=")
         );
         return arguments;
     }
@@ -103,9 +83,9 @@ public class MsDNSCacheManager extends MsTestElement {
         dnsCacheManager.setName(name);
         dnsCacheManager.setProperty(TestElement.TEST_CLASS, DNSCacheManager.class.getName());
         dnsCacheManager.setProperty(TestElement.GUI_CLASS, SaveService.aliasToClass("DNSCachePanel"));
-        dnsCacheManager.setCustomResolver(true);
+        dnsCacheManager.setCustomResolver(false);
+        dnsCacheManager.setClearEachIteration(true);
         hosts.forEach(host -> dnsCacheManager.addHost(host.getDomain(), host.getIp()));
-        hosts.forEach(host -> dnsCacheManager.addServer(host.getIp()));
 
         return dnsCacheManager;
     }

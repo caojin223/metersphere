@@ -7,7 +7,7 @@
           :condition="condition"
           :plan-id="planId"
           :plan-status="planStatus"
-          @refresh="initTable"
+          @refresh="search"
           @relevanceCase="$emit('relevanceCase')"
           @setEnvironment="setEnvironment"
           v-if="isPlanModel"/>
@@ -24,16 +24,28 @@
         @handlePageChange="initTable"
         :fields.sync="fields"
         :field-key="tableHeaderKey"
-        @refresh="initTable"
+        @order="initTable"
         :row-order-group-id="planId"
         :row-order-func="editTestPlanApiCaseOrder"
         :enable-order-drag="enableOrderDrag"
         row-key="id"
+        @filter="search"
         ref="table">
         <span v-for="(item) in fields" :key="item.key">
-          <ms-table-column :field="item" prop="num"
+          <ms-table-column :field="item"
                            :fields-width="fieldsWidth"
-                           sortable label="ID" min-width="80"/>
+                           sortable
+                           label="ID"
+                           prop="num"
+                           min-width="80">
+             <template v-slot:default="scope">
+               <el-link @click="openApiById(scope.row)">
+                  <span>
+                    {{ scope.row.num }}
+                  </span>
+               </el-link>
+            </template>
+          </ms-table-column>
 
           <ms-table-column :field="item" :fields-width="fieldsWidth" prop="name" sortable min-width="120"
                            :label="$t('test_track.case.name')"/>
@@ -124,6 +136,7 @@
 
           <ms-table-column :field="item"
                            prop="execResult"
+                           :filters="execResultFilters"
                            :fields-width="fieldsWidth"
                            :label="$t('test_track.plan.execute_result')" min-width="150" align="center">
             <template v-slot:default="scope">
@@ -186,7 +199,7 @@ import MsContainer from "../../../../../common/components/MsContainer";
 import MsBottomContainer from "../../../../../api/definition/components/BottomContainer";
 import BatchEdit from "@/business/components/track/case/components/BatchEdit";
 import {API_METHOD_COLOUR, CASE_PRIORITY, RESULT_MAP} from "../../../../../api/definition/model/JsonData";
-import {getCurrentProjectID, hasLicense, strMapToObj} from "@/common/js/utils";
+import {getCurrentProjectID, getCurrentWorkspaceId, hasLicense, strMapToObj} from "@/common/js/utils";
 import PriorityTableItem from "../../../../common/tableItems/planview/PriorityTableItem";
 import {getUUID} from "../../../../../../../common/js/utils";
 import TestPlanCaseListHeader from "./TestPlanCaseListHeader";
@@ -371,6 +384,16 @@ export default {
     },
     editTestPlanApiCaseOrder() {
       return editTestPlanApiCaseOrder;
+    },
+    execResultFilters() {
+      let execResultFilters = [];
+      for (let key of RESULT_MAP.keys()) {
+        execResultFilters.push({
+          text: RESULT_MAP.get(key),
+          value: key
+        });
+      }
+      return execResultFilters;
     }
   },
   methods: {
@@ -379,7 +402,7 @@ export default {
       this.$refs.headerCustom.open(list);
     },
     getMaintainerOptions() {
-      this.$post('/user/project/member/tester/list', {projectId: getCurrentProjectID()}, response => {
+      this.$get('/user/project/member/list', response => {
         this.valueArr.userId = response.data;
         this.userFilters = response.data.map(u => {
           return {text: u.name, value: u.id};
@@ -433,6 +456,7 @@ export default {
       }
     },
     search() {
+      this.currentPage = 1;
       this.initTable();
     },
     buildPagePath(path) {
@@ -662,6 +686,20 @@ export default {
           });
         });
       }
+    },
+    openApiById(item) {
+      let definitionData = this.$router.resolve({
+        name: 'ApiDefinitionWithQuery',
+        params: {
+          redirectID: getUUID(),
+          dataType: "apiTestCase",
+          dataSelectRange: 'single:' + item.caseId,
+          projectId: getCurrentProjectID(),
+          type: item.protocol,
+          workspaceId: getCurrentWorkspaceId(),
+        }
+      });
+      window.open(definitionData.href, '_blank');
     },
   },
 };

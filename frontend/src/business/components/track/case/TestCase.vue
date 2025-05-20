@@ -3,27 +3,44 @@
 
     <ms-aside-container v-show="isAsideHidden">
       <test-case-node-tree
-        @nodeSelectEvent="nodeChange"
+        :type="'edit'"
+        :total='total'
+        :show-operator="true"
+        :public-total="publicTotal"
+        :case-condition="condition"
+        @handleExportCheck="handleExportCheck"
         @refreshTable="refresh"
         @setTreeNodes="setTreeNodes"
         @exportTestCase="exportTestCase"
         @saveAsEdit="editTestCase"
-        :show-operator="true"
-        @createCase="handleCaseSimpleCreate($event, 'add')"
         @refreshAll="refreshAll"
         @enableTrash="enableTrash"
         @enablePublic="enablePublic"
         @toPublic="toPublic"
-        :type="'edit'"
-        :total='total'
-        :public-total="publicTotal"
+        @importRefresh="importRefresh"
+        @importChangeConfirm="importChangeConfirm"
+        @createCase="handleCaseSimpleCreate($event, 'add')"
         ref="nodeTree"
       />
     </ms-aside-container>
 
+    <ms-aside-container v-if="showPublicNode">
+      <test-case-public-node-tree
+        :case-condition="condition"
+        @nodeSelectEvent="publicNodeChange"
+        ref="publicNodeTree"/>
+    </ms-aside-container>
+
+    <ms-aside-container v-if="showTrashNode">
+      <test-case-trash-node-tree
+        :case-condition="condition"
+        @nodeSelectEvent="trashNodeChange"
+        ref="trashNodeTree"/>
+    </ms-aside-container>
+
     <ms-main-container>
       <el-tabs v-model="activeName" @tab-click="addTab" @tab-remove="closeConfirm">
-        <el-tab-pane name="trash" v-if="trashEnable" :label="$t('commons.trash')">
+        <el-tab-pane name="trash" v-if="trashEnable" :label="$t('commons.trash')" :closable="true">
           <ms-tab-button
             :isShowChangeButton="false">
             <template v-slot:version>
@@ -36,40 +53,32 @@
               :trash-enable="true"
               :current-version="currentTrashVersion"
               :version-enable="versionEnable"
-              @refreshTable="refresh"
               @testCaseEdit="editTestCase"
               @testCaseCopy="copyTestCase"
-              @testCaseDetail="showTestCaseDetail"
-              @getTrashList="getTrashList"
-              @getPublicList="getPublicList"
-              @refresh="refresh"
+              @refresh="refreshTrashNode"
               @refreshAll="refreshAll"
               @setCondition="setCondition"
+              @search="refreshTreeByCaseFilter"
               ref="testCaseTrashList">
             </test-case-list>
           </ms-tab-button>
         </el-tab-pane>
         <el-tab-pane name="public" v-if="publicEnable" :label="$t('project.case_public')">
           <div style="height: 6px;"></div>
-          <test-case-list
-            :checkRedirectID="checkRedirectID"
-            :isRedirectEdit="isRedirectEdit"
+          <public-test-case-list
             :tree-nodes="treeNodes"
-            :trash-enable="false"
-            :public-enable="true"
             :version-enable="versionEnable"
             @refreshTable="refresh"
             @testCaseEdit="editTestCase"
             @testCaseEditShow="editTestCaseShow"
             @testCaseCopy="copyTestCase"
-            @testCaseDetail="showTestCaseDetail"
-            @getTrashList="getTrashList"
-            @getPublicList="getPublicList"
             @refresh="refresh"
             @refreshAll="refreshAll"
+            @refreshPublic="refreshPublic"
             @setCondition="setCondition"
+            @search="refreshTreeByCaseFilter"
             ref="testCasePublicList">
-          </test-case-list>
+          </public-test-case-list>
         </el-tab-pane>
         <el-tab-pane name="default" :label="$t('api_test.definition.case_title')">
           <ms-tab-button
@@ -92,24 +101,27 @@
               :public-enable="false"
               :current-version="currentVersion"
               :version-enable="versionEnable"
+              @closeExport="closeExport"
               @refreshTable="refresh"
               @testCaseEdit="editTestCase"
               @testCaseCopy="copyTestCase"
-              @testCaseDetail="showTestCaseDetail"
               @getTrashList="getTrashList"
               @getPublicList="getPublicList"
               @refresh="refresh"
               @refreshAll="refreshAll"
               @setCondition="setCondition"
               @decrease="decrease"
+              @search="refreshTreeByCaseFilter"
               ref="testCaseList">
             </test-case-list>
             <test-case-minder
+              :current-version="currentVersion"
               :tree-nodes="treeNodes"
               :project-id="projectId"
               :condition="condition"
+              :active-name="activeName"
               v-if="activeDom === 'right'"
-              @refresh="refreshTable"
+              @refresh="minderSaveRefresh"
               ref="minder"/>
           </ms-tab-button>
         </el-tab-pane>
@@ -119,11 +131,14 @@
           :label="item.label"
           :name="item.name"
           closable>
+          <el-tooltip slot="label" effect="dark" :content="item.label" placement="bottom-start" class="ms-tab-name-width">
+            <span>{{ item.label }}</span>
+          </el-tooltip>
           <div class="ms-api-scenario-div" v-if="!showPublic">
             <test-case-edit
               :currentTestCaseInfo="item.testCaseInfo"
               :version-enable="versionEnable"
-              @refresh="refreshTable"
+              @refresh="refreshAll"
               @caseEdit="handleCaseCreateOrEdit($event,'edit')"
               @caseCreate="handleCaseCreateOrEdit($event,'add')"
               @checkout="checkout($event, item)"
@@ -141,7 +156,7 @@
             <test-case-edit-show
               :currentTestCaseInfo="item.testCaseInfo"
               :version-enable="versionEnable"
-              @refresh="refreshTable"
+              @refresh="refreshAll"
               @caseEdit="handleCaseCreateOrEdit($event,'edit')"
               @caseCreate="handleCaseCreateOrEdit($event,'add')"
               :read-only="testCaseReadOnly"
@@ -177,8 +192,6 @@
       </el-tabs>
 
       <is-change-confirm
-        :title="'请保存脑图'"
-        :tip="'脑图未保存，确认保存脑图吗？'"
         @confirm="changeConfirm"
         ref="isChangeConfirm"/>
     </ms-main-container>
@@ -198,20 +211,24 @@ import MsContainer from "../../common/components/MsContainer";
 import MsAsideContainer from "../../common/components/MsAsideContainer";
 import MsMainContainer from "../../common/components/MsMainContainer";
 import {
-  hasLicense,
   getCurrentProjectID,
   getCurrentWorkspaceId,
   getUUID,
+  hasLicense,
   hasPermission,
   setCurTabId
 } from "@/common/js/utils";
-import TestCaseNodeTree from "../common/TestCaseNodeTree";
+import TestCaseNodeTree from "../module/TestCaseNodeTree";
 
 import MsTabButton from "@/business/components/common/components/MsTabButton";
 import TestCaseMinder from "@/business/components/track/common/minder/TestCaseMinder";
 import IsChangeConfirm from "@/business/components/common/components/IsChangeConfirm";
-import {openMinderConfirm, saveMinderConfirm} from "@/business/components/track/common/minder/minderUtils";
+import {openMinderConfirm} from "@/business/components/track/common/minder/minderUtils";
 import TestCaseEditShow from "@/business/components/track/case/components/TestCaseEditShow";
+import {PROJECT_ID} from "@/common/js/constants";
+import TestCasePublicNodeTree from "@/business/components/track/module/TestCasePublicNodeTree";
+import TestCaseTrashNodeTree from "@/business/components/track/module/TestCaseTrashNodeTree";
+import PublicTestCaseList from "@/business/components/track/case/components/public/PublicTestCaseList";
 
 const requireComponent = require.context('@/business/components/xpack/', true, /\.vue$/);
 const VersionSelect = requireComponent.keys().length > 0 ? requireComponent("./version/VersionSelect.vue") : {};
@@ -219,6 +236,9 @@ const VersionSelect = requireComponent.keys().length > 0 ? requireComponent("./v
 export default {
   name: "TestCase",
   components: {
+    PublicTestCaseList,
+    TestCaseTrashNodeTree,
+    TestCasePublicNodeTree,
     IsChangeConfirm,
     TestCaseMinder,
     MsTabButton,
@@ -253,16 +273,22 @@ export default {
       currentTrashVersion: null,
       versionEnable: false,
       isAsideHidden: true,
+      ignoreTreeNodes: false,
+      hasRefreshDefault: true
     };
+  },
+  created() {
+    let projectId = this.$route.query.projectId;
+    if (projectId) {
+      this.ignoreTreeNodes = true;
+      if (projectId !== getCurrentProjectID() && projectId !== 'all') {
+        sessionStorage.setItem(PROJECT_ID, projectId);
+      }
+    }
   },
   mounted() {
     this.getProject();
-    let routeTestCase = this.$route.params.testCase;
-    if (routeTestCase && routeTestCase.add === true) {
-      this.addTab({name: 'add'});
-    } else {
-      this.init(this.$route);
-    }
+    this.init(this.$route);
     this.checkVersionEnable();
   },
   beforeRouteLeave(to, from, next) {
@@ -289,6 +315,18 @@ export default {
       if (oldVal !== 'default' && newVal === 'default' && this.$refs.minder) {
         this.$refs.minder.refresh();
       }
+      if (oldVal === 'trash' && newVal === 'default') {
+        this.condition.filters.status = [];
+        // 在回收站恢复后，切到列表页面刷新
+        if (!this.hasRefreshDefault) {
+          this.refreshAll();
+          this.hasRefreshDefault = true;
+        } else {
+          this.refresh();
+        }
+      } else if (newVal === 'default') {
+        this.refresh();
+      }
     },
     activeDom(newVal, oldVal) {
       this.$nextTick(() => {
@@ -300,15 +338,24 @@ export default {
     trashEnable() {
       if (this.trashEnable) {
         this.activeName = 'trash';
-      } else {
-        this.activeName = 'default';
+        this.publicEnable = false;
+        this.$nextTick(() => {
+          this.$refs.trashNodeTree.list();
+        });
       }
     },
     publicEnable() {
       if (this.publicEnable) {
         this.activeName = 'public';
-      } else {
-        this.activeName = 'default';
+        this.$nextTick(() => {
+          this.$refs.publicNodeTree.list();
+        });
+        this.trashEnable = false;
+      }
+    },
+    '$store.state.temWorkspaceId'() {
+      if (this.$store.state.temWorkspaceId) {
+        this.$refs.isChangeConfirm.open(null, this.$store.state.temWorkspaceId);
       }
     }
   },
@@ -322,7 +369,12 @@ export default {
       let redirectParam = this.$route.params.dataSelectRange;
       return redirectParam;
     },
-
+    showPublicNode() {
+      return this.activeName === 'public';
+    },
+    showTrashNode() {
+      return this.activeName === 'trash';
+    },
     projectId() {
       return getCurrentProjectID();
     },
@@ -364,13 +416,47 @@ export default {
     updateActiveDom(activeDom) {
       openMinderConfirm(this, activeDom);
     },
-    changeConfirm(isSave) {
-      saveMinderConfirm(this, isSave);
+    importChangeConfirm(isSave) {
+      this.$store.commit('setIsTestCaseMinderChanged', false);
+      if (isSave) {
+        this.$refs.minder.save(() => {
+          this.$refs.nodeTree.handleImport();
+        });
+      } else {
+        this.$refs.nodeTree.handleImport();
+      }
+    },
+    changeConfirm(isSave, temWorkspaceId) {
+      if (isSave) {
+        this.$refs.minder.save(() => {
+          // 保存成功之后再切换tab
+          this.activeDom = this.tmpActiveDom;
+          this.tmpActiveDom = null;
+        });
+      } else {
+        this.activeDom = this.tmpActiveDom;
+        this.tmpActiveDom = null;
+      }
+
+      this.$store.commit('setIsTestCaseMinderChanged', false);
+      this.$nextTick(() => {
+        if (this.tmpPath) {
+          this.$router.push({
+            path: this.tmpPath
+          });
+          this.tmpPath = null;
+        }
+      });
+
+      if (temWorkspaceId) {
+        // 如果是切换工作空间提示的保存，则保存完后跳转到对应的工作空间
+        this.$EventBus.$emit('changeWs', temWorkspaceId);
+      }
     },
     changeRedirectParam(redirectIDParam) {
       this.redirectID = redirectIDParam;
       if (redirectIDParam != null) {
-        if (this.redirectFlag == "none") {
+        if (this.redirectFlag === "none") {
           this.activeName = "default";
           this.redirectFlag = "redirected";
         }
@@ -409,6 +495,11 @@ export default {
         this.publicEnable = false;
         this.$nextTick(() => {
           this.publicEnable = true;
+        })
+      } else if (tab.name === 'trash') {
+        this.trashEnable = false;
+        this.$nextTick(() => {
+          this.trashEnable = true;
         })
       }
 
@@ -463,19 +554,27 @@ export default {
       }
     },
     closeConfirm(targetName) {
+      if (targetName === 'trash') {
+        this.activeName = 'default';
+        this.trashEnable = false;
+      } else {
+        this.closeTabWithSave(targetName);
+      }
+    },
+    closeTabWithSave(targetName) {
       let t = this.tabs.filter(tab => tab.name === targetName);
       let message = "";
       if (t && this.$store.state.testCaseMap.has(t[0].testCaseInfo.id) && this.$store.state.testCaseMap.get(t[0].testCaseInfo.id) > 0) {
-        message += t[0].testCaseInfo.name + "，";
+        message += t[0].testCaseInfo.name;
       }
       if (t[0].label === this.$t('test_track.case.create')) {
-        message += this.$t('test_track.case.create') + "，";
+        message += this.$t('test_track.case.create');
       }
       if (t[0].testCaseInfo.isCopy) {
-        message += t[0].testCaseInfo.name + "，";
+        message += t[0].testCaseInfo.name;
       }
       if (message !== "") {
-        this.$alert(this.$t('commons.track') + " [ " + message.substr(0, message.length - 1) + " ] " + this.$t('commons.confirm_info'), '', {
+        this.$alert(this.$t('commons.track') + " [ " + message + " ] " + this.$t('commons.confirm_info'), '', {
           confirmButtonText: this.$t('commons.confirm'),
           cancelButtonText: this.$t('commons.cancel'),
           callback: (action) => {
@@ -498,26 +597,31 @@ export default {
         this.activeName = "default";
       }
     },
-    exportTestCase(type) {
+    handleExportCheck() {
+      if (this.$refs.testCaseList.checkSelected()) {
+        this.$refs.nodeTree.openExport();
+      }
+    },
+    exportTestCase(type, param) {
       if (this.activeDom !== 'left') {
         this.$warning(this.$t('test_track.case.export.export_tip'));
         return;
       }
-      this.$refs.testCaseList.exportTestCase(type);
+      this.$refs.testCaseList.exportTestCase(type, param);
+    },
+    closeExport() {
+      this.$refs.nodeTree.closeExport();
     },
     init(route) {
       let path = route.path;
       if (path.indexOf("/track/case/edit") >= 0 || path.indexOf("/track/case/create") >= 0) {
         this.testCaseReadOnly = false;
         let caseId = this.$route.params.caseId;
-        let routeTestCase = this.$route.params.testCase;
         if (!this.projectId) {
           this.$warning(this.$t('commons.check_project_tip'));
           return;
         }
-        if (routeTestCase) {
-          this.editTestCase(routeTestCase);
-        } else if (caseId) {
+        if (caseId) {
           this.$get('test/case/get/' + caseId, response => {
             let testCase = response.data;
             this.editTestCase(testCase);
@@ -528,19 +632,15 @@ export default {
         this.$router.push('/track/case/all');
       }
     },
-    nodeChange(node) {
-      this.condition.trashEnable = false;
-      this.trashEnable = false;
-      this.condition.publicEnable = false;
-      this.publicEnable = false;
-      this.activeName = "default";
-    },
-    refreshTable(data) {
-      if (this.$refs.testCaseList) {
-        this.$refs.testCaseList.initTableData();
+    publicNodeChange(node, nodeIds, pNodes) {
+      if (this.$refs.testCasePublicList) {
+        this.$refs.testCasePublicList.initTableData(nodeIds);
       }
-      this.$refs.nodeTree.list();
-      this.setTable(data);
+    },
+    trashNodeChange(node, nodeIds, pNodes) {
+      if (this.$refs.testCaseTrashList) {
+        this.$refs.testCaseTrashList.initTableData(nodeIds);
+      }
     },
     increase(id) {
       this.$refs.nodeTree.increase(id);
@@ -553,12 +653,6 @@ export default {
       if (!index) {
         this.type = "edit";
         this.testCaseReadOnly = false;
-        if (testCase.label !== "redirect") {
-          if (this.treeNodes.length < 1) {
-            this.$warning(this.$t('test_track.case.create_module_first'));
-            return;
-          }
-        }
         let hasEditPermission = hasPermission('PROJECT_TRACK_CASE:READ+EDIT');
         this.$set(testCase, 'rowClickHasPermission', hasEditPermission);
         this.addTab({name: 'edit', testCaseInfo: testCase});
@@ -572,11 +666,9 @@ export default {
       if (!index) {
         this.type = "edit";
         this.testCaseReadOnly = false;
-        if (testCase.label !== "redirect") {
-          if (this.treeNodes.length < 1) {
-            this.$warning(this.$t('test_track.case.create_module_first'));
-            return;
-          }
+        if (testCase.label !== "redirect" && this.treeNodes.length < 1) {
+          this.$warning(this.$t('test_track.case.create_module_first'));
+          return;
         }
         let hasEditPermission = hasPermission('PROJECT_TRACK_CASE:READ+EDIT');
         this.$set(testCase, 'rowClickHasPermission', hasEditPermission);
@@ -611,13 +703,25 @@ export default {
       testCase.isCopy = true;
       this.addTab({name: 'edit', testCaseInfo: testCase});
     },
-    showTestCaseDetail(testCase) {
-      this.testCaseReadOnly = true;
-    },
     refresh(data) {
-      this.$store.commit('setTestCaseSelectNode', {});
-      this.$store.commit('setTestCaseSelectNodeIds', []);
-      this.refreshTable(data);
+      if (this.selectNodeIds && this.selectNodeIds.length > 0) {
+        this.$store.commit('setTestCaseSelectNode', {});
+        this.$store.commit('setTestCaseSelectNodeIds', []);
+      }
+      this.refreshAll(data);
+    },
+    refreshTrashNode() {
+      this.$refs.trashNodeTree.list();
+      this.hasRefreshDefault = false;
+    },
+    refreshTreeByCaseFilter() {
+      if (this.publicEnable) {
+        this.$refs.publicNodeTree.list();
+      } else if (this.trashEnable) {
+        this.$refs.trashNodeTree.list();
+      } else {
+        this.$refs.nodeTree.list();
+      }
     },
     setTable(data) {
       if (data) {
@@ -630,25 +734,32 @@ export default {
         }
       }
     },
-    refreshAll() {
-      this.$refs.nodeTree.list();
-      this.refresh();
-    },
-    openRecentTestCaseEditDialog(caseId) {
-      if (caseId) {
-        // this.getProjectByCaseId(caseId);
-        this.$get('/test/case/get/' + caseId, response => {
-          if (response.data) {
-            /*
-                        this.$refs.testCaseEditDialog.open(response.data);
-            */
-          }
-        });
-      } else {
-        /*
-                this.$refs.testCaseEditDialog.open();
-        */
+    refreshAll(data) {
+      if (this.$refs.testCaseList) {
+        this.$refs.testCaseList.initTableData();
       }
+      this.$refs.nodeTree.list();
+      this.setTable(data);
+    },
+    importRefresh() {
+      this.refreshAll();
+      if (this.$refs.testCaseEdit && this.$refs.testCaseEdit.length > 0) {
+        setTimeout(() => {
+          this.$info(this.$t('test_track.case.import.import_refresh_tips'));
+        }, 3000)
+      }
+    },
+    minderSaveRefresh() {
+      if (this.$refs.testCaseList) {
+        this.$refs.testCaseList.initTableData();
+      }
+      this.$refs.nodeTree.list();
+    },
+    refreshPublic() {
+      if (this.$refs.testCasePublicList) {
+        this.$refs.testCasePublicList.initTableData([]);
+      }
+      this.$refs.publicNodeTree.list();
     },
     setTreeNodes(data) {
       this.treeNodes = data;
@@ -665,11 +776,12 @@ export default {
       });
     },
     enableTrash(data) {
-      this.initApiTableOpretion = "trashEnable";
-      this.trashEnable = data;
+      this.trashEnable = !data;
+      this.$nextTick(() => {
+        this.trashEnable = data;
+      })
     },
     enablePublic(data) {
-      this.initApiTableOpretion = "publicEnable";
       this.publicEnable = !data;
       this.$nextTick(() => {
         this.publicEnable = data;
@@ -681,7 +793,6 @@ export default {
       } else {
         this.activeName = "trash"
       }
-
     },
     changeVersion(currentVersion) {
       this.currentVersion = currentVersion || null;
@@ -751,4 +862,12 @@ export default {
   padding-left: 10px;
 }
 
+.ms-tab-name-width {
+  display: inline-block;
+  overflow-x: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: nowrap;
+  max-width: 200px;
+}
 </style>

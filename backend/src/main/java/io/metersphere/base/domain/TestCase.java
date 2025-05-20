@@ -33,8 +33,6 @@ public class TestCase implements Serializable {
 
     private Integer num;
 
-    private String otherTestName;
-
     private String reviewStatus;
 
     private String tags;
@@ -66,6 +64,8 @@ public class TestCase implements Serializable {
     private String refId;
 
     private Boolean latest;
+
+    private String lastExecuteResult;
 
     private static final long serialVersionUID = 1L;
 }

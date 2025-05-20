@@ -1,9 +1,11 @@
 package io.metersphere.base.mapper.ext;
 
 import io.metersphere.api.dto.datacount.ApiDataCountResult;
+import io.metersphere.api.dto.datacount.response.ExecuteResultCountDTO;
 import io.metersphere.api.dto.definition.*;
 import io.metersphere.base.domain.ApiDefinition;
 import io.metersphere.base.domain.ApiTestCase;
+import io.metersphere.base.domain.ApiTestCaseWithBLOBs;
 import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
@@ -11,6 +13,10 @@ import java.util.List;
 public interface ExtApiTestCaseMapper {
 
     List<ApiTestCaseResult> list(@Param("request") ApiTestCaseRequest request);
+
+    List<ApiTestCaseWithBLOBs> caseList(@Param("request") ApiTestCaseRequest request);
+
+    List<ApiTestCaseWithBLOBs> unTrashCaseListByIds(@Param("ids") List<String> ids);
 
     List<ApiTestCaseDTO> listSimple(@Param("request") ApiTestCaseRequest request);
 
@@ -74,4 +80,14 @@ public interface ExtApiTestCaseMapper {
     List<ParamsDTO> getApiCaseEnvironments(@Param("caseIds") List<String> caseIds);
 
     void insertNewVersionCases(@Param("api") ApiDefinition apiDefinition, @Param("old") ApiDefinition old);
+
+    List<ApiTestCase> checkName(@Param("request") SaveApiTestCaseRequest request);
+
+    int toBeUpdateCase(@Param("ids") List<String> ids, @Param("toBeUpdate") Boolean toBeUpdate);
+
+    int countById(String resourceID);
+
+    List<ExecuteResultCountDTO> selectExecuteResultByProjectId(String projectId);
+
+    int deleteCaseToGc(ApiTestCaseRequest request);
 }

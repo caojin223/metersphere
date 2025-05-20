@@ -37,60 +37,83 @@
                   <el-button size="small" style="margin-left: 10px" type="primary" @click="addVariable">
                     {{ $t('commons.add') }}
                   </el-button>
-                  <el-link @click="batchAddParameter" type="primary" :disabled="disabled" style="margin-left: 10px">
-                    {{ $t("commons.batch_add") }}
-                  </el-link>
+                  <el-dropdown style="margin-left: 10px">
+                    <el-button size="small">
+                      <span class="tip-font">{{ $t('commons.more_operator') }}</span>
+                      <i class="el-icon-arrow-down el-icon--right"/>
+                    </el-button>
+                    <el-dropdown-menu slot="dropdown">
+                      <el-dropdown-item @click.native.stop="importVariable" :disabled="disabled">
+                        {{ $t("commons.import_variable") }}
+                      </el-dropdown-item>
+                      <el-dropdown-item @click.native.stop="exportVariable" :disabled="disabled">
+                        {{ $t("commons.export_variable") }}
+                      </el-dropdown-item>
+                      <el-dropdown-item @click.native.stop="batchAddParameter" :disabled="disabled">
+                        {{ $t("commons.batch_add") }}
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
+                  </el-dropdown>
                 </div>
               </el-row>
               <el-row>
                 <el-col :span="12">
                   <div style="border:1px #DCDFE6 solid; min-height: 400px;border-radius: 4px ;width: 100% ;">
                     <ms-table
+                        ref="variableTable"
                         v-loading="loading"
-                        row-key="id"
-                        :data="variables"
-                        :total="variables.length"
-                        :screen-height="screenHeight"
                         :batch-operators="batchButtons"
-                        :remember-order="true"
-                        :highlightCurrentRow="true"
-                        :fields.sync="fields"
+                        :data="variables"
                         :field-key="tableHeaderKey"
+                        :fields.sync="fields"
+                        :highlightCurrentRow="true"
+                        :remember-order="true"
+                        :screen-height="screenHeight"
+                        :total="variables.length"
+                        row-key="id"
                         @handleRowClick="handleRowClick"
-                        ref="variableTable">
+                        @refresh="onChange">
                           <span v-for="item in fields" :key="item.key">
                             <ms-table-column
-                                prop="num"
                                 :field="item"
                                 :fields-width="fieldsWidth"
-                                sortable
                                 label="ID"
-                                min-width="60">
+                                min-width="60"
+                                prop="num"
+                                sortable>
                             </ms-table-column>
                             <ms-table-column
-                                prop="name"
                                 :field="item"
                                 :fields-width="fieldsWidth"
                                 :label="$t('api_test.variable_name')"
                                 min-width="100"
+                                prop="name"
                                 sortable>
                             </ms-table-column>
                             <ms-table-column
-                                prop="type"
                                 :field="item"
                                 :fields-width="fieldsWidth"
                                 :label="$t('test_track.case.type')"
                                 min-width="70"
+                                prop="type"
                                 sortable>
                               <template v-slot:default="scope">
                                 <span>{{ types.get(scope.row.type) }}</span>
                               </template>
                             </ms-table-column>
                             <ms-table-column
-                                prop="value"
                                 :field="item"
                                 :fields-width="fieldsWidth"
                                 :label="$t('api_test.value')"
+                                prop="value"
+                                sortable>
+                            </ms-table-column>
+                            <ms-table-column
+                                :field="item"
+                                :fields-width="fieldsWidth"
+                                :label="$t('commons.description')"
+                                min-width="70"
+                                prop="description"
                                 sortable>
                             </ms-table-column>
                           </span>
@@ -125,7 +148,7 @@
             <el-tooltip class="item-tabs" effect="dark" :content="$t('api_test.request.headers')" placement="top-start"
                         slot="label">
           <span>{{ $t('api_test.request.headers') }}
-            <div class="el-step__icon is-text ms-api-col ms-variable-header" v-if="headers.length>1">
+            <div class="el-step__icon is-text ms-api-col ms-header" v-if="headers.length>1">
               <div class="el-step__icon-inner">{{ headers.length - 1 }}</div>
             </div>
           </span>
@@ -148,6 +171,7 @@
         </template>
       </el-collapse-transition>
     </fieldset>
+    <variable-import ref="variableImport" @mergeData="mergeData"></variable-import>
   </el-dialog>
 </template>
 
@@ -160,7 +184,7 @@ import MsEditCounter from "./EditCounter";
 import MsEditRandom from "./EditRandom";
 import MsEditListValue from "./EditListValue";
 import MsEditCsv from "./EditCsv";
-import {getUUID} from "@/common/js/utils";
+import {downloadFile, getUUID} from "@/common/js/utils";
 import MsApiKeyValue from "../../../definition/components/ApiKeyValue";
 import BatchAddParameter from "../../../definition/components/basis/BatchAddParameter";
 import {KeyValue} from "../../../definition/model/ApiTestModel";
@@ -168,10 +192,8 @@ import {REQUEST_HEADERS} from "@/common/js/constants";
 
 import MsTable from "@/business/components/common/components/table/MsTable";
 import MsTableColumn from "@/business/components/common/components/table/MsTableColumn";
-import {
-  getCustomTableWidth,
-  getCustomTableHeader
-} from "@/common/js/tableUtils";
+import {getCustomTableHeader, getCustomTableWidth} from "@/common/js/tableUtils";
+import VariableImport from "@/business/components/api/automation/scenario/variable/VariableImport";
 
 const jsondiffpatch = require('jsondiffpatch');
 
@@ -190,6 +212,7 @@ export default {
     BatchAddParameter,
     MsTableColumn,
     MsTable,
+    VariableImport
   },
   data() {
     return {
@@ -217,7 +240,7 @@ export default {
       total: 0,
       headerSuggestions: REQUEST_HEADERS,
       disabled: false,
-      selectType: "",
+      selectType: "CONSTANT",
       showDelete: false,
       tableHeaderKey: "VARIABLE_LIST_TABLE",
       fields: getCustomTableHeader('VARIABLE_LIST_TABLE'),
@@ -232,8 +255,49 @@ export default {
     };
   },
   methods: {
+    importVariable() {
+      this.$refs.variableImport.open();
+    },
+    mergeData(data, modeId) {
+      JSON.parse(data).map(importData => {
+        importData.id = getUUID();
+        importData.enable = true;
+        importData.showMore = false;
+        let sameNameIndex = this.variables.findIndex(d => d.name === importData.name);
+        if (sameNameIndex !== -1) {
+          if (modeId === 'fullCoverage') {
+            this.variables.splice(sameNameIndex, 1, importData);
+          }
+        } else {
+          this.variables.splice(this.variables.length, 0, importData);
+        }
+        this.sortParameters();
+      })
+    },
+    exportVariable() {
+      if (this.$refs.variableTable.selectIds.length < 1) {
+        this.$warning(this.$t('api_test.environment.select_variable'));
+        return;
+      }
+      let variablesJson = [];
+      let messages = '';
+      let rows = this.$refs.variableTable.selectRows;
+      rows.forEach(row => {
+        if (row.type === 'CSV') {
+          messages = this.$t('variables.csv_download')
+        }
+        if (row.name) {
+          variablesJson.push(row);
+        }
+      })
+      if (messages !== '') {
+        this.$warning(messages);
+        return;
+      }
+      downloadFile('MS_' + variablesJson.length + '_Environments_variables.json', JSON.stringify(variablesJson));
+    },
     batchAddParameter() {
-      this.$refs.batchAddParameter.open();
+      this.$refs.batchAddParameter.open('scenario');
     },
     batchAddHeader() {
       this.$refs.batchAddHeader.open();
@@ -243,20 +307,21 @@ export default {
         let params = data.split("\n");
         let keyValues = [];
         params.forEach(item => {
-          let line = item.split(/：|:/);
-          let required = false;
-          keyValues.unshift(new KeyValue({
-            name: line[0],
-            required: required,
-            value: line[1],
-            description: line[2],
-            type: "text",
-            valid: false,
-            file: false,
-            encode: true,
-            enable: true,
-            contentType: "text/plain"
-          }));
+          if (item) {
+            let line = item.split(/：|:/);
+            let required = false;
+            keyValues.push(new KeyValue({
+              name: line[0],
+              required: required,
+              value: line[1],
+              description: line[2],
+              type: "CONSTANT",
+              valid: false,
+              file: false,
+              encode: true,
+              enable: true,
+            }));
+          }
         })
         return keyValues;
       }
@@ -280,17 +345,27 @@ export default {
           }
         }
         if (isAdd) {
-          this.headers.unshift(obj);
+          this.headers.splice(this.headers.indexOf(h => !h.name), 0, obj);
         }
       }
     },
     batchSaveParameter(data) {
       if (data) {
         let keyValues = this._handleBatchVars(data);
-        keyValues.forEach(item => {
-          item.type = 'CONSTANT';
-          this.addParameters(item);
+        keyValues.forEach(keyValue => {
+          let isAdd = true;
+          keyValue.id = getUUID();
+          this.variables.forEach(item => {
+            if (item.name === keyValue.name) {
+              item.value = keyValue.value;
+              isAdd = false;
+            }
+          })
+          if (isAdd) {
+            this.variables.splice(this.variables.length, 0, keyValue);
+          }
         });
+        this.sortParameters();
       }
     },
     handleClick(command) {
@@ -302,8 +377,7 @@ export default {
     addParameters(v) {
       v.id = getUUID();
       if (v.type === 'CSV') {
-        v.delimiter = ",";
-        v.quotedData = false;
+        v.delimiter = v.delimiter ? v.delimiter : ",";
       }
       this.variables.push(v);
       let index = 1;
@@ -312,12 +386,14 @@ export default {
         index++;
       });
     },
-    sortParamters() {
+    sortParameters() {
       let index = 1;
       this.variables.forEach(item => {
         item.num = index;
+        item.showMore = false;
         index++;
       });
+      this.selection = [];
     },
     updateParameters(v) {
       this.editData = JSON.parse(JSON.stringify(v));
@@ -345,6 +421,21 @@ export default {
       this.headersOld = JSON.parse(JSON.stringify(this.headers));
       this.visible = true;
       this.disabled = disabled;
+      this.$nextTick(() => {
+        this.$refs.variableTable.doLayout();
+        let variable = [];
+        let messages = '';
+        this.variables.forEach(item => {
+          if (variable.indexOf(item.name) !== -1) {
+            messages += item.name + ' ,';
+          } else {
+            variable.push(item.name);
+          }
+        })
+        if (messages !== '') {
+          this.$alert(this.$t('api_test.scenario.variables') + "【" + messages.substr(0, messages.length - 1) + "】" + this.$t('load_test.param_is_duplicate'));
+        }
+      });
     },
     save() {
       this.visible = false;
@@ -360,6 +451,8 @@ export default {
       });
       this.selectVariable = "";
       this.searchType = "";
+      this.selectType = "CONSTANT";
+      this.editData = {};
       if (jsondiffpatch.diff(JSON.parse(JSON.stringify(this.variables)), this.variablesOld) || jsondiffpatch.diff(JSON.parse(JSON.stringify(this.headers)), this.headersOld)) {
         this.$emit('setVariables', saveVariables, this.headers);
       }
@@ -368,12 +461,31 @@ export default {
       this.editData = {delimiter: ",", quotedData: 'false', files: []};
       this.editData.type = this.selectType;
       this.showDelete = false;
+      if (this.editData.type === 'CSV' && this.$refs.csv) {
+        this.$refs.csv.cleanPreview();
+      }
       this.$refs.variableTable.cancelCurrentRow();
     },
     confirmVariable() {
       if (this.editData && (this.editData.name == undefined || this.editData.name == '')) {
-        this.$warning("变量名不能为空");
+        this.$warning(this.$t('api_test.automation.variable_warning'));
         return;
+      }
+      let repeatKey = "";
+      this.variables.forEach((item) => {
+        if (item.name === this.editData.name && item.id !== this.editData.id) {
+          repeatKey = item.name;
+        }
+      });
+      if (repeatKey !== "") {
+        this.$warning(this.$t('api_test.scenario.variables') + "【" + repeatKey + "】" + this.$t('load_test.param_is_duplicate'));
+        return;
+      }
+      if (this.editData.type === 'CSV' && this.$refs.csv) {
+        if (this.editData.files.length === 0) {
+          this.$warning(this.$t('api_test.automation.csv_warning'));
+          return;
+        }
       }
       // 更新场景，修改左边数据
       if (this.showDelete) {
@@ -394,7 +506,7 @@ export default {
     deleteVariable() {
       let ids = [this.editData.id];
       if (ids.length == 0) {
-        this.$warning("请选择一条数据删除");
+        this.$warning(this.$t('api_test.environment.delete_info'));
         return;
       }
       let message = "";
@@ -406,7 +518,7 @@ export default {
       });
       if (message !== "") {
         message = message.substr(0, message.length - 1);
-        this.$alert('是否确认删除变量：【 ' + message + " 】？", '', {
+        this.$alert(this.$t('api_test.environment.variables_delete_info') + '：【 ' + message + " 】？", '', {
           confirmButtonText: this.$t('commons.confirm'),
           callback: (action) => {
             if (action === 'confirm') {
@@ -414,7 +526,7 @@ export default {
                 const index = this.variables.findIndex(d => d.id === row);
                 this.variables.splice(index, 1);
               });
-              this.sortParamters();
+              this.sortParameters();
               this.editData = {};
             }
           }
@@ -424,12 +536,12 @@ export default {
           const index = this.variables.findIndex(d => d.id === row);
           this.variables.splice(index, 1);
         });
-        this.sortParamters();
+        this.sortParameters();
         this.editData = {};
       }
     },
     handleDeleteBatch() {
-      this.$alert("是否确认删除所选变量" + ' ' + " ？", '', {
+      this.$alert(this.$t('api_test.environment.variables_delete_info') + ' ' + " ？", '', {
         confirmButtonText: this.$t('commons.confirm'),
         callback: (action) => {
           if (action === 'confirm') {
@@ -439,7 +551,7 @@ export default {
               this.variables.splice(index, 1);
             });
             // this.editData = {type: "CONSTANT"};
-            this.sortParamters();
+            this.sortParameters();
             this.editData = {};
             this.$refs.variableTable.cancelCurrentRow();
             this.$refs.variableTable.clear();
@@ -496,12 +608,16 @@ export default {
           this.editData.files = item.files
         }
       });
-    }
+    },
+    onChange() {
+      this.selection = [];
+      this.sortParameters();
+    },
   }
 };
 </script>
 
-<style>
+<style scoped>
 .ms-variable-hidden-row {
   display: none;
 }
@@ -526,8 +642,26 @@ fieldset {
   border: 0px;
 }
 
+.ms-fieldset .ms-step-tree-cell::-webkit-scrollbar {
+  width: 0 !important;
+}
+
 .ms-select {
   width: 100px;
   margin-right: 10px;
 }
+
+/deep/ .table-select-icon {
+  display: none !important;
+}
+
+.ms-header {
+  background: #783887;
+  color: white;
+  height: 18px;
+  font-size: xx-small;
+  border-radius: 50%;
+}
+
+
 </style>

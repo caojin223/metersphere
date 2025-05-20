@@ -11,7 +11,6 @@ import io.metersphere.api.dto.scenario.Body;
 import io.metersphere.api.dto.scenario.KeyValue;
 import io.metersphere.api.dto.scenario.request.RequestType;
 import io.metersphere.base.domain.ApiDefinitionWithBLOBs;
-import io.metersphere.base.domain.ApiModule;
 import io.metersphere.commons.exception.MSException;
 import io.metersphere.commons.utils.LogUtil;
 import io.metersphere.commons.utils.XMLUtils;
@@ -47,7 +46,7 @@ public class HarParser extends HarAbstractParser {
             MSException.throwException(e.getMessage());
             LogUtil.error(e.getMessage(), e);
         }
-        if (ObjectUtils.isEmpty(har)) {
+        if (ObjectUtils.isEmpty(har) || har.log == null) {
             MSException.throwException("解析失败，请确认选择的是 Har 格式！");
         }
         ApiDefinitionImport definitionImport = new ApiDefinitionImport();
@@ -60,14 +59,14 @@ public class HarParser extends HarAbstractParser {
     private List<ApiDefinitionWithBLOBs> parseRequests(Har har, ApiTestImportRequest importRequest) {
         List<ApiDefinitionWithBLOBs> results = new ArrayList<>();
 
-        ApiModule selectModule = null;
-        String selectModulePath = null;
-        if (StringUtils.isNotBlank(importRequest.getModuleId())) {
+       /* ApiModule selectModule = null;
+        String selectModulePath = null;*/
+        /*if (StringUtils.isNotBlank(importRequest.getModuleId())) {
             selectModule = ApiDefinitionImportUtil.getSelectModule(importRequest.getModuleId());
             if (selectModule != null) {
                 selectModulePath = ApiDefinitionImportUtil.getSelectModulePath(selectModule.getName(), selectModule.getParentId());
             }
-        }
+        }*/
 
 
         List<HarEntry> harEntryList = new ArrayList<>();
@@ -75,7 +74,6 @@ public class HarParser extends HarAbstractParser {
             harEntryList = har.log.entries;
         }
 
-        List<String> savedUrl = new ArrayList<>();
 
         for (HarEntry entry : harEntryList) {
             HarRequest harRequest = entry.request;
@@ -90,12 +88,7 @@ public class HarParser extends HarAbstractParser {
                     url = url.split("\\?")[0];
                 }
             } catch (Exception e) {
-            }
-
-            if (savedUrl.contains(harRequest.url)) {
-                continue;
-            } else {
-                savedUrl.add(harRequest.url);
+                LogUtil.error(e.getMessage(), e);
             }
 
             //默认取路径的最后一块
@@ -107,13 +100,14 @@ public class HarParser extends HarAbstractParser {
 
             if (harRequest != null) {
                 MsHTTPSamplerProxy request = super.buildRequest(reqName, url, harRequest.method, null);
+                request.setFollowRedirects(true);
                 ApiDefinitionWithBLOBs apiDefinition = super.buildApiDefinition(request.getId(), reqName, url, harRequest.method, importRequest);
                 parseParameters(harRequest, request);
                 parseRequestBody(harRequest, request.getBody());
                 addBodyHeader(request);
                 apiDefinition.setRequest(JSON.toJSONString(request));
                 apiDefinition.setResponse(JSON.toJSONString(parseResponse(entry.response)));
-                if (selectModule == null) {
+                /*if (selectModule == null) {
                     apiDefinition.setModuleId("default-module");
 
                 } else {
@@ -123,7 +117,7 @@ public class HarParser extends HarAbstractParser {
                     apiDefinition.setModulePath(selectModulePath);
                 } else {
                     apiDefinition.setModulePath("/未规划接口");
-                }
+                }*/
                 results.add(apiDefinition);
             }
         }
@@ -209,14 +203,36 @@ public class HarParser extends HarAbstractParser {
                     body.getKvs().add(kv);
                 }
             } else if (contentType.startsWith(org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)) {
-                contentType = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE;
-                List<HarPostParam> postParams = content.params;
-                if (CollectionUtils.isNotEmpty(postParams)) {
-                    for (HarPostParam postParam : postParams) {
-                        KeyValue kv = new KeyValue(postParam.name, postParam.value);
-                        body.getKvs().add(kv);
+                if (contentType.contains("boundary=") && StringUtils.contains(content.text, this.getBoundaryFromContentType(contentType))) {
+                    contentType = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE;
+                    String[] textArr = StringUtils.split(content.text, "\r\n");
+                    String paramData = this.parseMultipartByTextArr(textArr);
+                    JSONObject obj = null;
+                    try {
+                        obj = JSONObject.parseObject(paramData);
+                        if (obj != null) {
+                            for (String key : obj.keySet()) {
+                                KeyValue kv = new KeyValue(key, obj.getString(key));
+                                body.getKvs().add(kv);
+                            }
+                        }
+                    } catch (Exception e) {
+                        obj = null;
+                    }
+                    if (obj == null) {
+                        body.setRaw(paramData);
+                    }
+                } else {
+                    contentType = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE;
+                    List<HarPostParam> postParams = content.params;
+                    if (CollectionUtils.isNotEmpty(postParams)) {
+                        for (HarPostParam postParam : postParams) {
+                            KeyValue kv = new KeyValue(postParam.name, postParam.value);
+                            body.getKvs().add(kv);
+                        }
                     }
                 }
+
             } else if (contentType.startsWith(org.springframework.http.MediaType.APPLICATION_JSON_VALUE)) {
                 contentType = org.springframework.http.MediaType.APPLICATION_JSON_VALUE;
                 body.setRaw(content.text);
@@ -235,6 +251,22 @@ public class HarParser extends HarAbstractParser {
             }
         }
         body.setType(getBodyType(contentType));
+    }
+
+    private String getBoundaryFromContentType(String contentType) {
+        if (StringUtils.contains(contentType, "boundary=")) {
+            String[] strArr = StringUtils.split(contentType, "boundary=");
+            return strArr[strArr.length - 1];
+        }
+        return null;
+    }
+
+    private String parseMultipartByTextArr(String[] textArr) {
+        String data = null;
+        if (textArr != null && textArr.length > 2) {
+            data = textArr[textArr.length - 2];
+        }
+        return data;
     }
 
     private void parseResponseBody(HarContent content, Body body) {

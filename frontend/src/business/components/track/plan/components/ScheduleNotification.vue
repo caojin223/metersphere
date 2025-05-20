@@ -50,7 +50,7 @@ export default {
   data() {
     return {
       modes: ['text', 'html'],
-      robotTitle: "${operator}执行接口测试成功: ${name}, 报告: ${planShareUrl}",
+      robotTitle: "${operator}执行测试计划成功: ${name}, 报告: ${planShareUrl}",
       scheduleTask: [{
         taskType: "scheduleTask",
         event: "",
@@ -104,14 +104,6 @@ export default {
           value: 'stage',
         },
         {
-          label: this.$t('test_track.case.match_rule'),
-          value: 'testCaseMatchRule',
-        },
-        {
-          label: this.$t('test_track.plan.plan_stage'),
-          value: 'executorMatchRule',
-        },
-        {
           label: this.$t('commons.create_time'),
           value: 'createTime',
         },
@@ -144,10 +136,6 @@ export default {
           value: 'projectId',
         },
         {
-          label: this.$t('commons.execution_times'),
-          value: 'executionTimes',
-        },
-        {
           label: this.$t('test_track.automatic_status_update'),
           value: 'automaticStatusUpdate',
         },
@@ -158,6 +146,98 @@ export default {
         {
           label: this.$t('report.plan_share_url'),
           value: 'planShareUrl',
+        },
+        {
+          label: this.$t('test_track.report.exacutive_rate'),
+          value: 'executeRate'
+        },
+        {
+          label: this.$t('test_track.report.total_number_tests'),
+          value: 'caseCount'
+        },
+        {
+          label: this.$t('test_track.plan.test_plan_test_case_count'),
+          value: 'functionAllCount'
+        },
+        {
+          label: this.$t('test_track.plan.test_plan_test_case_success_count'),
+          value: 'functionSuccessCount'
+        },
+        {
+          label: this.$t('test_track.plan.test_plan_test_case_failed_count'),
+          value: 'functionFailedCount'
+        },
+        {
+          label: this.$t('test_track.plan.test_plan_test_case_blocked_count'),
+          value: 'functionBlockedCount'
+        },
+        {
+          label: this.$t('test_track.plan.test_plan_test_case_prepared_count'),
+          value: 'functionPreparedCount'
+        },
+        {
+          label: this.$t('test_track.plan.test_plan_test_case_skipped_count'),
+          value: 'functionSkippedCount'
+        },
+        {
+          label: this.$t('test_track.plan.test_plan_api_case_count'),
+          value: 'apiCaseAllCount'
+        },
+        {
+          label: this.$t('test_track.plan.test_plan_api_case_success_count'),
+          value: 'apiCaseSuccessCount'
+        },
+        {
+          label: this.$t('test_track.plan.test_plan_api_case_failed_count'),
+          value: 'apiCaseFailedCount'
+        },
+        {
+          label: this.$t('test_track.plan.test_plan_api_case_un_execute_count'),
+          value: 'apiCaseUnExecuteCount'
+        },
+        {
+          label: this.$t('test_track.plan.test_plan_api_case_error_report_count'),
+          value: 'apiCaseErrorReportCount'
+        },
+        {
+          label: this.$t('test_track.plan.test_plan_api_scenario_count'),
+          value: 'apiScenarioAllCount'
+        },
+        {
+          label: this.$t('test_track.plan.test_plan_api_scenario_success_count'),
+          value: 'apiScenarioSuccessCount'
+        },
+        {
+          label: this.$t('test_track.plan.test_plan_api_scenario_failed_count'),
+          value: 'apiScenarioFailedCount'
+        },
+        {
+          label: this.$t('test_track.plan.test_plan_api_scenario_un_execute_count'),
+          value: 'apiScenarioUnExecuteCount'
+        },
+        {
+          label: this.$t('test_track.plan.test_plan_api_scenario_error_report_count'),
+          value: 'apiScenarioErrorReportCount'
+        },
+        {
+          label: this.$t('test_track.plan.test_plan_ui_scenario_count'),
+          value: 'uiScenarioAllCount'
+        },
+        {
+          label: this.$t('test_track.plan.test_plan_ui_scenario_success_count'),
+          value: 'uiScenarioSuccessCount'
+        },
+        {
+          label: this.$t('test_track.plan.test_plan_ui_scenario_failed_count'),
+          value: 'uiScenarioFailedCount'
+        },
+        {
+          label: this.$t('test_track.plan.test_plan_ui_scenario_un_execute_count'),
+          value: 'uiScenarioUnExecuteCount'
+        },
+        {
+          label: this.$t('test_track.plan.test_plan_load_case_count'),
+          value: 'loadCaseAllCount'
         },
       ],
     };
@@ -176,7 +256,6 @@ export default {
   methods: {
     initForm() {
       this.result = this.$get('/notice/search/message/' + this.testId, response => {
-        // console.log(response.data);
         this.scheduleTask = response.data;
       });
     },

@@ -16,6 +16,7 @@
               :custom-field-form="customFieldForm"
               :custom-field-rules="customFieldRules"
               :test-case-template="testCaseTemplate"
+              :default-open="richTextDefaultOpen"
               ref="testCaseBaseInfo"
             />
           </ms-aside-container>
@@ -26,12 +27,12 @@
               <div class="ms-opt-btn">
                 <el-tooltip :content="$t('commons.follow')" placement="bottom" effect="dark" v-if="!showFollow">
                   <i class="el-icon-star-off"
-                     style="color: #783987; font-size: 25px;  margin-right: 15px;cursor: pointer;position: relative;top: 5px "
+                     style="color: var(--primary_color); font-size: 25px;  margin-right: 15px;cursor: pointer;position: relative;top: 5px "
                      @click="saveFollow"/>
                 </el-tooltip>
                 <el-tooltip :content="$t('commons.cancel')" placement="bottom" effect="dark" v-if="showFollow">
                   <i class="el-icon-star-on"
-                     style="color: #783987; font-size: 28px; margin-right: 15px;cursor: pointer;position: relative;top: 5px "
+                     style="color: var(--primary_color); font-size: 28px; margin-right: 15px;cursor: pointer;position: relative;top: 5px "
                      @click="saveFollow"/>
                 </el-tooltip>
                 <el-link type="primary" style="margin-right: 20px" @click="openHis" v-if="form.id">
@@ -62,7 +63,7 @@
                     </el-dropdown-item>
                   </el-dropdown-menu>
                 </el-dropdown>
-                <el-button v-else  type="primary" class="ms-api-buttion" @click="handleCommand"
+                <el-button v-else type="primary" class="ms-api-buttion" @click="handleCommand"
                            :disabled="readOnly"
                            @command="handleCommand" size="small" style="float: right;margin-right: 20px">
                   {{ $t('commons.save') }}
@@ -70,27 +71,46 @@
               </div>
               <ms-form-divider :title="$t('test_track.case.step_info')"/>
 
-              <form-rich-text-item :disabled="readOnly" :label-width="formLabelWidth"
-                                   :title="$t('test_track.case.prerequisite')" :data="form" prop="prerequisite"/>
+              <form-rich-text-item :disabled="readOnly"
+                                   :label-width="formLabelWidth"
+                                   :title="$t('test_track.case.prerequisite')"
+                                   :data="form"
+                                   :default-open="richTextDefaultOpen"
+                                   prop="prerequisite"/>
 
               <step-change-item :label-width="formLabelWidth" :form="form"/>
-              <form-rich-text-item :disabled="readOnly" :label-width="formLabelWidth" v-if="form.stepModel === 'TEXT'"
-                                   :title="$t('test_track.case.step_desc')" :data="form" prop="stepDescription"/>
-              <form-rich-text-item :disabled="readOnly" :label-width="formLabelWidth" v-if="form.stepModel === 'TEXT'"
-                                   :title="$t('test_track.case.expected_results')" :data="form" prop="expectedResult"/>
+              <form-rich-text-item v-if="form.stepModel === 'TEXT'"
+                                   prop="stepDescription"
+                                   :disabled="readOnly"
+                                   :label-width="formLabelWidth"
+                                   :title="$t('test_track.case.step_desc')"
+                                   :data="form"
+                                   :default-open="richTextDefaultOpen"/>
 
-              <test-case-step-item :label-width="formLabelWidth" v-if="form.stepModel === 'STEP' || !form.stepModel"
-                                   :form="form" :read-only="readOnly"/>
+              <form-rich-text-item v-if="form.stepModel === 'TEXT'"
+                                   prop="expectedResult"
+                                   :disabled="readOnly"
+                                   :label-width="formLabelWidth"
+                                   :title="$t('test_track.case.expected_results')"
+                                   :data="form"
+                                   :default-open="richTextDefaultOpen"/>
+
+              <test-case-step-item v-if="form.stepModel === 'STEP' || !form.stepModel"
+                                   :label-width="formLabelWidth"
+                                   :form="form"
+                                   :read-only="readOnly"/>
 
               <ms-form-divider :title="$t('test_track.case.other_info')"/>
 
               <test-case-edit-other-info :read-only="readOnly" :project-id="projectIds" :form="form"
                                          :is-copy="currentTestCaseInfo.isCopy"
+                                         :copy-case-id="copyCaseId"
                                          :label-width="formLabelWidth" :case-id="form.id"
-                                         :type="type" :comments="comments"
+                                         :type="type" :comments.sync="comments"
                                          @openComment="openComment"
                                          :is-click-attachment-tab.sync="isClickAttachmentTab"
                                          :version-enable="versionEnable"
+                                         :default-open="richTextDefaultOpen"
                                          ref="otherInfo"/>
               <test-case-comment :case-id="form.id"
                                  @getComments="getComments" ref="testCaseComment"/>
@@ -204,7 +224,7 @@ export default {
       showFollow: false,
       isValidate: false,
       currentValidateName: "",
-      type:"",
+      type: "",
       form: {
         name: '',
         module: 'default-module',
@@ -215,7 +235,6 @@ export default {
         method: '',
         prerequisite: '',
         testId: '',
-        otherTestName: '',
         steps: [{
           num: 1,
           desc: '',
@@ -268,6 +287,7 @@ export default {
         {value: 'manual', label: this.$t('test_track.case.manual')}
       ],
       testCase: {},
+      copyCaseId: "",
       showInputTag: true,
       tableType: "",
       stepFilter: new STEP,
@@ -283,7 +303,7 @@ export default {
       selectedOtherInfo: null,
       currentProjectId: "",
       casePublic: false,
-      isClickAttachmentTab: false,
+      isClickAttachmentTab: false
     };
   },
   props: {
@@ -315,6 +335,9 @@ export default {
     isCustomNum() {
       return this.$store.state.currentProjectIsCustomNum;
     },
+    richTextDefaultOpen() {
+      return this.type === 'edit' ? 'preview' : 'edit';
+    },
     readOnly() {
       const {rowClickHasPermission} = this.currentTestCaseInfo;
       if (rowClickHasPermission !== undefined) {
@@ -335,7 +358,7 @@ export default {
       },
       deep: true
     },
-    'testCaseTemplate.customFields': {
+    customFieldForm: {
       handler(val) {
         if (val && this.$store.state.testCaseMap && this.form.id) {
           let change = this.$store.state.testCaseMap.get(this.form.id);
@@ -577,10 +600,12 @@ export default {
       if (testCase) {
         //修改
         this.operationType = 'edit';
+        this.copyCaseId = '';
         //复制
         if (this.type === 'copy') {
           this.showInputTag = false;
           this.operationType = 'add';
+          this.copyCaseId = testCase.copyId;
           this.setFormData(testCase);
           this.setTestCaseExtInfo(testCase);
           this.getSelectOptions();
@@ -588,6 +613,7 @@ export default {
           this.$nextTick(() => {
             this.showInputTag = true;
           });
+          this.form.id = null;
         } else {
           this.getTestCase(testCase.id);
         }
@@ -601,6 +627,7 @@ export default {
           }
         }
         let user = JSON.parse(localStorage.getItem(TokenKey));
+        this.copyCaseId = '';
         this.form.priority = 'P3';
         this.form.type = 'functional';
         this.form.method = 'manual';
@@ -715,6 +742,9 @@ export default {
       if (this.validate(param)) {
         let option = this.getOption(param);
         this.result = this.$request(option, (response) => {
+          // 保存用例后刷新附件
+          this.currentTestCaseInfo.isCopy = false;
+          this.$refs.otherInfo.getFileMetaData(response.data.id);
           this.$success(this.$t('commons.save_success'));
           this.path = "/test/case/edit";
           // this.operationType = "edit"
@@ -732,14 +762,14 @@ export default {
           }
           this.form.id = response.data.id;
           this.currentTestCaseInfo.id = response.data.id;
+          this.form.refId = response.data.refId;
+          this.currentTestCaseInfo.refId = response.data.refId;
           if (this.currentTestCaseInfo.isCopy) {
             this.currentTestCaseInfo.isCopy = null;
           }
           if (callback) {
             callback(this);
           }
-          // 保存用例后刷新附件
-
           //更新版本
           if (hasLicense()) {
             this.getVersionHistory();
@@ -752,6 +782,7 @@ export default {
       Object.assign(param, this.form);
       param.steps = JSON.stringify(this.form.steps);
       param.nodeId = this.form.module;
+      param.copyCaseId = this.copyCaseId
       if (!this.publicEnable) {
         param.nodePath = getNodePath(this.form.module, this.moduleOptions);
         if (this.projectId) {
@@ -780,6 +811,12 @@ export default {
       if (this.selectedOtherInfo) {
         param.otherInfoConfig = this.selectedOtherInfo;
       }
+      if (this.$refs.otherInfo.relateFiles.length > 0) {
+        param.relateFileMetaIds = this.$refs.otherInfo.relateFiles;
+      }
+      if (this.$refs.otherInfo.unRelateFiles.length > 0) {
+        param.unRelateFileMetaIds = this.$refs.otherInfo.unRelateFiles;
+      }
       return param;
     },
     parseOldFields(param) {
@@ -798,28 +835,15 @@ export default {
     },
     getOption(param) {
       let formData = new FormData();
-      if (this.$refs.otherInfo && this.$refs.otherInfo.uploadList) {
-        this.$refs.otherInfo.uploadList.forEach(f => {
-          formData.append("file", f);
-        });
-      }
-
-      if (this.$refs.otherInfo && this.$refs.otherInfo.fileList) {
-        if (param.isCopy) {
-          // 如果是copy，则把文件的ID传到后台进行文件复制
-          param.fileIds = this.$refs.otherInfo.fileList.map(f => f.id);
-        }
-        param.updatedFileList = this.$refs.otherInfo.fileList;
-      } else {
-        param.fileIds = [];
-        param.updatedFileList = [];
-      }
-      param.handleAttachment = this.isClickAttachmentTab;
-
       let requestJson = JSON.stringify(param, function (key, value) {
         return key === "file" ? undefined : value
       });
 
+      if (this.$refs.otherInfo.uploadFiles.length > 0) {
+        this.$refs.otherInfo.uploadFiles.forEach(f => {
+          formData.append("file", f);
+        });
+      }
       formData.append('request', new Blob([requestJson], {
         type: "application/json"
       }));
@@ -851,7 +875,7 @@ export default {
       this.form.testId = '';
     },
     getMaintainerOptions() {
-      this.$post('/user/project/member/tester/list', {projectId: getCurrentProjectID()}, response => {
+      this.$get('/user/project/member/list', response => {
         this.maintainerOptions = response.data;
       });
     },
@@ -948,7 +972,9 @@ export default {
           this.currentProjectId = getCurrentProjectID();
         }
         this.versionData = response.data;
-        this.$refs.versionHistory.loading = false;
+        if (this.$refs.versionHistory) {
+          this.$refs.versionHistory.loading = false;
+        }
       });
     },
     setSpecialPropForCompare: function (that) {
@@ -970,11 +996,10 @@ export default {
             that.oldData = data[1].data.data;
             that.newData.createTime = row.createTime;
             that.oldData.createTime = this.$refs.versionHistory.versionOptions.filter(v => v.id === that.oldData.versionId)[0].createTime;
-            let testCase = that.versionData.filter(v => v.versionId === this.currentTestCaseInfo.versionId)[0];
             that.newData.versionName = that.versionData.filter(v => v.id === that.newData.id)[0].versionName;
             that.oldData.versionName = that.versionData.filter(v => v.id === that.oldData.id)[0].versionName;
             that.newData.userName = response.data.createName
-            that.oldData.userName = testCase.createName
+            that.oldData.userName = that.versionData.filter(v => v.id === that.oldData.id)[0].createName
             this.setSpecialPropForCompare(that);
             that.dialogVisible = true;
           }
@@ -1001,7 +1026,11 @@ export default {
           return false;
         }
       });
-      let customValidate = this.$refs.testCaseBaseInfo.validateForm();
+      let baseInfoValidate = this.$refs.testCaseBaseInfo.validateForm();
+      if (!baseInfoValidate) {
+        return false;
+      }
+      let customValidate = this.$refs.testCaseBaseInfo.validateCustomForm();
       if (!customValidate) {
         let customFieldFormFields = this.$refs.testCaseBaseInfo.getCustomFields();
         for (let i = 0; i < customFieldFormFields.length; i++) {
@@ -1061,9 +1090,13 @@ export default {
     },
     hasOtherInfo() {
       return new Promise((resolve) => {
-          this.$get("test/case/hasOtherInfo/" + this.form.id, (res) => {
-            resolve(res.data);
-          })
+          if (this.form.id) {
+            this.$get("test/case/hasOtherInfo/" + this.form.id, (res) => {
+              resolve(res.data);
+            });
+          } else {
+            resolve();
+          }
         }
       );
     },

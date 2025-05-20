@@ -7,38 +7,30 @@
         t.id,
         t.project_id,
         t.oper_user,
-        t3.source_id,
         t.oper_type,
         upper (t.oper_module) oper_module ,
         t.oper_title,
         t.oper_time,
-        t1.NAME userName,
-        t2.`name` projectName
+        t2.`name` projectName ,
+        t2.workspace_id workspace_id
         FROM
         operating_log t
-        LEFT JOIN `user` t1 ON t.oper_user = t1.id
         LEFT JOIN project t2 ON t.project_id = t2.id
-        LEFT JOIN workspace w on t2.workspace_id = w.id
-        LEFT JOIN operating_log_resource t3 ON t.id = t3.operating_log_id
         <where>
-            (
             <if test="request.projectIds != null and request.projectIds.size > 0 ">
                 t.project_id in
                 <foreach collection="request.projectIds" item="projectId" separator="," open="(" close=")">
                     #{projectId}
                 </foreach>
             </if>
-            <if test="request.workspaceId == ''">
-                or t.project_id is null
-                or t.project_id = ""
-            </if>
-            )
             <if test="request.operUser != null and request.operUser != ''">
-                and (t.oper_user like #{request.operUser, jdbcType=VARCHAR} or t1.name like
-                #{request.operUser, jdbcType=VARCHAR})
+                and t.oper_user like #{request.operUser, jdbcType=VARCHAR}
             </if>
             <if test="request.projectId != null and request.projectId !=''">
                 and t.project_id = #{request.projectId}
+            </if>
+            <if test="request.workspaceId != null and request.workspaceId !=''">
+                and t2.workspace_id = #{request.workspaceId}
             </if>
             <if test="request.operType != null and request.operType != ''">
                 and t.oper_type like #{request.operType, jdbcType=VARCHAR}
@@ -116,5 +108,13 @@
         LEFT JOIN `user` t1 ON tt.oper_user = t1.id
         LEFT JOIN project t2 ON tt.project_id = t2.id
         order by tt.oper_time desc
+    </select>
+
+    <select id="findSourceIdByLogIds" resultType="io.metersphere.log.vo.OperatingLogDTO">
+        select * from operating_log_resource where operating_log_id in
+        <foreach collection="ids" item="id" index="index"
+                 open="(" close=")" separator=",">
+            #{id}
+        </foreach>
     </select>
 </mapper>

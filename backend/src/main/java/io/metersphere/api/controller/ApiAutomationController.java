@@ -5,12 +5,14 @@ import com.github.pagehelper.PageHelper;
 import io.metersphere.api.dto.*;
 import io.metersphere.api.dto.automation.*;
 import io.metersphere.api.dto.automation.parse.ScenarioImport;
+import io.metersphere.api.dto.automation.parse.ScenarioToPerformanceInfoDTO;
 import io.metersphere.api.dto.definition.RunDefinitionRequest;
 import io.metersphere.api.service.ApiAutomationService;
 import io.metersphere.base.domain.ApiScenario;
 import io.metersphere.base.domain.ApiScenarioWithBLOBs;
 import io.metersphere.base.domain.Schedule;
 import io.metersphere.commons.constants.*;
+import io.metersphere.commons.exception.MSException;
 import io.metersphere.commons.utils.PageUtils;
 import io.metersphere.commons.utils.Pager;
 import io.metersphere.controller.request.ResetOrderRequest;
@@ -21,6 +23,7 @@ import io.metersphere.notice.annotation.SendNotice;
 import io.metersphere.task.service.TaskService;
 import io.metersphere.track.request.testcase.ApiCaseRelevanceRequest;
 import io.metersphere.track.request.testplan.FileOperationRequest;
+import io.metersphere.websocket.c.to.c.WebSocketUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.shiro.authz.annotation.Logical;
 import org.apache.shiro.authz.annotation.RequiresPermissions;
@@ -197,12 +200,17 @@ public class ApiAutomationController {
 
     @PostMapping(value = "/run/debug")
     @MsAuditLog(module = OperLogModule.API_AUTOMATION, type = OperLogConstants.DEBUG, title = "#request.scenarioName", sourceId = "#request.scenarioId", project = "#request.projectId")
-    public void runDebug(@RequestPart("request") RunDefinitionRequest request,
-                         @RequestPart(value = "bodyFiles", required = false) List<MultipartFile> bodyFiles, @RequestPart(value = "scenarioFiles", required = false) List<MultipartFile> scenarioFiles) {
-        if (StringUtils.isEmpty(request.getExecuteType())) {
-            request.setExecuteType(ExecuteType.Debug.name());
+    public String runDebug(@RequestPart("request") RunDefinitionRequest request,
+                           @RequestPart(value = "bodyFiles", required = false) List<MultipartFile> bodyFiles, @RequestPart(value = "scenarioFiles", required = false) List<MultipartFile> scenarioFiles) {
+        try {
+            if (StringUtils.isEmpty(request.getExecuteType())) {
+                request.setExecuteType(ExecuteType.Debug.name());
+            }
+            apiAutomationService.debugRun(request, bodyFiles, scenarioFiles);
+        } catch (Exception e) {
+            return e.getMessage();
         }
-        apiAutomationService.debugRun(request, bodyFiles, scenarioFiles);
+        return "SUCCESS";
     }
 
     @PostMapping(value = "/run")
@@ -267,12 +275,6 @@ public class ApiAutomationController {
         return apiAutomationService.addScenarioToPlan(request);
     }
 
-    @PostMapping("/relevance")
-    @MsAuditLog(module = OperLogModule.TRACK_TEST_PLAN, type = OperLogConstants.ASSOCIATE_CASE, content = "#msClass.getLogDetails(#request)", msClass = ApiAutomationService.class)
-    public void testPlanRelevance(@RequestBody ApiCaseRelevanceRequest request) {
-        apiAutomationService.relevance(request);
-    }
-
     @PostMapping("/relevance/review")
     public void testCaseReviewRelevance(@RequestBody ApiCaseRelevanceRequest request) {
         apiAutomationService.relevanceReview(request);
@@ -291,13 +293,13 @@ public class ApiAutomationController {
     }
 
     @PostMapping(value = "/genPerformanceTestJmx")
-    public JmxInfoDTO genPerformanceTestJmx(@RequestBody GenScenarioRequest runRequest) throws Exception {
+    public ScenarioToPerformanceInfoDTO genPerformanceTestJmx(@RequestBody GenScenarioRequest runRequest) throws Exception {
         runRequest.setExecuteType(ExecuteType.Completed.name());
         return apiAutomationService.genPerformanceTestJmx(runRequest);
     }
 
     @PostMapping("/batchGenPerformanceTestJmx")
-    public List<JmxInfoDTO> batchGenPerformanceTestJmx(@RequestBody ApiScenarioBatchRequest request) {
+    public ScenarioToPerformanceInfoDTO batchGenPerformanceTestJmx(@RequestBody ApiScenarioBatchRequest request) {
         return apiAutomationService.batchGenPerformanceTestJmx(request);
     }
 
@@ -332,6 +334,8 @@ public class ApiAutomationController {
             taskRequest.setReportId(reportId);
             taskRequest.setType("SCENARIO");
             reportIds.add(taskRequest);
+
+            WebSocketUtils.onClose(reportId);
             taskService.stop(reportIds);
         }
     }
@@ -364,18 +368,28 @@ public class ApiAutomationController {
     @PostMapping(value = "/export/jmx")
     @RequiresPermissions(PermissionConstants.PROJECT_API_SCENARIO_READ_EXPORT_SCENARIO)
     @MsAuditLog(module = OperLogModule.API_AUTOMATION, type = OperLogConstants.EXPORT, sourceId = "#request.id", title = "#request.name", project = "#request.projectId")
-    public List<ApiScenarioExportJmxDTO> exportJmx(@RequestBody ApiScenarioBatchRequest request) {
+    public ScenarioToPerformanceInfoDTO exportJmx(@RequestBody ApiScenarioBatchRequest request) {
         return apiAutomationService.exportJmx(request);
     }
 
     @PostMapping(value = "/checkScenarioEnv")
     public boolean checkScenarioEnv(@RequestBody ApiScenarioWithBLOBs request) {
-        return apiAutomationService.checkScenarioEnv(request);
+        try {
+            return apiAutomationService.checkScenarioEnv(request);
+        } catch (Exception e) {
+            MSException.throwException("场景步骤解析错误，检查是否包含插件步骤!");
+        }
+        return false;
     }
 
     @GetMapping(value = "/checkScenarioEnv/{scenarioId}")
     public boolean checkScenarioEnvByScenarioId(@PathVariable String scenarioId) {
-        return apiAutomationService.checkScenarioEnv(scenarioId);
+        try {
+            return apiAutomationService.checkScenarioEnv(scenarioId);
+        } catch (Exception e) {
+            MSException.throwException("场景步骤解析错误，检查是否包含插件步骤!");
+        }
+        return false;
     }
 
     @GetMapping("/follow/{scenarioId}")

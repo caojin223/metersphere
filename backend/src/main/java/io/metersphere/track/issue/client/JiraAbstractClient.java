@@ -14,6 +14,7 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.HttpClientErrorException;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -30,7 +31,7 @@ public abstract class JiraAbstractClient extends BaseClient {
     public JiraIssue getIssues(String issuesId) {
         LogUtil.info("getIssues: " + issuesId);
         ResponseEntity<String> responseEntity;
-        responseEntity = restTemplate.exchange(getBaseUrl() + "/issue/" + issuesId + "?fields=status,assignee,summary,created,updated,attachment,description", HttpMethod.GET, getAuthHttpEntity(), String.class);
+        responseEntity = restTemplate.exchange(getBaseUrl() + "/issue/" + issuesId, HttpMethod.GET, getAuthHttpEntity(), String.class);
         return  (JiraIssue) getResultForObject(JiraIssue.class, responseEntity);
     }
 
@@ -87,7 +88,19 @@ public abstract class JiraAbstractClient extends BaseClient {
     }
 
     public List<JiraUser> getAssignableUser(String projectKey) {
-        String url = getBaseUrl() + "/user/assignable/search?project={1}&maxResults=" + 1000 + "&startAt=" + 0;
+        List<JiraUser> res = new ArrayList<>();
+        int maxResults = 1000, startAt = 0;
+        List<JiraUser> list;
+        do {
+            list = this.getAssignableUser(startAt, maxResults, projectKey);
+            res.addAll(list);
+            startAt += maxResults;
+        } while (list.size() >= maxResults);
+        return res;
+    }
+
+    private List<JiraUser> getAssignableUser(int startAt, int maxResult, String projectKey) {
+        String url = getBaseUrl() + "/user/assignable/search?project={1}&maxResults=" + maxResult + "&startAt=" + startAt;
         ResponseEntity<String> response = null;
         try {
             response = restTemplate.exchange(url, HttpMethod.GET, getAuthHttpEntity(), String.class, projectKey);
@@ -125,6 +138,11 @@ public abstract class JiraAbstractClient extends BaseClient {
             MSException.throwException(e.getMessage());
         }
         return (JiraAddIssueResponse) getResultForObject(JiraAddIssueResponse.class, response);
+    }
+
+    public List<JiraTransitionsResponse.Transitions> getTransitions(String issueKey) {
+        ResponseEntity<String> response = restTemplate.exchange(getBaseUrl() + "/issue/{1}/transitions", HttpMethod.GET, getAuthHttpEntity(), String.class, issueKey);
+        return ((JiraTransitionsResponse) getResultForObject(JiraTransitionsResponse.class, response)).getTransitions();
     }
 
     public void updateIssue(String id, String body) {
@@ -209,6 +227,12 @@ public abstract class JiraAbstractClient extends BaseClient {
         return getBasicHttpHeaders(USER_NAME, PASSWD);
     }
 
+    protected HttpHeaders getAuthJsonHeader() {
+        HttpHeaders headers = getAuthHeader();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        return headers;
+    }
+
     protected String getBaseUrl() {
         return ENDPOINT + PREFIX;
     }
@@ -232,9 +256,46 @@ public abstract class JiraAbstractClient extends BaseClient {
     }
 
     public JiraIssueListResponse getProjectIssues(int startAt, int maxResults, String projectKey, String issueType) {
+        return getProjectIssues(startAt, maxResults, projectKey, issueType, null);
+    }
+
+    public JiraIssueListResponse getProjectIssues(int startAt, int maxResults, String projectKey, String issueType, String fields) {
         ResponseEntity<String> responseEntity;
-        responseEntity = restTemplate.exchange(getBaseUrl() + "/search?startAt={1}&maxResults={2}&jql=project={3}+AND+issuetype={4}",
+        String url = getBaseUrl() + "/search?startAt={1}&maxResults={2}&jql=project={3}+AND+issuetype={4}";
+        if (StringUtils.isNotBlank(fields)) {
+            url = url + "&fields=" + fields;
+        }
+        responseEntity = restTemplate.exchange(url,
                 HttpMethod.GET, getAuthHttpEntity(), String.class, startAt, maxResults, projectKey, issueType);
         return  (JiraIssueListResponse)getResultForObject(JiraIssueListResponse.class, responseEntity);
+    }
+
+    public byte[] getAttachmentContent(String url) {
+        ResponseEntity<byte[]> responseEntity;
+        responseEntity = restTemplate.exchange(url,
+                HttpMethod.GET, getAuthHttpEntity(), byte[].class);
+        return responseEntity.getBody();
+    }
+
+    public JiraIssueListResponse getProjectIssuesAttachment(int startAt, int maxResults, String projectKey, String issueType) {
+        return getProjectIssues(startAt, maxResults, projectKey, issueType, "attachment");
+
+    }
+    public void setTransitions(String jiraKey, JiraTransitionsResponse.Transitions transitions) {
+        LogUtil.info("setTransitions: " + transitions);
+        JSONObject jsonObject = new JSONObject();
+        jsonObject.put("transition", transitions);
+        HttpEntity<String> requestEntity = new HttpEntity<>(jsonObject.toJSONString(), getAuthJsonHeader());
+        try {
+            restTemplate.exchange(getBaseUrl() + "/issue/{1}/transitions", HttpMethod.POST, requestEntity, String.class, jiraKey);
+        } catch (Exception e) {
+            LogUtil.error(e.getMessage(), e);
+            MSException.throwException(e.getMessage());
+        }
+    }
+
+    public ResponseEntity proxyForGet(String url, Class responseEntityClazz) {
+        LogUtil.info("jira proxyForGet: " + url);
+        return restTemplate.exchange(url, HttpMethod.GET, getAuthHttpEntity(), responseEntityClazz);
     }
 }

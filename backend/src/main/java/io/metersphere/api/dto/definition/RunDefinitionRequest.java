@@ -16,11 +16,15 @@ public class RunDefinitionRequest {
 
     private String runMode;
 
+    private String uiRunMode;
+
     private boolean isDebug;
 
     private boolean saved;
 
     private boolean runLocal;
+
+    private String browserLanguage;
 
     private String requestId;
 

@@ -6,6 +6,8 @@ import io.metersphere.controller.request.BaseQueryRequest;
 import io.metersphere.dto.RelationshipGraphData;
 import io.metersphere.track.dto.CustomFieldResourceCompatibleDTO;
 import io.metersphere.track.dto.TestCaseDTO;
+import io.metersphere.track.dto.TestCaseNodeDTO;
+import io.metersphere.track.request.testcase.DeleteTestCaseRequest;
 import io.metersphere.track.request.testcase.QueryTestCaseRequest;
 import io.metersphere.track.request.testcase.TestCaseBatchRequest;
 import io.metersphere.track.response.TrackCountResult;
@@ -24,6 +26,8 @@ public interface ExtTestCaseMapper {
     List<TestCaseDTO> publicList(@Param("request") QueryTestCaseRequest request);
 
     int moduleCount(@Param("request") QueryTestCaseRequest request);
+
+    List<String> getPublicProjectIdByWorkSpaceId(@Param("request") QueryTestCaseRequest request);
 
     List<TestCaseDTO> listByMethod(@Param("request") QueryTestCaseRequest request);
 
@@ -90,7 +94,7 @@ public interface ExtTestCaseMapper {
 
     List<TrackCountResult> countRelevanceMaintainer(@Param("projectId") String projectId);
 
-    int getTestPlanBug(@Param("planId") String planId);
+    List<String> getTestPlanBug(@Param("planId") String planId);
 
     int getTestPlanCase(@Param("planId") String planId);
 
@@ -105,11 +109,15 @@ public interface ExtTestCaseMapper {
 
     List<String> selectRelateIdsByQuery(@Param("request") BaseQueryRequest query);
 
-    List<Map<String, Object>> moduleCountByCollection(@Param("request") QueryTestCaseRequest request);
+    List<TestCaseNodeDTO> getCountNodes(@Param("request") QueryTestCaseRequest request);
+
+    List<TestCaseNodeDTO> getTestPlanRelateCountNodes(@Param("request") QueryTestCaseRequest request);
+
+    List<TestCaseNodeDTO> getTestReviewRelateCountNodes(@Param("request") QueryTestCaseRequest request);
 
     List<TestCaseWithBLOBs> getCustomFieldsByIds(@Param("ids") List<String> ids);
 
-    int deleteToGc(@Param("request") TestCase testCase);
+    int deleteToGc(@Param("request") DeleteTestCaseRequest testCase);
 
     int deletePublic(@Param("request") TestCase testCase);
 
@@ -137,8 +145,6 @@ public interface ExtTestCaseMapper {
 
     String getLastExecStatusById(String id);
 
-    List<TestCaseDTO> getLastExecStatusByIdList(@Param("ids") List<String> idList);
-
     int countByWorkSpaceId(String workSpaceId);
 
     long trashCount(@Param("projectId") String projectId);
@@ -154,4 +160,10 @@ public interface ExtTestCaseMapper {
     List<CustomFieldResourceCompatibleDTO> getForCompatibleCustomField(String projectId, int offset, int pageSize);
 
     List<Map<String, Object>> moduleExtraNodeCount(@Param("nodeIds") List<String> nodeIds);
+
+    int bathUpdateByCondition(@Param("request") QueryTestCaseRequest condition, @Param("record") TestCaseWithBLOBs testCaseWithBLOBs);
+
+    List<TestCaseNodeDTO> getWorkspaceCountNodes(@Param("request") QueryTestCaseRequest request);
+
+    void updateNoModuleTrashNodeToDefault(@Param("projectId") String projectId, @Param("defaultNodeId") String defaultNodeId, @Param("defaultNodePath") String defaultNodePath);
 }

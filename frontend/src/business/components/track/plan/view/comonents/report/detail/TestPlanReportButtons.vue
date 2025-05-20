@@ -22,7 +22,8 @@
       </el-button>
     </el-row>
     <el-row>
-      <el-button icon="el-icon-download" :disabled="!isTestManagerOrTestUser" plain size="mini" @click="handleExportHtml()">
+      <el-button icon="el-icon-download" :disabled="!isTestManagerOrTestUser"
+                 v-permission="['PROJECT_TRACK_REPORT:READ+EXPORT']" plain size="mini" @click="handleExportHtml()">
         {{ $t('commons.export')}}
       </el-button>
     </el-row>
@@ -95,7 +96,7 @@ export default {
             res.data.typeValue = quantity+this.$t('commons.date_unit.day');
           }else
           if(unit==='M'){
-            res.data.typeValue = quantity+this.$t('commons.date_unit.month');
+            res.data.typeValue = quantity+this.$t('commons.workspace_unit')+this.$t('commons.date_unit.month');
           }else
           if(unit==='Y'){
             res.data.typeValue = quantity+this.$t('commons.date_unit.year');

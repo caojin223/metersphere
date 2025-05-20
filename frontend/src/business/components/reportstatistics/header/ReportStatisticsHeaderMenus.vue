@@ -4,14 +4,24 @@
       <project-change :project-name="currentProject"/>
       <el-col :span="14">
         <el-menu class="header-menu" :unique-opened="true" mode="horizontal" router :default-active='$route.path'>
-          <el-menu-item :index="'/report/projectStatistics'">
+          <el-menu-item
+            :index="'/report/projectStatistics'"
+            v-permission="['PROJECT_REPORT_ANALYSIS:READ', 'PROJECT_REPORT_ANALYSIS:READ+EXPORT',
+            'PROJECT_REPORT_ANALYSIS:READ+UPDATE', 'PROJECT_REPORT_ANALYSIS:READ+CREATE']">
             {{ $t("commons.report_statistics.menu.project_statistics") }}
           </el-menu-item>
-          <el-menu-item :index="'/report/projectReport'" v-xpack v-permission="['PROJECT_API_DEFINITION:READ']">
+          <el-menu-item
+            :index="'/report/projectReport'" v-xpack
+            v-permission="['PROJECT_ENTERPRISE_REPORT:READ+EXPORT', 'PROJECT_ENTERPRISE_REPORT:READ+CREATE',
+            'PROJECT_ENTERPRISE_REPORT:READ+DELETE', 'PROJECT_ENTERPRISE_REPORT:READ+COPY',
+            'PROJECT_ENTERPRISE_REPORT:READ+SCHEDULE', 'PROJECT_ENTERPRISE_REPORT:READ+EDIT']">
             {{ $t("commons.report_statistics.menu.project_report") }}
           </el-menu-item>
 
         </el-menu>
+      </el-col>
+      <el-col :span="10">
+        <ms-header-right-menus/>
       </el-col>
     </el-row>
   </div>
@@ -22,10 +32,11 @@
 
 import ProjectChange from "@/business/components/common/head/ProjectSwitch";
 import {hasLicense, hasPermission} from "@/common/js/utils";
+import MsHeaderRightMenus from "@/business/components/layout/HeaderRightMenus";
 
 export default {
   name: "ReportStatisticsHeaderMenus",
-  components: {ProjectChange},
+  components: {ProjectChange,MsHeaderRightMenus},
   data() {
     return {
       licenseCheck: false,

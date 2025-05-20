@@ -34,6 +34,8 @@
 </template>
 
 <script>
+import {setPriorityView} from "vue-minder-editor-plus/src/script/tool/utils";
+
 const {getCurrentWorkspaceId} = require("@/common/js/utils");
 const {getIssuesListById} = require("@/network/Issue");
 import MsModuleMinder from "@/business/components/common/components/MsModuleMinder";
@@ -103,6 +105,9 @@ name: "TestPlanMinder",
       if (this.$refs.minder) {
         this.$refs.minder.handleNodeSelect(this.selectNode);
       }
+    },
+    treeNodes() {
+      this.$refs.minder.initData();
     }
   },
   methods: {
@@ -119,6 +124,8 @@ name: "TestPlanMinder",
         if (handleMinderIssueDelete(even.commandName, true))  return; // 删除缺陷不算有编辑脑图信息
 
         if (even.commandName.toLocaleLowerCase() === 'resource') {
+          // 设置完标签后，优先级显示有问题，重新设置下
+          setTimeout(() => setPriorityView(true, 'P'), 100);
           this.setIsChange(true);
         }
       });
@@ -133,7 +140,11 @@ name: "TestPlanMinder",
         }
       });
 
-      tagBatch([...this.tags, this.$t('test_track.plan.plan_status_prepare')]);
+      tagBatch([...this.tags, this.$t('test_track.plan.plan_status_prepare')], {
+        param: this.getParam(),
+        getCaseFuc: getPlanCasesForMinder,
+        setParamCallback: this.setParamCallback
+      });
 
       addIssueHotBox(this);
     },

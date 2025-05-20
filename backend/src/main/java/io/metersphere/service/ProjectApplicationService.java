@@ -30,10 +30,8 @@ import org.springframework.transaction.annotation.Transactional;
 import javax.annotation.Resource;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional(rollbackFor = Exception.class)
@@ -64,6 +62,7 @@ public class ProjectApplicationService {
             this.doHandleMockTcpPort(projectId, value);
         } else if (StringUtils.equals(type, ProjectApplicationType.CLEAN_TRACK_REPORT.name())
                 || StringUtils.equals(type, ProjectApplicationType.CLEAN_API_REPORT.name())
+                || StringUtils.equals(type, ProjectApplicationType.CLEAN_UI_REPORT.name())
                 || StringUtils.equals(type, ProjectApplicationType.CLEAN_LOAD_REPORT.name())) {
             this.doHandleCleanUp(projectId, type, value);
         }
@@ -83,11 +82,14 @@ public class ProjectApplicationService {
                 config.setCleanApiReport(cleanUp);
             } else if (StringUtils.equals(type, ProjectApplicationType.CLEAN_LOAD_REPORT.name())) {
                 config.setCleanLoadReport(cleanUp);
+            } else if(StringUtils.equals(type, ProjectApplicationType.CLEAN_UI_REPORT.name())){
+                config.setCleanUiReport(cleanUp);
             }
             // 根据这三个状态判断定时清理任务是否开启
             request.setCleanTrackReport(config.getCleanTrackReport());
             request.setCleanApiReport(config.getCleanApiReport());
             request.setCleanLoadReport(config.getCleanLoadReport());
+            request.setCleanUiReport(config.getCleanUiReport());
         }
         projectService.addOrUpdateCleanUpSchedule(request);
     }
@@ -362,5 +364,27 @@ public class ProjectApplicationService {
                 }
             }
         }
+    }
+
+    public Map<String, String> getCustomNumMapByProjectIds(List<String> projectIds) {
+        ProjectApplicationExample example = new ProjectApplicationExample();
+        example.createCriteria()
+                .andProjectIdIn(projectIds)
+                .andTypeEqualTo(ProjectApplicationType.CASE_CUSTOM_NUM.name())
+                .andTypeValueEqualTo("true");
+
+        List<ProjectApplication> projectApplications = projectApplicationMapper.selectByExample(example);
+        return projectApplications.stream()
+                .collect(Collectors.toMap(ProjectApplication::getProjectId, ProjectApplication::getType));
+    }
+
+    public Boolean checkCustomNumByProjectId(String projectId) {
+        ProjectApplicationExample example = new ProjectApplicationExample();
+        example.createCriteria()
+                .andProjectIdEqualTo(projectId)
+                .andTypeEqualTo(ProjectApplicationType.CASE_CUSTOM_NUM.name())
+                .andTypeValueEqualTo("true");
+        List<ProjectApplication> projectApplications = projectApplicationMapper.selectByExample(example);
+        return projectApplications.size() > 0;
     }
 }

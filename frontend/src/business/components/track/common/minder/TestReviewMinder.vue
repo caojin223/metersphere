@@ -24,6 +24,7 @@ import {
   tagBatch
 } from "@/business/components/track/common/minder/minderUtils";
 import {getReviewCasesForMinder} from "@/network/testCase";
+import {setPriorityView} from "vue-minder-editor-plus/src/script/tool/utils";
 export default {
 name: "TestReviewMinder",
   components: {MsModuleMinder},
@@ -62,6 +63,9 @@ name: "TestReviewMinder",
       if (this.$refs.minder) {
         this.$refs.minder.handleNodeSelect(this.selectNode);
       }
+    },
+    treeNodes() {
+      this.$refs.minder.initData();
     }
   },
   computed: {
@@ -84,11 +88,16 @@ name: "TestReviewMinder",
         }
 
         if (even.commandName.toLocaleLowerCase() === 'resource') {
+          // 设置完标签后，优先级显示有问题，重新设置下
+          setTimeout(() => setPriorityView(true, 'P'), 100);
           this.setIsChange(true);
         }
       });
-
-      tagBatch([...this.tags, this.$t('test_track.plan.plan_status_prepare')]);
+      tagBatch([...this.tags, this.$t('test_track.plan.plan_status_prepare')], {
+        param: this.getParam(),
+        getCaseFuc: getReviewCasesForMinder,
+        setParamCallback: this.setParamCallback
+      });
     },
     getParam() {
       return {

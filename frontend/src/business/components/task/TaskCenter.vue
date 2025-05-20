@@ -1,27 +1,17 @@
 <template>
   <div v-permission="['PROJECT_API_SCENARIO:READ','WORKSPACE_USER:READ']">
-    <el-menu
-      v-if="showMenu"
-      :unique-opened="true"
-      class="header-user-menu align-right header-top-menu"
-      mode="horizontal"
-      :background-color="color"
-      text-color="#fff"
-      active-text-color="#fff">
-      <el-menu-item onselectstart="return false">
-        <el-tooltip effect="light">
-          <template v-slot:content>
-            <span>{{ $t('commons.task_center') }}</span>
-          </template>
-          <div @click="showTaskCenter" v-if="runningTotal > 0">
-            <el-badge :value="runningTotal" class="item" type="primary">
-              <font-awesome-icon class="icon global focusing" :icon="['fas', 'tasks']" style="font-size: 18px"/>
-            </el-badge>
-          </div>
-          <font-awesome-icon @click="showTaskCenter" class="icon global focusing" :icon="['fas', 'tasks']" v-else/>
-        </el-tooltip>
-      </el-menu-item>
-    </el-menu>
+
+    <el-tooltip effect="light" class="ms-header-menu align-right" v-if="showMenu">
+      <template v-slot:content>
+        <span>{{ $t('commons.task_center') }}</span>
+      </template>
+      <div @click="showTaskCenter" v-if="runningTotal > 0">
+        <el-badge :value="runningTotal" class="item" type="primary">
+          <font-awesome-icon class="icon global focusing" :icon="['fas', 'tasks']"/>
+        </el-badge>
+      </div>
+      <font-awesome-icon @click="showTaskCenter" class="icon global focusing" :icon="['fas', 'tasks']" v-else/>
+    </el-tooltip>
 
     <el-drawer
       :visible.sync="taskVisible"
@@ -32,7 +22,7 @@
       :title="$t('commons.task_center')"
       :size="size.toString()"
       custom-class="ms-drawer-task">
-      <el-card style="float: left;width: 850px" v-if="size > 550 ">
+      <el-card style="float: left;" :style="{'width': (size - 550)+'px'}" v-if="size > 550 ">
         <div class="ms-task-opt-btn" @click="packUp">{{ $t('commons.task_close') }}</div>
         <!-- 接口用例结果 -->
         <ms-request-result-tail :response="response" ref="debugResult" v-if="executionModule === 'API' && reportType !=='API_INTEGRATED'"/>
@@ -48,14 +38,16 @@
             <el-row>
               <el-col :span="12">
                 <el-form-item :label="$t('test_track.report.list.trigger_mode')" prop="runMode">
-                  <el-select size="small" style="margin-right: 10px" v-model="condition.triggerMode" @change="init">
+                  <el-select size="small" style="margin-right: 10px" v-model="condition.triggerMode" @change="init"
+                             :disabled="isDebugHistory">
                     <el-option v-for="item in runMode" :key="item.id" :value="item.id" :label="item.label"/>
                   </el-select>
                 </el-form-item>
               </el-col>
               <el-col :span="12">
                 <el-form-item :label="$t('commons.status')" prop="status">
-                  <el-select size="small" style="margin-right: 10px" v-model="condition.executionStatus" @change="init">
+                  <el-select size="small" style="margin-right: 10px" v-model="condition.executionStatus" @change="init"
+                             :disabled="isDebugHistory">
                     <el-option v-for="item in runStatus" :key="item.id" :value="item.id" :label="item.label"/>
                   </el-select>
                 </el-form-item>
@@ -65,7 +57,7 @@
               <el-col :span="12">
                 <el-form-item :label="$t('commons.executor')" prop="status">
                   <el-select v-model="condition.executor" :placeholder="$t('commons.executor')" filterable size="small"
-                             style="margin-right: 10px" @change="init">
+                             style="margin-right: 10px" @change="init" :disabled="isDebugHistory">
                     <el-option
                       v-for="item in maintainerOptions"
                       :key="item.id"
@@ -76,7 +68,7 @@
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-button size="small" class="ms-task-stop" @click="stop(null)">
+                <el-button size="small" class="ms-task-stop" @click="stop(null)" :disabled="isDebugHistory">
                   {{ $t('report.stop_btn_all') }}
                 </el-button>
               </el-col>
@@ -89,7 +81,7 @@
           <div v-for="item in taskData" :key="item.id" style="margin-bottom: 5px;">
             <el-card class="ms-card-task" @click.native="showReport(item)">
               <span>
-                {{ getModeName(item.executionModule) }} : <el-link type="primary" class="ms-task-name-width"> {{
+                {{ getModeName(item) }} : <el-link type="primary" class="ms-task-name-width"> {{
                   item.name
                 }} </el-link>
               </span>
@@ -109,22 +101,8 @@
                   <el-progress :percentage="getPercentage(item.executionStatus)" :format="format"/>
                 </el-col>
                 <el-col :span="4">
-                  <span v-if="item.executionStatus && item.executionStatus.toLowerCase() === 'error'"
-                        class="ms-task-error">
-                     error
-                  </span>
-                  <span v-else-if="item.executionStatus && item.executionStatus.toLowerCase() === 'success'"
-                        class="ms-task-success">
-                       success
-                  </span>
-                  <span v-else-if="item.executionStatus && item.executionStatus.toLowerCase() === 'stop'">
-                      stopped
-                  </span>
-                  <span v-else-if="item.executionStatus && item.executionStatus.toLowerCase() === 'errorreportresult'" class="ms-task-error-report-status">
-                      {{ $t('error_report_library.option.name') }}
-                  </span>
-                  <span v-else>
-                      {{ item.executionStatus ? item.executionStatus.toLowerCase() : item.executionStatus }}
+                  <span :class="showClass(item.executionStatus.toLowerCase())">
+                     {{ showStatus(item.executionStatus.toLowerCase()) }}
                   </span>
                 </el-col>
               </el-row>
@@ -182,16 +160,17 @@ export default {
       ],
       runStatus: [
         {id: '', label: this.$t('api_test.definition.document.data_set.all')},
-        {id: 'saved', label: 'saved'},
-        {id: 'starting', label: 'starting'},
-        {id: 'running', label: 'running'},
-        {id: 'reporting', label: 'reporting'},
-        {id: 'completed', label: 'completed'},
-        {id: 'error', label: 'error'},
-        {id: 'success', label: 'success'},
-        {id: 'waiting', label: 'waiting'},
-        {id: 'fail', label: 'fail'},
-        {id: 'stop', label: 'stopped'}
+        {id: 'starting', label: 'Starting'},
+        {id: 'running', label: 'Running'},
+        {id: 'reporting', label: 'Reporting'},
+        {id: 'completed', label: 'Completed'},
+        {id: 'success', label: 'Success'},
+        {id: 'waiting', label: 'Waiting'},
+        {id: "errorReportResult", label: 'FakeError'},
+        {id: 'unexecute', label: 'NotExecute'},
+        {id: 'stop', label: 'Stopped'},
+        {id: 'error', label: 'Error'},
+        {id: 'fail', label: 'Fail'},
       ],
       condition: {triggerMode: "", executionStatus: ""},
       maintainerOptions: [],
@@ -200,10 +179,10 @@ export default {
       reportId: "",
       executionModule: "",
       reportType: "",
+      isDebugHistory: false
     };
   },
   props: {
-    color: String,
     showMenu: {
       type: Boolean,
       default: true
@@ -212,7 +191,7 @@ export default {
   computed: {
     disabled() {
       return this.loading
-    }
+    },
   },
 
   created() {
@@ -228,6 +207,22 @@ export default {
     }
   },
   methods: {
+    showStatus(status) {
+      status = status.toLowerCase();
+      switch (status) {
+        case "unexecute":
+          return "NotExecute";
+        case "errorreportresult":
+          return "FakeError";
+        case "stop":
+          return "Stopped";
+        default:
+          return status.toLowerCase()[0].toUpperCase() + status.toLowerCase().substr(1);
+      }
+    },
+    showClass(status) {
+      return "ms-task-" + status;
+    },
     nextData() {
       this.loading = true;
       this.init();
@@ -244,9 +239,9 @@ export default {
         let request = {type: row.executionModule, reportId: row.id};
         array = [request];
       } else {
-        array.push({type: 'API', projectId: getCurrentProjectID(),userId:getCurrentUser().id});
-        array.push({type: 'SCENARIO', projectId: getCurrentProjectID(),userId:getCurrentUser().id});
-        array.push({type: 'PERFORMANCE', projectId: getCurrentProjectID(),userId:getCurrentUser().id});
+        array.push({type: 'API', projectId: getCurrentProjectID(), userId: getCurrentUser().id});
+        array.push({type: 'SCENARIO', projectId: getCurrentProjectID(), userId: getCurrentUser().id});
+        array.push({type: 'PERFORMANCE', projectId: getCurrentProjectID(), userId: getCurrentUser().id});
       }
       this.$post('/api/automation/stop/batch', array, response => {
         this.$success(this.$t('report.test_stop_success'));
@@ -254,7 +249,7 @@ export default {
       });
     },
     getMaintainerOptions() {
-      this.$post('/user/project/member/tester/list', {projectId: getCurrentProjectID()}, response => {
+      this.$get('/user/project/member/list', response => {
         this.maintainerOptions = response.data;
         this.condition.executor = getCurrentUser().id;
       });
@@ -317,7 +312,7 @@ export default {
         if (status === "waiting" || status === 'stop') {
           return 0;
         }
-        if (status === 'saved' || status === 'completed' || status === 'success' || status === 'error' || status === 'errorreportresult') {
+        if (status === 'saved' || status === 'completed' || status === 'success' || status === 'error' || status === 'unexecute' || status === 'errorreportresult') {
           return 100;
         }
       }
@@ -326,16 +321,20 @@ export default {
     showStop(status) {
       if (status) {
         status = status.toLowerCase();
-        if (status === "stop" || status === 'saved' || status === 'completed' || status === 'success' || status === 'error' || status === 'errorreportresult') {
+        if (status === "stop" || status === 'saved' || status === 'completed' || status === 'success' || status === 'error' || status === 'unexecute' || status === 'errorreportresult') {
           return false;
         }
       }
       return true;
     },
-    getModeName(executionModule) {
-      switch (executionModule) {
+    getModeName(item) {
+      switch (item.executionModule) {
         case "SCENARIO":
-          return this.$t('test_track.scenario_test_case');
+          if (item.reportType === "UI_INDEPENDENT" || item.reportType === "UI_INTEGRATED") {
+            return this.$t("test_track.ui_scenario_test_case");
+          } else {
+            return this.$t('test_track.scenario_test_case');
+          }
         case "PERFORMANCE":
           return this.$t('test_track.performance_test_case');
         case "API":
@@ -350,8 +349,8 @@ export default {
       let status = row.executionStatus;
       if (status) {
         status = row.executionStatus.toLowerCase();
-        if (status === 'saved' || status === 'completed' || status === 'success' || status === 'error' || status === 'errorreportresult') {
-          this.size = 1400;
+        if (status === 'saved' || status === 'completed' || status === 'success' || status === 'error' || status === 'unexecute' || status === 'errorreportresult') {
+          this.size = window.innerWidth - 50;
           this.reportId = row.id;
           this.executionModule = row.executionModule;
           this.reportType = row.reportType;
@@ -423,6 +422,8 @@ export default {
     openHistory(id) {
       this.initCaseHistory(id);
       this.taskVisible = true;
+      this.isDebugHistory = true;
+      this.condition.triggerMode = "MANUAL";
       this.showType = "CASE";
     },
     openScenarioHistory(id) {
@@ -430,6 +431,8 @@ export default {
         this.taskData = response.data;
       });
       this.showType = "SCENARIO";
+      this.isDebugHistory = true;
+      this.condition.triggerMode = "MANUAL";
       this.taskVisible = true;
     }
   }
@@ -476,29 +479,8 @@ export default {
 }
 
 .global {
-  color: #fff;
-}
-
-.header-top-menu {
-  height: 40px;
-  line-height: 40px;
-  color: inherit;
-}
-
-.header-top-menu.el-menu--horizontal > li {
-  height: 40px;
-  line-height: 40px;
-  color: inherit;
-}
-
-.header-top-menu.el-menu--horizontal > li.el-submenu > * {
-  height: 39px;
-  line-height: 40px;
-  color: inherit;
-}
-
-.header-top-menu.el-menu--horizontal > li.is-active {
-  background: var(--color_shallow) !important;
+  color: rgb(96, 98, 102);
+  font-size: 14px
 }
 
 .ms-card-task:hover {
@@ -506,25 +488,18 @@ export default {
   border-color: #783887;
 }
 
+.ms-header-menu {
+  padding: 12px 0px 0px;
+}
+
+.ms-header-menu:hover {
+  cursor: pointer;
+  border-color: var(--color);
+}
+
 /deep/ .el-progress-bar {
   padding-right: 20px;
 }
-
-/deep/ .el-menu-item {
-  padding-left: 0;
-  padding-right: 0;
-}
-
-/deep/ .el-badge__content.is-fixed {
-  top: 25px;
-}
-
-/deep/ .el-badge__content {
-  border-radius: 10px;
-  height: 10px;
-  line-height: 10px;
-}
-
 
 .item {
   margin-right: 10px;
@@ -534,7 +509,7 @@ export default {
   color: #F56C6C;
 }
 
-.ms-task-error-report-status {
+.ms-task-errorreportresult {
   color: #F6972A;
 }
 
@@ -544,8 +519,20 @@ export default {
   margin-right: 20px;
 }
 
+.ms-task-unexecute {
+  color: #909399;
+}
+
 .ms-task-success {
   color: #67C23A;
+}
+
+.ms-task-stop {
+  color: #909399;
+}
+
+.ms-task-running {
+  color: #783887;
 }
 
 .ms-task-name-width {
@@ -564,9 +551,9 @@ export default {
 
 .ms-task-opt-btn {
   position: fixed;
-  right: 1372px;
+  right: calc(98% - var(--asideWidth));
   top: 50%;
-  z-index: 1;
+  z-index: 5;
   width: 20px;
   height: 60px;
   padding: 3px;

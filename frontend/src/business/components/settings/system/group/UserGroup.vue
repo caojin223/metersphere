@@ -100,7 +100,7 @@ export default {
       currentPage: 1,
       pageSize: 10,
       total: 0,
-      screenHeight: 'calc(100vh - 200px)',
+      screenHeight: 'calc(100vh - 160px)',
       groups: [],
       currentGroup: {}
     };
@@ -151,7 +151,6 @@ export default {
       this.$refs.deleteConfirm.open(row);
     },
     copy(row) {
-      // console.log(row);
     },
     setPermission(row) {
       this.$refs.editPermission.open(row);

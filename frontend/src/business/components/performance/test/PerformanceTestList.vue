@@ -193,7 +193,7 @@ export default {
         {text: 'Error', value: 'Error'}
       ],
       userFilters: [],
-      screenHeight: 'calc(100vh - 200px)',
+      screenHeight: 'calc(100vh - 160px)',
       versionOptions: [],
       currentVersion: '',
       versionEnable: false,
@@ -223,7 +223,7 @@ export default {
   methods: {
     getMaintainerOptions() {
       let workspaceId = getCurrentWorkspaceId();
-      this.$post('/user/project/member/tester/list', {projectId: getCurrentProjectID()}, response => {
+      this.$get('/user/project/member/list', response => {
         this.userFilters = response.data.map(u => {
           return {text: u.name, value: u.id};
         });

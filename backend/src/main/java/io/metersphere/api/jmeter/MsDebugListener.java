@@ -23,7 +23,9 @@ import io.metersphere.api.dto.RequestResultExpandDTO;
 import io.metersphere.api.dto.RunningParamKeys;
 import io.metersphere.api.exec.queue.PoolExecBlockingQueueUtil;
 import io.metersphere.api.exec.utils.ResultParseUtil;
-import io.metersphere.commons.utils.*;
+import io.metersphere.commons.utils.FileUtils;
+import io.metersphere.commons.utils.LogUtil;
+import io.metersphere.commons.utils.ResponseUtil;
 import io.metersphere.dto.RequestResult;
 import io.metersphere.jmeter.JMeterBase;
 import io.metersphere.utils.JMeterVars;
@@ -39,6 +41,7 @@ import org.apache.jmeter.testelement.TestStateListener;
 import org.apache.jmeter.testelement.property.BooleanProperty;
 import org.apache.jmeter.threads.JMeterVariables;
 
+import java.io.File;
 import java.io.Serializable;
 import java.util.Map;
 
@@ -83,10 +86,10 @@ public class MsDebugListener extends AbstractListenerElement implements SampleLi
         return getPropertyAsBoolean(SUCCESS_ONLY_LOGGING, false);
     }
 
-    public boolean isSampleWanted(boolean success) {
+    public boolean isSampleWanted(boolean success, SampleResult result) {
         boolean errorOnly = isErrorLogging();
         boolean successOnly = isSuccessOnlyLogging();
-        return isSampleWanted(success, errorOnly, successOnly);
+        return isSampleWanted(success, errorOnly, successOnly) && !StringUtils.containsIgnoreCase(result.getSampleLabel(), "MS_CLEAR_LOOPS_VAR_");
     }
 
     public static boolean isSampleWanted(boolean success, boolean errorOnly,
@@ -135,7 +138,7 @@ public class MsDebugListener extends AbstractListenerElement implements SampleLi
             LoggerUtil.debug("send. " + this.getName());
             WebSocketUtils.sendMessageSingle(dto);
         } catch (Exception ex) {
-            LoggerUtil.error("消息推送失败：" , ex);
+            LoggerUtil.error("消息推送失败：", ex);
         }
     }
 
@@ -147,7 +150,7 @@ public class MsDebugListener extends AbstractListenerElement implements SampleLi
     public void sampleOccurred(SampleEvent event) {
         SampleResult result = event.getResult();
         this.setVars(result);
-        if (isSampleWanted(result.isSuccessful()) && !StringUtils.equals(result.getSampleLabel(), RunningParamKeys.RUNNING_DEBUG_SAMPLER_NAME)) {
+        if (isSampleWanted(result.isSuccessful(), result) && !StringUtils.equals(result.getSampleLabel(), RunningParamKeys.RUNNING_DEBUG_SAMPLER_NAME)) {
             RequestResult requestResult = JMeterBase.getRequestResult(result);
             if (requestResult != null && ResultParseUtil.isNotAutoGenerateSampler(requestResult)) {
                 MsgDto dto = new MsgDto();
@@ -155,22 +158,30 @@ public class MsDebugListener extends AbstractListenerElement implements SampleLi
                 dto.setReportId("send." + this.getName());
                 dto.setToReport(this.getName());
 
-                String console = FixedCapacityUtils.getJmeterLogger(this.getName());
+                String console = FixedCapacityUtils.getJmeterLogger(this.getName(), false);
                 if (StringUtils.isNotEmpty(requestResult.getName()) && requestResult.getName().startsWith("Transaction=")) {
                     requestResult.getSubRequestResults().forEach(transactionResult -> {
                         transactionResult.getResponseResult().setConsole(console);
                         //解析误报内容
                         RequestResultExpandDTO expandDTO = ResponseUtil.parseByRequestResult(transactionResult);
+                        if (FileUtils.isFolderExists(dto.getToReport())) {
+                            expandDTO.getResponseResult().setConsole(expandDTO.getResponseResult().getConsole() + "\r\n" + "tmp folder  " + FileUtils.BODY_FILE_DIR + File.separator + dto.getToReport() + " has deleted.");
+                        }
                         JSONObject requestResultObject = JSONObject.parseObject(JSON.toJSONString(expandDTO));
-                        dto.setContent("result_" + JSON.toJSONString(requestResultObject));
+                        String consoleStr = JSON.toJSONString(requestResultObject);
+                        dto.setContent("result_" + consoleStr);
                         WebSocketUtils.sendMessageSingle(dto);
                     });
                 } else {
                     requestResult.getResponseResult().setConsole(console);
                     //解析误报内容
                     RequestResultExpandDTO expandDTO = ResponseUtil.parseByRequestResult(requestResult);
+                    if (FileUtils.isFolderExists(dto.getToReport())) {
+                        expandDTO.getResponseResult().setConsole(expandDTO.getResponseResult().getConsole() + "\r\n" + "tmp folder  " + FileUtils.BODY_FILE_DIR + File.separator + dto.getToReport() + " has deleted.");
+                    }
                     JSONObject requestResultObject = JSONObject.parseObject(JSON.toJSONString(expandDTO));
-                    dto.setContent("result_" + JSON.toJSONString(requestResultObject));
+                    String consoleStr = JSON.toJSONString(requestResultObject);
+                    dto.setContent("result_" + consoleStr);
                     WebSocketUtils.sendMessageSingle(dto);
                 }
                 LoggerUtil.debug("send. " + this.getName());

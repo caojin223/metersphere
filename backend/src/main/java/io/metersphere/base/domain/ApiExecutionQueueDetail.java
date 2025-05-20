@@ -19,6 +19,12 @@ public class ApiExecutionQueueDetail implements Serializable {
 
     private Long createTime;
 
+    private Boolean retryEnable;
+
+    private Long retryNumber;
+
+    private String projectIds;
+
     private String evnMap;
 
     private static final long serialVersionUID = 1L;

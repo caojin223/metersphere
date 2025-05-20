@@ -2,11 +2,14 @@
   <ms-test-plan-common-component>
     <template v-slot:aside>
       <ms-node-tree
-        class="node-tree"
-        :all-label="$t('commons.all_label.review')"
         v-loading="result.loading"
-        @nodeSelectEvent="nodeChange"
+        class="node-tree"
+        local-suffix="test_case"
+        default-label="未规划用例"
         :tree-nodes="treeNodes"
+        :default-expand-all="true"
+        :all-label="$t('commons.all_label.review')"
+        @nodeSelectEvent="nodeChange"
         ref="nodeTree"/>
     </template>
     <template v-slot:main>
@@ -21,20 +24,21 @@
         <test-review-test-case-list
           class="table-list"
           v-if="activeDom === 'left'"
-          @openTestReviewRelevanceDialog="openTestReviewRelevanceDialog"
-          @refresh="refresh"
-          @setCondition="setCondition"
           :review-id="reviewId"
           :clickType="clickType"
           :current-version="currentVersion"
           :version-enable="versionEnable"
+          @refresh="refresh"
+          @setCondition="setCondition"
+          @search="refreshTreeByCaseFilter"
+          @openTestReviewRelevanceDialog="openTestReviewRelevanceDialog"
           ref="testPlanTestCaseList"/>
         <test-review-minder
+          v-if="activeDom === 'right'"
           :tree-nodes="treeNodes"
           :project-id="projectId"
           :condition="condition"
           :review-id="reviewId"
-          v-if="activeDom === 'right'"
           ref="minder"
         />
       </ms-tab-button>
@@ -46,8 +50,6 @@
       ref="testReviewRelevance"/>
 
     <is-change-confirm
-      :title="'请保存脑图'"
-      :tip="'脑图未保存，确认保存脑图吗？'"
       :version-enable="versionEnable"
       @confirm="changeConfirm"
       ref="isChangeConfirm"/>
@@ -65,6 +67,7 @@ import TestReviewMinder from "@/business/components/track/common/minder/TestRevi
 import {getCurrentProjectID} from "@/common/js/utils";
 import IsChangeConfirm from "@/business/components/common/components/IsChangeConfirm";
 import {openMinderConfirm, saveMinderConfirm} from "@/business/components/track/common/minder/minderUtils";
+import {getTestReviewCaseNodesByCaseFilter} from "@/network/testCase";
 const requireComponent = require.context('@/business/components/xpack/', true, /\.vue$/);
 const VersionSelect = requireComponent.keys().length > 0 ? requireComponent("./version/VersionSelect.vue") : {};
 
@@ -83,8 +86,6 @@ export default {
       result: {},
       testReviews: [],
       currentReview: {},
-      // selectNodeIds: [],
-      // selectParentNodes: [],
       treeNodes: [],
       isMenuShow: true,
       activeDom: 'left',
@@ -132,12 +133,15 @@ export default {
       this.$store.commit('setTestReviewSelectNode', node);
       this.$store.commit('setTestReviewSelectNodeIds', nodeIds);
     },
-    getNodeTreeByReviewId() {
+    getNodeTreeByReviewId(condition) {
       if (this.reviewId) {
-        this.result = this.$get("/case/node/list/review/" + this.reviewId, response => {
-          this.treeNodes = response.data;
+        this.result = getTestReviewCaseNodesByCaseFilter(this.reviewId, condition, (data) => {
+          this.treeNodes = data;
         });
       }
+    },
+    refreshTreeByCaseFilter() {
+      this.getNodeTreeByReviewId(this.condition);
     },
     openTestReviewRelevanceDialog() {
       this.$refs.testReviewRelevance.openTestReviewRelevanceDialog();
@@ -165,10 +169,6 @@ export default {
 </script>
 
 <style scoped>
-/deep/ .el-button-group>.el-button:first-child {
-  padding: 4px 1px !important;
-}
-
 .version-select {
   padding-left: 10px;
 }

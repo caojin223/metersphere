@@ -32,6 +32,7 @@ import io.metersphere.log.utils.ReflexObjectUtil;
 import io.metersphere.log.vo.DetailColumn;
 import io.metersphere.log.vo.OperatingLogDetails;
 import io.metersphere.log.vo.performance.PerformanceReference;
+import io.metersphere.metadata.service.FileMetadataService;
 import io.metersphere.performance.base.GranularityData;
 import io.metersphere.performance.base.VumProcessedStatus;
 import io.metersphere.performance.dto.LoadModuleDTO;
@@ -41,31 +42,29 @@ import io.metersphere.performance.engine.Engine;
 import io.metersphere.performance.engine.EngineFactory;
 import io.metersphere.performance.request.*;
 import io.metersphere.service.ApiPerformanceService;
-import io.metersphere.service.FileService;
 import io.metersphere.service.QuotaService;
 import io.metersphere.service.ScheduleService;
 import io.metersphere.track.request.testplan.LoadCaseRequest;
 import io.metersphere.track.service.TestCaseService;
 import io.metersphere.track.service.TestPlanLoadCaseService;
 import io.metersphere.track.service.TestPlanProjectService;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections4.ListUtils;
+import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.ibatis.session.ExecutorType;
 import org.apache.ibatis.session.SqlSession;
 import org.apache.ibatis.session.SqlSessionFactory;
-import org.aspectj.util.FileUtil;
 import org.mybatis.spring.SqlSessionUtils;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.CollectionUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.Resource;
 import java.io.File;
-import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -88,7 +87,7 @@ public class PerformanceTestService {
     @Resource
     private LoadTestFileMapper loadTestFileMapper;
     @Resource
-    private FileService fileService;
+    private FileMetadataService fileMetadataService;
     @Resource
     private LoadTestReportMapper loadTestReportMapper;
     @Resource
@@ -130,6 +129,8 @@ public class PerformanceTestService {
     private ExtProjectVersionMapper extProjectVersionMapper;
     @Resource
     private RedissonClient redissonClient;
+    @Resource
+    private LoadTestReportFileMapper loadTestReportFileMapper;
 
     public List<LoadTestDTO> list(QueryTestPlanRequest request) {
         request.setOrders(ServiceUtils.getDefaultSortOrder(request.getOrders()));
@@ -167,6 +168,8 @@ public class PerformanceTestService {
             loadTestMapper.deleteByPrimaryKey(test.getId());
 
             testPlanLoadCaseService.deleteByTestId(test.getId());
+
+            testCaseService.deleteTestCaseTestByTestId(test.getId());
 
             detachFileByTestId(test.getId());
 
@@ -214,7 +217,7 @@ public class PerformanceTestService {
     }
 
     private boolean loadTestFileExsits(String testId, String metaFileId) {
-        boolean fileExsits = fileService.isFileExsits(metaFileId);
+        boolean fileExsits = fileMetadataService.isFileExits(metaFileId);
         LoadTestFileExample example = new LoadTestFileExample();
         example.createCriteria().andTestIdEqualTo(testId).andFileIdEqualTo(metaFileId);
         long loadTestFiles = loadTestFileMapper.countByExample(example);
@@ -230,7 +233,7 @@ public class PerformanceTestService {
         if (files != null) {
             for (int i = 0; i < files.size(); i++) {
                 MultipartFile file = files.get(i);
-                FileMetadata fileMetadata = fileService.saveFile(file, loadTest.getProjectId());
+                FileMetadata fileMetadata = fileMetadataService.saveFile(file, loadTest.getProjectId());
                 LoadTestFile loadTestFile = new LoadTestFile();
                 loadTestFile.setTestId(loadTest.getId());
                 loadTestFile.setFileId(fileMetadata.getId());
@@ -243,7 +246,7 @@ public class PerformanceTestService {
     private void importFiles(List<String> importFileIds, String testId, Map<String, Integer> fileSorts) {
         for (int i = 0; i < importFileIds.size(); i++) {
             String fileId = importFileIds.get(i);
-            FileMetadata fileMetadata = fileService.getFileMetadataById(fileId);
+            FileMetadata fileMetadata = fileMetadataService.getFileMetadataById(fileId);
             LoadTestFile loadTestFile = new LoadTestFile();
             loadTestFile.setTestId(testId);
             loadTestFile.setFileId(fileId);
@@ -286,6 +289,9 @@ public class PerformanceTestService {
         loadTest.setAdvancedConfiguration(request.getAdvancedConfiguration());
         loadTest.setStatus(PerformanceTestStatus.Saved.name());
         loadTest.setNum(getNextNum(request.getProjectId()));
+        if (MapUtils.isNotEmpty(request.getProjectEnvMap())) {
+            loadTest.setEnvInfo(JSONObject.toJSONString(request.getProjectEnvMap()));
+        }
         loadTest.setOrder(ServiceUtils.getNextOrder(request.getProjectId(), extLoadTestMapper::getLastOrder));
         loadTest.setVersionId(request.getVersionId());
         loadTest.setRefId(request.getId());
@@ -441,13 +447,14 @@ public class PerformanceTestService {
 
 
         LoadTestReportWithBLOBs testReport = new LoadTestReportWithBLOBs();
-        testReport.setId(UUID.randomUUID().toString());
+        testReport.setId(StringUtils.isNotEmpty(request.getReportId()) ? request.getReportId() : UUID.randomUUID().toString());
         testReport.setCreateTime(System.currentTimeMillis());
         testReport.setUpdateTime(System.currentTimeMillis());
         testReport.setTestId(loadTest.getId());
         testReport.setName(loadTest.getName());
         testReport.setTriggerMode(request.getTriggerMode());
         testReport.setVersionId(loadTest.getVersionId());
+        testReport.setRelevanceTestPlanReportId(request.getTestPlanReportId());
         if (SessionUtils.getUser() == null) {
             testReport.setUserId(loadTest.getUserId());
         } else {
@@ -483,6 +490,7 @@ public class PerformanceTestService {
             testReport.setStatus(PerformanceTestStatus.Starting.name());
             testReport.setProjectId(loadTest.getProjectId());
             testReport.setTestName(loadTest.getName());
+            testReport.setEnvInfo(loadTest.getEnvInfo());
             loadTestReportMapper.insertSelective(testReport);
 
             // engine
@@ -509,12 +517,14 @@ public class PerformanceTestService {
             reportResult.setReportValue("Ready"); // 初始化一个 result_status, 这个值用在data-streaming中
             loadTestReportResultMapper.insertSelective(reportResult);
             // 保存标记
-            LoadTestReportResult  rr = new LoadTestReportResult();
+            LoadTestReportResult rr = new LoadTestReportResult();
             rr.setId(UUID.randomUUID().toString());
             rr.setReportId(testReport.getId());
             rr.setReportKey(ReportKeys.VumProcessedStatus.name());
             rr.setReportValue(VumProcessedStatus.NOT_PROCESSED); // 避免测试运行出错时，对报告重复处理vum_used值
             loadTestReportResultMapper.insertSelective(rr);
+            // 保存执行当时的file
+            saveLoadTestReportFiles(testReport);
             // 检查配额
             this.checkLoadQuota(testReport, engine);
             return testReport.getId();
@@ -530,6 +540,19 @@ public class PerformanceTestService {
             loadTestReportMapper.deleteByPrimaryKey(testReport.getId());
             throw e;
         }
+    }
+
+    private void saveLoadTestReportFiles(LoadTestReport report) {
+        LoadTestFileExample example = new LoadTestFileExample();
+        example.createCriteria().andTestIdEqualTo(report.getTestId());
+        List<LoadTestFile> files = loadTestFileMapper.selectByExample(example);
+        files.forEach(f -> {
+            LoadTestReportFile record = new LoadTestReportFile();
+            record.setFileId(f.getFileId());
+            record.setSort(f.getSort());
+            record.setReportId(report.getId());
+            loadTestReportFileMapper.insert(record);
+        });
     }
 
     private void checkLoadQuota(LoadTestReportWithBLOBs testReport, Engine engine) {
@@ -556,6 +579,7 @@ public class PerformanceTestService {
                 lock.unlock();
             }
         } else {
+            engine.start();
             LogUtil.error("check load test quota fail, quotaService is null.");
         }
     }
@@ -600,8 +624,8 @@ public class PerformanceTestService {
         List<LoadTestExportJmx> results = new ArrayList<>();
         for (FileMetadata metadata : fileMetadataList) {
             if (FileType.JMX.name().equals(metadata.getType())) {
-                FileContent fileContent = fileService.getFileContent(metadata.getId());
-                results.add(new LoadTestExportJmx(metadata.getName(), new String(fileContent.getFile(), StandardCharsets.UTF_8)));
+                byte[] content = fileMetadataService.loadFileAsBytes(metadata.getId());
+                results.add(new LoadTestExportJmx(metadata.getName(), new String(content, StandardCharsets.UTF_8)));
             }
         }
         return results;
@@ -788,9 +812,9 @@ public class PerformanceTestService {
         }
         List<LoadTestExportJmx> results = new ArrayList<>();
         fileIds.forEach(id -> {
-            FileMetadata fileMetadata = fileService.getFileMetadataById(id);
-            FileContent fileContent = fileService.getFileContent(id);
-            results.add(new LoadTestExportJmx(fileMetadata.getName(), new String(fileContent.getFile(), StandardCharsets.UTF_8)));
+            FileMetadata fileMetadata = fileMetadataService.getFileMetadataById(id);
+            byte[] content = fileMetadataService.loadFileAsBytes(id);
+            results.add(new LoadTestExportJmx(fileMetadata.getName(), new String(content, StandardCharsets.UTF_8)));
         });
 
         return results;
@@ -863,7 +887,7 @@ public class PerformanceTestService {
         if (!CollectionUtils.isEmpty(scenarioIds)) {
             ApiScenarioBatchRequest scenarioRequest = new ApiScenarioBatchRequest();
             scenarioRequest.setIds(scenarioIds);
-            List<ApiScenarioExportJmxDTO> apiScenrioExportJmxes = apiAutomationService.exportJmx(scenarioRequest);
+            List<ApiScenarioExportJmxDTO> apiScenrioExportJmxes = apiAutomationService.exportJmx(scenarioRequest).getScenarioJmxList();
 
             deleteLoadTestFiles(loadTest.getId());
 
@@ -897,7 +921,7 @@ public class PerformanceTestService {
     private void saveJmxFile(String jmx, String name, String projectId, String loadTestId) {
         byte[] jmxBytes = jmx.getBytes(StandardCharsets.UTF_8);
         String jmxName = name + "_" + System.currentTimeMillis() + ".jmx";
-        FileMetadata fileMetadata = fileService.saveFile(jmxBytes, jmxName, (long) jmxBytes.length);
+        FileMetadata fileMetadata = fileMetadataService.saveFile(jmxBytes, jmxName, (long) jmxBytes.length);
         fileMetadata.setProjectId(projectId);
         saveLoadTestFile(fileMetadata, loadTestId, 0);
     }
@@ -926,15 +950,15 @@ public class PerformanceTestService {
         example.createCriteria()
                 .andTestIdEqualTo(testId);
         loadTestFileMapper.deleteByExample(example);
-        fileService.deleteFileByIds(originFileIds);
+        fileMetadataService.deleteBatch(originFileIds);
     }
 
     private void saveUploadFile(File file, String loadTestId, int sort) {
         if (file != null) {
             FileMetadata fileMetadata = null;
             try {
-                fileMetadata = fileService.saveFile(file, FileUtil.readAsByteArray(file));
-            } catch (IOException e) {
+                fileMetadata = fileMetadataService.saveFile(file);
+            } catch (Exception e) {
                 LogUtil.error(e);
             }
             saveLoadTestFile(fileMetadata, loadTestId, sort);
@@ -1016,7 +1040,9 @@ public class PerformanceTestService {
     public List<LoadTest> getLoadCaseByIds(List<String> ids) {
         if (org.apache.commons.collections.CollectionUtils.isNotEmpty(ids)) {
             LoadTestExample example = new LoadTestExample();
-            example.createCriteria().andIdIn(ids);
+            example.createCriteria()
+                    .andIdIn(ids)
+                    .andStatusNotEqualTo(CommonConstants.TrashStatus);
             return loadTestMapper.selectByExample(example);
         }
         return new ArrayList<>();
@@ -1142,5 +1168,13 @@ public class PerformanceTestService {
         param.put("id", request.getIds());
         request2.setFilters(param);
         return this.list(request2);
+    }
+
+    public void deleteByRelevanceTestPlanReportIds(List<String> testPlanReportIdList) {
+        if (CollectionUtils.isNotEmpty(testPlanReportIdList)) {
+            LoadTestReportExample loadTestReportExample = new LoadTestReportExample();
+            loadTestReportExample.createCriteria().andRelevanceTestPlanReportIdIn(testPlanReportIdList);
+            loadTestReportMapper.deleteByExample(loadTestReportExample);
+        }
     }
 }

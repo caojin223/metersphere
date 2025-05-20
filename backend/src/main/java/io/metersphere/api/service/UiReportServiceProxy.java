@@ -1,7 +1,6 @@
 package io.metersphere.api.service;
 
 import io.metersphere.commons.utils.CommonBeanFactory;
-import io.metersphere.commons.utils.LogUtil;
 import io.metersphere.dto.RequestResult;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,15 +25,7 @@ public class UiReportServiceProxy {
     }
 
     private Object invoke(Function<Class, Method> getDeclaredMethod, Object... args) {
-        Object uiAutomationService = CommonBeanFactory.getBean("uiReportService");
-        try {
-            Class<?> clazz = uiAutomationService.getClass();
-            Method postProcessUiReport = getDeclaredMethod.apply(clazz);
-            return postProcessUiReport.invoke(uiAutomationService, args);
-        } catch (Exception e) {
-            LogUtil.error(e);
-        }
-        return null;
+        return CommonBeanFactory.invoke("uiReportService", getDeclaredMethod, args);
     }
 
 }

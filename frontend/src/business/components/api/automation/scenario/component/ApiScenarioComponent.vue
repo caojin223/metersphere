@@ -11,6 +11,7 @@
     :is-disabled="true"
     :is-max="isMax"
     :show-btn="showBtn"
+    :is-deleted="scenario.referenced==='REF' && ! isShowNum"
     :show-version="showVersion"
     color="#606266"
     background-color="#F4F4F5"
@@ -31,26 +32,39 @@
     </template>
 
     <template v-slot:behindHeaderLeft>
-      <el-tag size="mini" class="ms-tag" v-if="scenario.referenced==='Deleted'" type="danger">{{ $t('api_test.automation.reference_deleted') }}</el-tag>
-      <el-tag size="mini" class="ms-tag" v-if="scenario.referenced==='Copy'">{{ $t('commons.copy') }}</el-tag>
-      <el-tag size="mini" class="ms-tag" v-if="scenario.referenced==='REF'">{{ $t('api_test.scenario.reference') }}</el-tag>
+      <el-tag size="small" class="ms-tag" v-if="scenario.referenced==='Deleted'" type="danger">
+        {{ $t('api_test.automation.reference_deleted') }}
+      </el-tag>
+      <el-tag size="small" class="ms-tag" v-if="scenario.referenced==='Copy'">{{ $t('commons.copy') }}</el-tag>
+      <el-tag size="small" class="ms-tag" v-if="scenario.referenced==='REF'">{{
+          $t('api_test.scenario.reference')
+        }}
+      </el-tag>
       <span class="ms-tag ms-step-name-api">{{ getProjectName(scenario.projectId) }}</span>
+      <el-tooltip v-if="(!scenario.hashTree || scenario.hashTree.length === 0) && scenario.referenced==='REF'"
+                  class="ms-num" effect="dark" :content="$t('api_test.scenario.base_scenario_step_is_empty')"
+                  placement="top" style="margin-left: 5px">
+        <i class="el-icon-warning"/>
+      </el-tooltip>
     </template>
     <template v-slot:debugStepCode>
        <span v-if="node.data.testing" class="ms-test-running">
          <i class="el-icon-loading" style="font-size: 16px"/>
          {{ $t('commons.testing') }}
        </span>
-      <span class="ms-step-debug-code" :class="node.data.code ==='error'?'ms-req-error':'ms-req-success'" v-if="!loading && node.data.debug && !node.data.testing">
+      <span class="ms-step-debug-code" :class="node.data.code ==='error'?'ms-req-error':'ms-req-success'"
+            v-if="!loading && node.data.debug && !node.data.testing">
         {{ getCode() }}
       </span>
     </template>
     <template v-slot:button v-if="!ifFromVariableAdvance">
       <el-tooltip :content="$t('api_test.run')" placement="top" v-if="!scenario.run">
-        <el-button :disabled="!scenario.enable" @click="run" icon="el-icon-video-play" style="padding: 5px" class="ms-btn" size="mini" circle/>
+        <el-button :disabled="!scenario.enable" @click="run" icon="el-icon-video-play" style="padding: 5px"
+                   class="ms-btn" size="mini" circle/>
       </el-tooltip>
       <el-tooltip :content="$t('report.stop_btn')" placement="top" :enterable="false" v-else>
-        <el-button :disabled="!scenario.enable" @click.once="stop" size="mini" style="color:white;padding: 0 0.1px;width: 24px;height: 24px;" class="stop-btn" circle>
+        <el-button :disabled="!scenario.enable" @click.once="stop" size="mini"
+                   style="color:white;padding: 0 0.1px;width: 24px;height: 24px;" class="stop-btn" circle>
           <div style="transform: scale(0.66)">
             <span style="margin-left: -4.5px;font-weight: bold;">STOP</span>
           </div>
@@ -104,7 +118,7 @@ export default {
   },
   watch: {
     message() {
-      if (this.message === "stop") {
+      if (this.message === 'stop') {
         this.scenario.run = false;
       }
       this.reload();
@@ -116,15 +130,11 @@ export default {
     }
   },
   created() {
-    if (this.scenario.num) {
-      this.isShowNum = true;
-    } else {
-      this.isShowNum = false;
-    }
+    this.isShowNum = this.scenario.num ? true : false;
     if (this.scenario.id && this.scenario.referenced === 'REF' && !this.scenario.loaded && this.scenario.hashTree) {
-      this.setDisabled(this.scenario.hashTree, this.scenario.projectId);
+      this.scenario.root = this.node.parent.parent ? false : true;
+      this.recursive(this.scenario.hashTree, this.scenario.projectId, true);
     }
-    this.setOwnEnvironment(this.scenario.hashTree);
   },
   components: {ApiBaseComponent, MsSqlBasisParameters, MsTcpBasisParameters, MsDubboBasisParameters, MsApiRequestForm},
   data() {
@@ -148,6 +158,24 @@ export default {
       }
       this.scenario.run = true;
       let runScenario = JSON.parse(JSON.stringify(this.scenario));
+      let variables = JSON.parse(JSON.stringify(this.currentScenario.variables));
+
+      // 合并自身依赖场景变量
+      if (runScenario && runScenario.variableEnable && runScenario.variables) {
+        if (variables) {
+          // 同名合并
+          runScenario.variables.forEach(data => {
+            variables.forEach(item => {
+              if (data.type === item.type && data.name === item.name) {
+                Object.assign(data, item);
+              }
+            })
+          });
+        }
+      } else {
+        runScenario.variables = variables;
+      }
+
       runScenario.hashTree = [this.scenario];
       runScenario.stepScenario = true;
       this.$emit('runScenario', runScenario);
@@ -204,6 +232,9 @@ export default {
           this.node.expanded = !this.node.expanded;
         }
       }
+      if (this.scenario && this.scenario.hashTree && this.node.expanded) {
+        this.recursive(this.scenario.hashTree, this.scenario.projectId, false);
+      }
       this.reload();
     },
     copyRow() {
@@ -218,36 +249,21 @@ export default {
         this.loading = false
       })
     },
-    recursive(arr, id) {
+    recursive(arr, id, disabled) {
       for (let i in arr) {
-        arr[i].disabled = true;
+        arr[i].disabled = disabled;
         arr[i].projectId = this.calcProjectId(arr[i].projectId, id);
-        if (arr[i].hashTree !== undefined && arr[i].hashTree.length > 0) {
-          this.recursive(arr[i].hashTree, arr[i].projectId);
-        }
-      }
-    },
-    setDisabled(scenarioDefinition, id) {
-      for (let i in scenarioDefinition) {
-        scenarioDefinition[i].disabled = true;
-        scenarioDefinition[i].projectId = this.calcProjectId(scenarioDefinition[i].projectId, id);
-        if (scenarioDefinition[i].hashTree !== undefined && scenarioDefinition[i].hashTree.length > 0) {
-          this.recursive(scenarioDefinition[i].hashTree, scenarioDefinition[i].projectId);
-        }
-      }
-    },
-    setOwnEnvironment(scenarioDefinition) {
-      for (let i in scenarioDefinition) {
+        // 处理子请求环境
         let typeArray = ["JDBCPostProcessor", "JDBCSampler", "JDBCPreProcessor"]
-        if (typeArray.indexOf(scenarioDefinition[i].type) !== -1) {
-          scenarioDefinition[i].refEevMap = new Map();
-          scenarioDefinition[i].environmentEnable = this.scenario.environmentEnable;
+        if (typeArray.indexOf(arr[i].type) !== -1) {
+          arr[i].refEevMap = new Map();
+          arr[i].environmentEnable = this.scenario.environmentEnable;
           if (this.scenario.environmentEnable && this.scenario.environmentMap) {
-            scenarioDefinition[i].refEevMap = this.scenario.environmentMap;
+            arr[i].refEevMap = this.scenario.environmentMap;
           }
         }
-        if (scenarioDefinition[i].hashTree !== undefined && scenarioDefinition[i].hashTree.length > 0) {
-          this.setOwnEnvironment(scenarioDefinition[i].hashTree);
+        if (arr[i].hashTree && arr[i].hashTree.length > 0) {
+          this.recursive(arr[i].hashTree, arr[i].projectId);
         }
       }
     },
@@ -288,8 +304,14 @@ export default {
     },
     gotoTurn(resource, workspaceId, isTurnSpace) {
       let automationData = this.$router.resolve({
-        name: 'ApiAutomation',
-        params: {redirectID: getUUID(), dataType: "scenario", dataSelectRange: 'edit:' + resource.id, projectId: resource.projectId, workspaceId: workspaceId}
+        name: 'ApiAutomationWithQuery',
+        params: {
+          redirectID: getUUID(),
+          dataType: "scenario",
+          dataSelectRange: 'edit:' + resource.id,
+          projectId: resource.projectId,
+          workspaceId: workspaceId
+        }
       });
       if (isTurnSpace) {
         window.open(automationData.href, '_blank');
@@ -321,7 +343,7 @@ export default {
 }
 
 .ms-step-name-api {
-  padding-left: 10px;
+  padding-left: 5px;
 }
 
 .ms-tag {
@@ -333,7 +355,7 @@ export default {
 }
 
 .ms-test-running {
-  color: #6D317C;
+  color: #783887;
 }
 
 .ms-req-success {
@@ -368,7 +390,7 @@ export default {
 }
 
 .ms-test-running {
-  color: #6D317C;
+  color: #783887;
 }
 
 .ms-num {

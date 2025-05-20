@@ -1,30 +1,30 @@
 <template>
   <div
-      class="el-input-tag input-tag-wrapper"
-      :class="[size ? 'el-input-tag--' + size : '']"
-      style="height: auto"
-      @click="foucusTagInput">
+    class="el-input-tag input-tag-wrapper"
+    :class="[size ? 'el-input-tag--' + size : '']"
+    style="height: auto"
+    @click="foucusTagInput">
 
     <el-tag
-        class="ms-top"
-        v-for="(tag, idx) in innerTags"
-        v-bind="$attrs"
-        type="info"
-        :key="tag"
-        :size="size"
-        :closable="!readOnly"
-        :disable-transitions="false"
-        @close="remove(idx)">
+      class="ms-top"
+      v-for="(tag, idx) in innerTags"
+      v-bind="$attrs"
+      type="info"
+      :key="tag"
+      :size="size"
+      :closable="!readOnly"
+      :disable-transitions="false"
+      @close="remove(idx)">
       {{ tag && tag.length > 10 ? tag.substring(0, 10) + "..." : tag }}
     </el-tag>
     <input
-        :disabled="readOnly"
-        class="tag-input el-input"
-        v-model="newTag"
-        :placeholder=defaultPlaceHolder
-        @keydown.delete.stop="removeLastTag"
-        @keydown="addNew"
-        @blur="addNew"/>
+      :disabled="readOnly"
+      class="tag-input el-input"
+      v-model="newTag"
+      :placeholder=defaultPlaceHolder
+      @keydown.delete.stop="removeLastTag"
+      @keydown="addNew"
+      @blur="addNew"/>
   </div>
 </template>
 
@@ -71,10 +71,10 @@ export default {
       this.currentScenario[this.prop] = this.innerTags;
     },
     'currentScenario.tags'() {
-      if(this.prop==='tags'){
-        if(!this.currentScenario[this.prop]||this.currentScenario[this.prop]===''||this.currentScenario[this.prop].length===0){
-          if(this.innerTags.length!==0){
-            this.innerTags=[];
+      if (this.prop === 'tags') {
+        if (!this.currentScenario[this.prop] || this.currentScenario[this.prop] === '' || this.currentScenario[this.prop].length === 0) {
+          if (this.innerTags.length !== 0) {
+            this.innerTags = [];
           }
         }
       }
@@ -83,9 +83,7 @@ export default {
   },
   methods: {
     foucusTagInput() {
-      if (this.readOnly || !this.$el.querySelector('.tag-input')) {
-        console.log()
-      } else {
+      if (!this.readOnly && this.$el.querySelector('.tag-input')) {
         this.$el.querySelector('.tag-input').focus()
       }
     },
@@ -113,6 +111,7 @@ export default {
         this.tagChange()
         this.newTag = ''
       }
+      this.$emit("onblur");
     },
     addTag(tag) {
       tag = tag.trim()
@@ -127,8 +126,12 @@ export default {
       return false
     },
     remove(index) {
-      this.innerTags.splice(index, 1)
-      this.tagChange()
+      this.innerTags.splice(index, 1);
+      this.tagChange();
+      this.$nextTick(() => {
+        //删除tag元素操作是在输入框中去掉元素，也应当触发onblur操作
+        this.$emit("onblur");
+      });
     },
     removeLastTag() {
       if (this.newTag) {

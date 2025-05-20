@@ -176,9 +176,10 @@ export default {
     };
   },
   created() {
-    this.getCustomFields();
-    this.fieldFilters = getTranslateOptions(CUSTOM_FIELD_TYPE_OPTION);
-    this.sceneFilters = getTranslateOptions(CUSTOM_FIELD_SCENE_OPTION);
+    this.initTableData();
+  },
+  activated() {
+    this.initTableData();
   },
   computed: {
     fieldTypeMap() {
@@ -191,19 +192,21 @@ export default {
       return SYSTEM_FIELD_NAME_MAP;
     },
     tableHeight() {
-      return document.documentElement.clientHeight - 240;
+      return document.documentElement.clientHeight - 200;
     }
   },
   methods: {
+    initTableData() {
+      this.getCustomFields();
+      this.fieldFilters = getTranslateOptions(CUSTOM_FIELD_TYPE_OPTION);
+      this.sceneFilters = getTranslateOptions(CUSTOM_FIELD_SCENE_OPTION);
+    },
     getCustomFields() {
       this.condition.projectId = getCurrentProjectID();
       this.result = this.$post('custom/field/list/' + this.currentPage + '/' + this.pageSize, this.condition, (response) => {
         let data = response.data;
         this.total = data.itemCount;
         this.tableData = data.listObject;
-        if (this.$refs.table) {
-          this.$refs.table.reloadTable();
-        }
       });
     },
     handleEdit(data) {

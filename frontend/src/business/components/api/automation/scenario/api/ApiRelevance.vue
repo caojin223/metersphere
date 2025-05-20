@@ -6,11 +6,12 @@
     ref="baseRelevance">
     <template v-slot:aside>
       <ms-api-module
-        style="margin-top: 5px;"
         @nodeSelectEvent="nodeChange"
         @protocolChange="handleProtocolChange"
         @refreshTable="refresh"
         @setModuleOptions="setModuleOptions"
+        :select-project-id="projectId"
+        :is-relevance="true"
         :is-read-only="true"
         ref="nodeTree"/>
     </template>
@@ -53,6 +54,7 @@
       <!--  显示数量    -->
       <table-select-count-bar :count="selectCounts" style="float: left; margin: 5px;"/>
 
+      <el-button size="mini" icon="el-icon-refresh" @click="refresh"/>
       <el-button type="primary" @click="copy" :loading="buttonIsWorking" @keydown.enter.native.prevent size="mini">
         {{ $t('commons.copy') }}
       </el-button>
@@ -89,9 +91,9 @@ export default {
     ScenarioRelevanceApiList,
     MsMainContainer, MsAsideContainer, MsContainer, MsApiModule, ScenarioRelevanceCaseList
   },
-  props:{
-    isAcrossSpace:{
-      type:Boolean,
+  props: {
+    isAcrossSpace: {
+      type: Boolean,
       default() {
         return false;
       }
@@ -233,6 +235,7 @@ export default {
 /deep/ .filter-input {
   width: 140px !important;
 }
+
 .version-select {
   padding-left: 10px;
 }

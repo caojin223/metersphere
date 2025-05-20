@@ -4,6 +4,7 @@ import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson.parser.Feature;
 import io.metersphere.api.dto.EnvironmentType;
+import io.metersphere.api.dto.RunModeConfigWithEnvironmentDTO;
 import io.metersphere.api.dto.ScenarioEnv;
 import io.metersphere.api.dto.automation.ApiScenarioDTO;
 import io.metersphere.api.dto.automation.RunScenarioRequest;
@@ -22,17 +23,20 @@ import io.metersphere.commons.constants.MsTestElementConstants;
 import io.metersphere.commons.exception.MSException;
 import io.metersphere.commons.utils.CommonBeanFactory;
 import io.metersphere.commons.utils.LogUtil;
+import io.metersphere.dto.RunModeConfigDTO;
+import io.metersphere.i18n.Translator;
 import io.metersphere.plugin.core.MsTestElement;
 import io.metersphere.service.EnvironmentGroupProjectService;
+import io.metersphere.service.EnvironmentGroupService;
+import io.metersphere.service.ProjectService;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -51,6 +55,14 @@ public class ApiScenarioEnvService {
     private TestPlanApiScenarioMapper testPlanApiScenarioMapper;
     @Resource
     private ApiTestCaseMapper apiTestCaseMapper;
+    @Lazy
+    @Resource
+    private ProjectService projectService;
+    @Resource
+    private ApiTestEnvironmentService apiTestEnvironmentService;
+    @Lazy
+    @Resource
+    private EnvironmentGroupService environmentGroupService;
 
     public ScenarioEnv getApiScenarioEnv(String definition) {
         ScenarioEnv env = new ScenarioEnv();
@@ -277,7 +289,15 @@ public class ApiScenarioEnvService {
         }
     }
 
-    public void checkEnv(RunScenarioRequest request, List<ApiScenarioWithBLOBs> apiScenarios) {
+    /**
+     * 检查是否存在运行环境。若不存在则报错，存在的话返回所存在的运行环境
+     *
+     * @param request
+     * @param apiScenarios
+     * @return <projectId,envIds>
+     */
+    public Map<String, List<String>> checkEnv(RunScenarioRequest request, List<ApiScenarioWithBLOBs> apiScenarios) {
+        Map<String, List<String>> projectEnvMap = new HashMap<>();
         if (StringUtils.equals(request.getRequestOriginator(), "TEST_PLAN")) {
             this.checkPlanScenarioEnv(request);
         } else if (StringUtils.isNotBlank(request.getRunMode()) &&
@@ -291,7 +311,7 @@ public class ApiScenarioEnvService {
                         builder.append(apiScenarioWithBLOBs.getName()).append("; ");
                     }
                 } catch (Exception e) {
-                    MSException.throwException("场景：" + builder.toString() + "运行环境未配置，请检查!");
+                    MSException.throwException("场景：" +apiScenarioWithBLOBs.getName() +"，步骤解析错误，检查是否包含插件步骤!");
                 }
             }
             if (builder.length() > 0) {
@@ -306,6 +326,55 @@ public class ApiScenarioEnvService {
                 }
             }
         }
+        return projectEnvMap;
+    }
+
+    public Map<String, List<String>> selectApiScenarioEnv(List<? extends ApiScenarioWithBLOBs> list) {
+        Map<String, List<String>> projectEnvMap = new LinkedHashMap<>();
+        for (int i = 0; i < list.size(); i++) {
+            try {
+                Map<String, String> map = new HashMap<>();
+                String environmentType = list.get(i).getEnvironmentType();
+                String environmentGroupId = list.get(i).getEnvironmentGroupId();
+                String env = list.get(i).getEnvironmentJson();
+                if (StringUtils.equals(environmentType, EnvironmentType.JSON.name())) {
+                    // 环境属性为空 跳过
+                    if (StringUtils.isBlank(env)) {
+                        continue;
+                    }
+                    map = JSON.parseObject(env, Map.class);
+                } else if (StringUtils.equals(environmentType, EnvironmentType.GROUP.name())) {
+                    map = environmentGroupProjectService.getEnvMap(environmentGroupId);
+                }
+
+                Set<String> set = map.keySet();
+                HashMap<String, String> envMap = new HashMap<>(16);
+                // 项目为空 跳过
+                if (set.isEmpty()) {
+                    continue;
+                }
+                for (String projectId : set) {
+                    String envId = map.get(projectId);
+                    envMap.put(projectId, envId);
+                }
+                for (Map.Entry<String, String> entry : envMap.entrySet()) {
+                    String projectId = entry.getKey();
+                    String envId = entry.getValue();
+                    if (projectEnvMap.containsKey(projectId)) {
+                        if (!projectEnvMap.get(projectId).contains(envId)) {
+                            projectEnvMap.get(projectId).add(envId);
+                        }
+                    } else {
+                        projectEnvMap.put(projectId, new ArrayList<>() {{
+                            this.add(envId);
+                        }});
+                    }
+                }
+            } catch (Exception e) {
+                LogUtil.error("api scenario environment map incorrect parsing. api scenario id:" + list.get(i).getId());
+            }
+        }
+        return projectEnvMap;
     }
 
     public void setApiScenarioEnv(List<ApiScenarioDTO> list) {
@@ -390,5 +459,106 @@ public class ApiScenarioEnvService {
             planEnvMap = environmentGroupProjectService.getEnvMap(envGroupId);
         }
         return planEnvMap;
+    }
+
+    public LinkedHashMap<String, List<String>> selectProjectNameAndEnvName(Map<String, List<String>> projectEnvIdMap) {
+        LinkedHashMap<String, List<String>> returnMap = new LinkedHashMap<>();
+        if (MapUtils.isNotEmpty(projectEnvIdMap)) {
+            for (Map.Entry<String, List<String>> entry : projectEnvIdMap.entrySet()) {
+                String projectId = entry.getKey();
+                List<String> envIdList = entry.getValue();
+                String projectName = projectService.selectNameById(projectId);
+                List<String> envNameList = apiTestEnvironmentService.selectNameByIds(envIdList);
+                if (CollectionUtils.isNotEmpty(envNameList) && StringUtils.isNotEmpty(projectName)) {
+                    returnMap.put(projectName, new ArrayList<>() {{
+                        this.addAll(envNameList);
+                    }});
+                }
+            }
+        }
+        return returnMap;
+    }
+
+    public Map<String, List<String>> selectProjectEnvMapByTestPlanScenarioIds(List<String> resourceIds) {
+        Map<String, List<String>> returnMap = new LinkedHashMap<>();
+        if (CollectionUtils.isNotEmpty(resourceIds)) {
+            List<String> reportEnvConfList = testPlanApiScenarioMapper.selectReportEnvConfByResourceIds(resourceIds);
+            reportEnvConfList.forEach(envConf -> {
+                LinkedHashMap<String, List<String>> projectEnvMap = this.getProjectEnvMapByEnvConfig(envConf);
+                for (Map.Entry<String, List<String>> entry : projectEnvMap.entrySet()) {
+                    String projectName = entry.getKey();
+                    List<String> envNameList = entry.getValue();
+                    if (StringUtils.isEmpty(projectName) || CollectionUtils.isEmpty(envNameList)) {
+                        continue;
+                    }
+                    if (returnMap.containsKey(projectName)) {
+                        envNameList.forEach(envName -> {
+                            if (!returnMap.get(projectName).contains(envName)) {
+                                returnMap.get(projectName).add(envName);
+                            }
+                        });
+                    } else {
+                        returnMap.put(projectName, envNameList);
+                    }
+                }
+            });
+        }
+        return returnMap;
+    }
+
+    public LinkedHashMap<String, List<String>> getProjectEnvMapByEnvConfig(String envConfig) {
+        LinkedHashMap<String, List<String>> returnMap = new LinkedHashMap<>();
+        //运行设置中选择的环境信息（批量执行时在前台选择了执行信息）
+        Map<String, String> envMapByRunConfig = null;
+        //执行时选择的环境信息 （一般在集合报告中会记录）
+        Map<String, List<String>> envMapByExecution = null;
+
+        String groupId = null;
+        try {
+            JSONObject jsonObject = JSONObject.parseObject(envConfig);
+            if (jsonObject.containsKey("executionEnvironmentMap")) {
+                RunModeConfigWithEnvironmentDTO configWithEnvironment = JSONObject.parseObject(envConfig, RunModeConfigWithEnvironmentDTO.class);
+                if (StringUtils.equals("GROUP", configWithEnvironment.getEnvironmentType()) && StringUtils.isNotEmpty(configWithEnvironment.getEnvironmentGroupId())) {
+                    groupId = configWithEnvironment.getEnvironmentGroupId();
+                }
+                if (MapUtils.isNotEmpty(configWithEnvironment.getExecutionEnvironmentMap())) {
+                    envMapByExecution = configWithEnvironment.getExecutionEnvironmentMap();
+                } else {
+                    envMapByRunConfig = configWithEnvironment.getEnvMap();
+                }
+            } else {
+                RunModeConfigDTO config = JSONObject.parseObject(envConfig, RunModeConfigDTO.class);
+                if (StringUtils.equals("GROUP", config.getEnvironmentType()) && StringUtils.isNotEmpty(config.getEnvironmentGroupId())) {
+                    groupId = config.getEnvironmentGroupId();
+                }
+                envMapByRunConfig = config.getEnvMap();
+            }
+        } catch (Exception e) {
+            LogUtil.error("解析RunModeConfig失败!参数：" + envConfig, e);
+        }
+
+        if(StringUtils.isNotEmpty(groupId)){
+            EnvironmentGroup environmentGroup = environmentGroupService.selectById(groupId);
+            if (StringUtils.isNotEmpty(environmentGroup.getName())) {
+                returnMap.put(Translator.get("environment_group"),new ArrayList<>(){{this.add(environmentGroup.getName());}});
+            }
+        }else {
+            returnMap.putAll(this.selectProjectNameAndEnvName(envMapByExecution));
+            if (MapUtils.isNotEmpty(envMapByRunConfig)) {
+                for (Map.Entry<String, String> entry : envMapByRunConfig.entrySet()) {
+                    String projectId = entry.getKey();
+                    String envId = entry.getValue();
+                    String projectName = projectService.selectNameById(projectId);
+                    String envName = apiTestEnvironmentService.selectNameById(envId);
+                    if (StringUtils.isNoneEmpty(projectName, envName)) {
+                        returnMap.put(projectName, new ArrayList<>() {{
+                            this.add(envName);
+                        }});
+                    }
+                }
+
+            }
+        }
+        return returnMap;
     }
 }

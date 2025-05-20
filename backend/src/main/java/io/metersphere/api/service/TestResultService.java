@@ -19,6 +19,7 @@ import io.metersphere.dto.ResultDTO;
 import io.metersphere.i18n.Translator;
 import io.metersphere.notice.sender.NoticeModel;
 import io.metersphere.notice.service.NoticeSendService;
+import io.metersphere.service.ScenarioExecutionInfoService;
 import io.metersphere.service.SystemParameterService;
 import io.metersphere.track.request.testcase.TrackCount;
 import io.metersphere.track.service.TestPlanApiCaseService;
@@ -59,6 +60,8 @@ public class TestResultService {
     private ApiEnvironmentRunningParamService apiEnvironmentRunningParamService;
     @Resource
     private RedisTemplate<String, Object> redisTemplate;
+    @Resource
+    private ScenarioExecutionInfoService scenarioExecutionInfoService;
 
     // 场景
     private static final List<String> scenarioRunModes = new ArrayList<>() {{
@@ -163,6 +166,9 @@ public class TestResultService {
         if (StringUtils.equals(dto.getRunType(), RunModeConstants.SERIAL.toString())) {
             redisTemplate.delete(RunModeConstants.SERIAL.name() + "_" + dto.getReportId());
         }
+        if (dto.getRequestResults() == null) {
+            dto.setRequestResults(new LinkedList<>());
+        }
         if (scenarioRunModes.contains(dto.getRunMode()) || dto.getRunMode().startsWith("UI")) {
             ApiScenarioReport scenarioReport = apiScenarioReportService.testEnded(dto);
             if (scenarioReport != null) {
@@ -181,6 +187,11 @@ public class TestResultService {
                 } else {
                     ApiScenarioWithBLOBs apiScenario = apiScenarioMapper.selectByPrimaryKey(scenarioReport.getScenarioId());
                     if (apiScenario != null) {
+                        if (StringUtils.equalsAnyIgnoreCase(dto.getRunMode(), ApiRunMode.SCENARIO_PLAN.name(), ApiRunMode.SCHEDULE_SCENARIO_PLAN.name(), ApiRunMode.JENKINS_SCENARIO_PLAN.name())) {
+                            scenarioExecutionInfoService.insertExecutionInfo(dto.getTestId(), scenarioReport.getStatus(), scenarioReport.getTriggerMode());
+                        } else {
+                            scenarioExecutionInfoService.insertExecutionInfo(scenarioReport.getScenarioId(), scenarioReport.getStatus(), scenarioReport.getTriggerMode());
+                        }
                         environment = apiScenarioReportService.getEnvironment(apiScenario);
                         userName = apiAutomationService.getUser(apiScenario.getUserId());
                         principal = apiAutomationService.getUser(apiScenario.getPrincipal());
@@ -208,8 +219,8 @@ public class TestResultService {
                     }
                 }
             }
-        } else if (StringUtils.equals(dto.getRunMode(), ApiRunMode.DEFINITION.name())) {
-            ApiDefinitionExecResult record = new ApiDefinitionExecResult();
+        } else if (StringUtils.equalsAnyIgnoreCase(dto.getRunMode(), ApiRunMode.DEFINITION.name(), ApiRunMode.API_PLAN.name(), ApiRunMode.SCHEDULE_API_PLAN.name())) {
+            ApiDefinitionExecResultWithBLOBs record = new ApiDefinitionExecResultWithBLOBs();
             record.setId(dto.getReportId());
             record.setStatus("STOP");
 

@@ -3,6 +3,7 @@
     :is-across-space="isAcrossSpace"
     :dialog-title="$t('api_test.automation.scenario_import')"
     @setProject="setProject"
+    @refreshNode="refresh"
     ref="baseRelevance">
     <template v-slot:aside>
       <ms-api-scenario-module
@@ -12,6 +13,7 @@
         @setModuleOptions="setModuleOptions"
         @enableTrash="false"
         :is-read-only="true"
+        :select-project-id="projectId"
         ref="nodeTree"/>
     </template>
 
@@ -28,6 +30,7 @@
     <template v-slot:headerBtn>
       <table-select-count-bar :count="selectCounts" style="float: left; margin: 5px;"/>
 
+      <el-button size="mini" icon="el-icon-refresh" @click="refresh"/>
       <el-button type="primary" @click="copy" :loading="buttonIsWorking" @keydown.enter.native.prevent size="mini">
         {{ $t('commons.copy') }}
       </el-button>
@@ -107,27 +110,38 @@ export default {
       this.buttonIsWorking = false;
     },
     createScenarioDefinition(scenarios, data, referenced) {
+      let emptyStepScenarios = "";
       data.forEach(item => {
-        let scenarioDefinition = JSON.parse(item.scenarioDefinition);
-        if (scenarioDefinition && scenarioDefinition.hashTree) {
-          let obj = {
-            id: item.id,
-            name: item.name,
-            type: "scenario",
-            headers: scenarioDefinition.headers,
-            variables: scenarioDefinition.variables,
-            environmentMap: scenarioDefinition.environmentMap,
-            referenced: referenced,
-            resourceId: getUUID(),
-            hashTree: scenarioDefinition.hashTree,
-            projectId: item.projectId,
-            num: item.num,
-            versionName: item.versionName,
-            versionEnable: item.versionEnable
-          };
-          scenarios.push(obj);
+        if (!item.stepTotal || item.stepTotal == 0) {
+          emptyStepScenarios += item.name + ",";
+        } else {
+          let scenarioDefinition = JSON.parse(item.scenarioDefinition);
+          if (scenarioDefinition && scenarioDefinition.hashTree) {
+            let obj = {
+              id: item.id,
+              name: item.name,
+              type: "scenario",
+              headers: scenarioDefinition.headers,
+              variables: scenarioDefinition.variables,
+              environmentMap: scenarioDefinition.environmentMap,
+              referenced: referenced,
+              resourceId: getUUID(),
+              hashTree: scenarioDefinition.hashTree,
+              projectId: item.projectId,
+              num: item.num,
+              versionName: item.versionName,
+              versionEnable: item.versionEnable
+            };
+            scenarios.push(obj);
+          }
         }
       });
+      if (emptyStepScenarios !== "") {
+        if (emptyStepScenarios.endsWith(",")) {
+          emptyStepScenarios = emptyStepScenarios.substring(0, emptyStepScenarios.length - 1);
+          this.$error(this.$t('api_test.scenario.scenario_step_is_empty', [emptyStepScenarios]));
+        }
+      }
     },
     getScenarioDefinition(referenced) {
       this.buttonIsWorking = true;
@@ -169,6 +183,7 @@ export default {
         }
         this.result = this.$post("/api/automation/getApiScenarios/", this.currentScenarioIds, response => {
           if (response.data) {
+            this.currentScenarioIds = [];
             this.createScenarioDefinition(scenarios, response.data, referenced);
             this.$emit('save', scenarios);
             this.$refs.baseRelevance.close();
@@ -208,7 +223,7 @@ export default {
       this.moduleOptions = data;
     },
     refresh() {
-      this.$refs.apiScenarioList.search();
+      this.$refs.apiScenarioList.search(this.projectId);
     },
     setData(data) {
       this.currentScenario = Array.from(data).map(row => row);
@@ -216,7 +231,6 @@ export default {
     },
     setProject(projectId) {
       this.projectId = projectId;
-      this.selectNodeIds = [];
     },
     getConditions() {
       return this.$refs.apiScenarioList.getConditions();

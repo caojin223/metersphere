@@ -2,7 +2,7 @@ import {post, get} from "@/common/js/ajax";
 import {success} from "@/common/js/message";
 import i18n from "@/i18n/i18n";
 import {baseGet, basePost} from "@/network/base-network";
-import {getCurrentProjectID, getCurrentWorkspaceId} from "@/common/js/utils";
+import {getCurrentProjectID} from "@/common/js/utils";
 
 export function getTestPlanReport(planId, callback) {
   if (planId) {
@@ -55,21 +55,12 @@ export function getShareTestPlanReportContent(shareId, reportId, callback) {
   return reportId ? baseGet('/share/test/plan/report/db/' + shareId + '/' + reportId, callback) : {};
 }
 
-export function getPlanFunctionFailureCase(planId, callback) {
-  return planId ? baseGet('/test/plan/case/list/failure/' + planId, callback) : {};
+export function getPlanFunctionAllCase(planId, param, callback) {
+  return planId ? basePost('/test/plan/case/list/all/' + planId, param, callback) : {};
 }
 
-export function getPlanFunctionAllCase(planId, callback) {
-  return planId ? baseGet('/test/plan/case/list/all/' + planId, callback) : {};
-}
-
-
-export function getSharePlanFunctionFailureCase(shareId, planId, callback) {
-  return planId ? baseGet('/share/test/plan/case/list/failure/' + shareId + '/' + planId, callback) : {};
-}
-
-export function getSharePlanFunctionAllCase(shareId, planId, callback) {
-  return planId ? baseGet('/share/test/plan/case/list/all/' + shareId + '/' + planId, callback) : {};
+export function getSharePlanFunctionAllCase(shareId, planId, param, callback) {
+  return planId ? basePost('/share/test/plan/case/list/all/' + shareId + '/' + planId, param, callback) : {};
 }
 
 export function getPlanScenarioFailureCase(planId, callback) {
@@ -101,6 +92,10 @@ export function getSharePlanScenarioErrorReportCase(shareId, planId, callback) {
 }
 export function getSharePlanScenarioUnExecuteCase(shareId, planId, callback) {
   return planId ? baseGet('/share/test/plan/scenario/case/list/unExecute/' + shareId + '/' + planId, callback) : {};
+}
+
+export function getSharePlanUiScenarioAllCase(shareId, planId, param, callback) {
+  return planId ? basePost('/share/test/plan/uiScenario/case/list/all/' + shareId + '/' + planId, param, callback) : {};
 }
 
 export function getPlanApiFailureCase(planId, callback) {
@@ -179,4 +174,8 @@ export function getPlanStageOption(callback) {
 
 export function saveTestPlanReport(planId, callback) {
   return planId ? baseGet('/test/plan/report/saveTestPlanReport/' + planId + '/MANUAL', callback) : {};
+}
+
+export function getPlanUiScenarioAllCase(planId, param, callback) {
+  return planId ? basePost('/test/plan/uiScenario/case/list/all/' + planId, param, callback) : {};
 }

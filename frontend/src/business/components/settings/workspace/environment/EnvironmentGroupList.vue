@@ -73,7 +73,6 @@ import EnvironmentEdit from "@/business/components/api/test/components/environme
 import MsAsideItem from "@/business/components/common/components/MsAsideItem";
 import MsAsideContainer from "@/business/components/common/components/MsAsideContainer";
 import ProjectSwitch from "@/business/components/common/head/ProjectSwitch";
-import EnvironmentImport from "@/business/components/project/menu/EnvironmentImport";
 import EnvironmentGroupRow from "@/business/components/settings/workspace/environment/EnvironmentGroupRow";
 import EditEnvironmentGroup from "@/business/components/settings/workspace/environment/EditEnvironmentGroup";
 import MsDeleteConfirm from "@/business/components/common/components/MsDeleteConfirm";
@@ -82,7 +81,6 @@ export default {
   name: "EnvironmentGroup",
   components: {
     EditEnvironmentGroup,
-    EnvironmentImport,
     ProjectSwitch,
     MsAsideContainer,
     MsAsideItem,
@@ -113,7 +111,7 @@ export default {
     screenHeight: {
       type: String,
       default() {
-        return 'calc(100vh - 210px)';
+        return 'calc(100vh - 170px)';
       }
     },
     readOnly: {

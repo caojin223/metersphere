@@ -2,7 +2,12 @@
   <el-tabs class="other-info-tabs" v-loading="result.loading" v-model="tabActiveName">
     <el-tab-pane :label="$t('commons.remark')" name="remark">
       <el-row>
-        <form-rich-text-item class="remark-item" :disabled="readOnly" :data="form" prop="remark"/>
+        <form-rich-text-item
+          class="remark-item"
+          :disabled="readOnly"
+          :data="form"
+          :default-open="defaultOpen"
+          prop="remark"/>
       </el-row>
     </el-tab-pane>
     <el-tab-pane :label="$t('test_track.case.relate_test')" name="relateTest">
@@ -14,8 +19,16 @@
         <el-form-item :label="$t('test_track.related_requirements')" :label-width="labelWidth"
                       prop="demandId">
 
-          <el-cascader v-model="demandValue" :show-all-levels="false" :options="demandOptions" style="width: 100%"
-                       clearable filterable :filter-method="filterDemand"/>
+          <el-cascader  v-if="!readOnly" v-model="demandValue" :show-all-levels="false" :options="demandOptions"
+                       clearable filterable :filter-method="filterDemand">
+            <template slot-scope="{ node, data }">
+              <span class="demand-span" :title="data.label">{{ data.label }}</span>
+            </template>
+          </el-cascader>
+
+          <el-input class="demandInput" v-else :disabled="readOnly" :value="demandLabel">
+
+          </el-input>
         </el-form-item>
       </el-col>
       <el-col :span="8" :offset="2">
@@ -42,34 +55,51 @@
         <tab-pane-count :title="$t('commons.relationship.name')" :count="relationshipCount"/>
       </template>
       <dependencies-list @setCount="setRelationshipCount" :read-only="readOnly" :resource-id="caseId"
+                         @openDependGraphDrawer="setRelationshipGraph"
                          :version-enable="versionEnable" resource-type="TEST_CASE" ref="relationship"/>
     </el-tab-pane>
 
     <el-tab-pane :label="$t('test_track.case.attachment')" name="attachment">
       <el-row>
-        <el-col :span="20" :offset="1">
-          <el-upload
-            accept=".jpg,.jpeg,.png,.xlsx,.doc,.pdf,.docx,.txt"
-            action=""
-            :show-file-list="false"
-            :before-upload="beforeUpload"
-            :http-request="handleUpload"
-            :on-exceed="handleExceed"
-            multiple
-            :limit="8"
-            :disabled="readOnly"
-            :file-list="fileList">
-            <el-button icon="el-icon-plus" :disabled="readOnly" size="mini"></el-button>
+        <el-col :span="22" style="margin-bottom: 10px;">
+          <div class="upload-default" @click.stop>
+            <el-popover placement="right" trigger="hover">
+              <div>
+                <el-upload
+                  multiple
+                  :limit="8"
+                  action=""
+                  :auto-upload="true"
+                  :file-list="fileList"
+                  :show-file-list="false"
+                  :before-upload="beforeUpload"
+                  :http-request="handleUpload"
+                  :on-exceed="handleExceed"
+                  :on-success="handleSuccess"
+                  :on-error="handleError"
+                  :disabled="readOnly || isCopy">
+                  <el-button :disabled="readOnly || isCopy" type="text">{{$t('permission.project_file.local_upload')}}</el-button>
+                </el-upload>
+              </div>
+              <el-button type="text" :disabled="readOnly || isCopy" @click="associationFile">{{ $t('permission.project_file.associated_files') }}</el-button>
+              <i class="el-icon-plus" slot="reference"/>
+            </el-popover>
+          </div>
+          <div :class="readOnly ? 'testplan-local-upload-tip' : 'not-testplan-local-upload-tip'">
             <span slot="tip" class="el-upload__tip"> {{ $t('test_track.case.upload_tip') }} </span>
-          </el-upload>
+          </div>
         </el-col>
       </el-row>
       <el-row>
-        <el-col :span="19" :offset="2">
+        <el-col :span="22">
           <test-case-attachment :table-data="tableData"
                                 :read-only="readOnly"
+                                :is-copy="isCopy"
                                 :is-delete="!isTestPlan"
-                                @handleDelete="handleDelete"/>
+                                @handleDelete="handleDelete"
+                                @handleUnRelate="handleUnRelate"
+                                @handleDump="handleDump"
+                                @handleCancel="handleCancel"/>
         </el-col>
       </el-row>
     </el-tab-pane>
@@ -104,6 +134,8 @@
         </el-col>
       </el-row>
     </el-tab-pane>
+    <ms-file-metadata-list ref="metadataList" @checkRows="checkRows"/>
+    <ms-file-batch-move ref="module" @setModuleId="setModuleId"/>
   </el-tabs>
 </template>
 
@@ -120,6 +152,12 @@ import TabPaneCount from "@/business/components/track/plan/view/comonents/report
 import {getRelationshipCountCase} from "@/network/testCase";
 import TestCaseComment from "@/business/components/track/case/components/TestCaseComment";
 import ReviewCommentItem from "@/business/components/track/review/commom/ReviewCommentItem";
+import {byteToSize, getCurrentProjectID, getTypeByFileName, getUUID, hasLicense} from "@/common/js/utils";
+import {TokenKey} from "@/common/js/constants";
+import axios from "axios";
+import {validateAndSetLicense} from "@/business/permission";
+import MsFileMetadataList from "@/business/components/project/menu/file/quote/QuoteFileList";
+import MsFileBatchMove from "@/business/components/project/menu/file/module/FileBatchMove";
 
 export default {
   name: "TestCaseEditOtherInfo",
@@ -129,25 +167,36 @@ export default {
     TestCaseTestRelate,
     TestCaseComment,
     ReviewCommentItem,
+    MsFileMetadataList,
+    MsFileBatchMove,
     FormRichTextItem, TestCaseIssueRelate, TestCaseAttachment, MsRichText, TestCaseRichText
   },
-  props: ['form', 'labelWidth', 'caseId', 'readOnly', 'projectId', 'isTestPlan', 'planId', 'versionEnable', 'isCopy', 'isTestPlanEdit', 'type', 'comments', 'isClickAttachmentTab'],
+  props: ['form', 'labelWidth', 'caseId', 'readOnly', 'projectId', 'isTestPlan', 'planId', 'versionEnable', 'isCopy', 'copyCaseId',
+    'type', 'comments', 'isClickAttachmentTab',
+    'defaultOpen'
+  ],
   data() {
     return {
       result: {},
       tabActiveName: "remark",
-      uploadList: [],
       fileList: [],
       tableData: [],
       demandOptions: [],
       relationshipCount: 0,
       demandValue: [],
+      demandLabel: '',
       //sysList:this.sysList,//一级选择框的数据
       props: {
         multiple: true,
         //lazy: true,
         //lazyLoad:this.lazyLoad
       },
+      intervalMap: new Map(),
+      cancelFileToken: [],
+      uploadFiles: [],
+      relateFiles: [],
+      unRelateFiles: [],
+      dumpFile: {}
     };
   },
   computed: {
@@ -201,22 +250,24 @@ export default {
         id = this.form.id;
       }
       this.result = this.$get('/test/case/comment/list/' + id, res => {
-        this.comments = res.data;
+        this.$emit('update:comments', res.data);
       })
     },
     setRelationshipCount(count) {
       this.relationshipCount = count;
     },
+    setRelationshipGraph(val) {
+      this.$emit("syncRelationGraphOpen", val);
+    },
     reset() {
       this.tabActiveName = "remark";
     },
     fileValidator(file) {
-      /// todo: 是否需要对文件内容和大小做限制
-      return file.size > 0;
+      return file.size < 500 * 1024 * 1024;
     },
     beforeUpload(file) {
       if (!this.fileValidator(file)) {
-        /// todo: 显示错误信息
+        this.$error(this.$t('load_test.file_size_out_of_bounds') + file.name);
         return false;
       }
 
@@ -224,54 +275,105 @@ export default {
         this.$error(this.$t('load_test.delete_file') + ', name: ' + file.name);
         return false;
       }
-
-      let type = file.name.substring(file.name.lastIndexOf(".") + 1);
-
+    },
+    handleUpload(e) {
+      // 表格生成上传文件数据
+      let file = e.file;
+      let user = JSON.parse(localStorage.getItem(TokenKey));
       this.tableData.push({
         name: file.name,
-        size: file.size + ' Bytes', /// todo: 按照大小显示Byte、KB、MB等
-        type: type.toUpperCase(),
+        size: byteToSize(file.size),
         updateTime: new Date().getTime(),
+        progress: this.type === 'add' ? 100 : 0,
+        status: this.type === 'add' ? 'toUpload' : 0,
+        creator: user.name,
+        type: getTypeByFileName(file.name),
+        isLocal: true
       });
 
-      return true;
+      if (this.type === 'add') {
+        // 新增上传
+        this.uploadFiles.push(file);
+        return false;
+      }
+      // 上传文件
+      this.uploadFile(e, (param) => {
+        this.showProgress(e.file, param)
+      })
     },
-    handleUpload(uploadResources) {
-      this.uploadList.push(uploadResources.file);
-    },
-    handleDownload(file) {
-      let data = {
-        name: file.name,
-        id: file.id,
-      };
-      let config = {
-        url: '/test/case/file/download',
+    async uploadFile(param, progressCallback) {
+      let file = param.file;
+      let progress = 0;
+      let formData = new FormData();
+      let requestJson = JSON.stringify({"belongId": this.caseId, "belongType": "testcase"});
+      formData.append("file", file);
+      formData.append('request', new Blob([requestJson], {
+        type: "application/json"
+      }));
+
+      let CancelToken = axios.CancelToken
+      let self = this;
+      axios({
+        headers: { 'Content-Type': 'application/json;charset=UTF-8' },
         method: 'post',
-        data: data,
-        responseType: 'blob'
-      };
-      this.result = this.$request(config).then(response => {
-        const content = response.data;
-        const blob = new Blob([content]);
-        if ("download" in document.createElement("a")) {
-          // 非IE下载
-          //  chrome/firefox
-          let aTag = document.createElement('a');
-          aTag.download = file.name;
-          aTag.href = URL.createObjectURL(blob);
-          aTag.click();
-          URL.revokeObjectURL(aTag.href);
-        } else {
-          // IE10+下载
-          navigator.msSaveBlob(blob, this.filename);
+        url: '/attachment/upload',
+        data: formData,
+        cancelToken: new CancelToken(function executor(c) {
+          self.cancelFileToken.push({"name": file.name, "cancelFunc": c});
+        }),
+        onUploadProgress: progressEvent => { // 获取文件上传进度
+          progress = (progressEvent.loaded / progressEvent.total * 100) | 0
+          progressCallback({ progress, status: progress })
         }
-      }).catch(e => {
-        Message.error({message: e.message, showClose: true});
-      });
+      }).then(response => { // 成功回调
+        progress = 100;
+        param.onSuccess(response);
+        progressCallback({progress, status: 'success'});
+        self.cancelFileToken.forEach((token, index, array)=>{
+          if(token.name == file.name){
+            array.splice(token,1)
+          }
+        })
+      }).catch(error => { // 失败回调
+        progress = 100;
+        progressCallback({progress, status: 'error'});
+        self.cancelFileToken.forEach((token, index, array)=>{
+          if(token.name == file.name){
+            array.splice(token,1)
+          }
+        })
+      })
+    },
+    showProgress(file, params) {
+      const { progress, status } = params
+      const arr = [...this.tableData].map(item => {
+        if (item.name === file.name) {
+          item.progress = progress
+          item.status = status
+        }
+        return item
+      })
+      this.tableData = [...arr]
+    },
+    handleExceed(files, fileList) {
+      this.$error(this.$t('load_test.file_size_limit'));
+    },
+    handleSuccess(response, file, fileList) {
+      let readyFiles = fileList.filter(item => item.status === 'ready')
+      if (readyFiles.length === 0 ) {
+        this.getFileMetaData();
+      }
+    },
+    handleError(err, file, fileList) {
+      let readyFiles = fileList.filter(item => item.status === 'ready')
+      if (readyFiles.length === 0 ) {
+        this.getFileMetaData();
+      }
     },
     handleDelete(file, index) {
-      this.$alert(this.$t('load_test.delete_file_confirm') + file.name + "？", '', {
+      this.$alert((this.cancelFileToken.length > 0 ? this.$t('load_test.delete_file_when_uploading') + '<br/>': "") +  this.$t('load_test.delete_file_confirm') + file.name + "?", '', {
         confirmButtonText: this.$t('commons.confirm'),
+        dangerouslyUseHTMLString: true,
         callback: (action) => {
           if (action === 'confirm') {
             this._handleDelete(file, index);
@@ -280,30 +382,81 @@ export default {
       });
     },
     _handleDelete(file, index) {
+      // 中断所有正在上传的文件
+      if (this.cancelFileToken && this.cancelFileToken.length >= 1) {
+        this.cancelFileToken.forEach(cacelToken => {
+          cacelToken.cancelFunc();
+        })
+      }
       this.fileList.splice(index, 1);
       this.tableData.splice(index, 1);
-      let i = this.uploadList.findIndex(upLoadFile => upLoadFile.name === file.name);
-      if (i > -1) {
-        this.uploadList.splice(i, 1);
+      if (this.type === 'add') {
+        let delIndex = this.uploadFiles.findIndex(uploadFile => uploadFile.name === file.name)
+        this.uploadFiles.splice(delIndex, 1);
+      } else {
+        this.$get('/attachment/delete/testcase/' + file.id , response => {
+          this.$success(this.$t('commons.delete_success'));
+          this.getFileMetaData();
+        });
       }
     },
-    handleExceed() {
-      this.$error(this.$t('load_test.file_size_limit'));
+    handleUnRelate(file, index) {
+      // 取消关联
+      this.$alert(this.$t('load_test.unrelated_file_confirm') + file.name + "?", '', {
+        confirmButtonText: this.$t('commons.confirm'),
+        dangerouslyUseHTMLString: true,
+        callback: (action) => {
+          if (action === 'confirm') {
+            let unRelateFileIndex = this.tableData.findIndex(f => f.name === file.name);
+            this.tableData.splice(unRelateFileIndex, 1);
+            if (file.status === 'toRelate') {
+              // 待关联的记录, 直接移除
+              let unRelateId = this.relateFiles.findIndex(f => f === file.id);
+              this.relateFiles.splice(unRelateId, 1);
+            } else {
+              // 已经关联的记录
+              this.unRelateFiles.push(file.id);
+              let data = {'belongType': 'testcase', 'belongId': this.caseId, 'metadataRefIds': this.unRelateFiles};
+              this.$post('/attachment/metadata/unrelated', data, response => {
+                this.$success(this.$t('commons.unrelated_success'));
+                this.getFileMetaData();
+              });
+            }
+          }
+        }
+      });
+    },
+    handleDump(file) {
+      this.$refs.module.init();
+      this.dumpFile = file;
+    },
+    handleCancel(file, index) {
+      this.fileList.splice(index, 1);
+      let cancelToken = this.cancelFileToken.filter(f => f.name === file.name)[0];
+      cancelToken.cancelFunc();
+      let cancelFile = this.tableData.filter(f => f.name === file.name)[0];
+      cancelFile.progress = 100;
+      cancelFile.status = 'error';
     },
     getFileMetaData(id) {
+      if (this.type === 'edit') {
+        this.relateFiles = [];
+        this.unRelateFiles = [];
+      }
       this.$emit("update:isClickAttachmentTab", true);
       // 保存用例后传入用例id，刷新文件列表，可以预览和下载
-      if (this.uploadList && this.uploadList.length > 0 && !id) {
-        return;
-      }
       this.fileList = [];
       this.tableData = [];
-      this.uploadList = [];
-      let testCaseId = id ? id : this.caseId;
+      let testCaseId;
+      if (this.isCopy) {
+        testCaseId = id ? id : this.copyCaseId
+      } else {
+        testCaseId = id ? id : this.caseId;
+      }
       if (testCaseId) {
-        this.result = this.$get("test/case/file/metadata/" + testCaseId, response => {
+        let data = {'belongType': 'testcase', 'belongId': testCaseId};
+        this.result = this.$post("/attachment/metadata/list", data, response => {
           let files = response.data;
-
           if (!files) {
             return;
           }
@@ -311,10 +464,61 @@ export default {
           this.fileList = JSON.parse(JSON.stringify(files));
           this.tableData = JSON.parse(JSON.stringify(files));
           this.tableData.map(f => {
-            f.size = f.size + ' Bytes';
+            f.size = byteToSize(f.size);
+            f.status = f.isRelatedDeleted ? 'expired' : 'success';
+            f.progress = 100
           });
         });
       }
+    },
+    associationFile() {
+      this.$refs.metadataList.open();
+    },
+    checkRows(rows) {
+      let repeatRecord = false;
+      for (let row of rows) {
+        let rowIndex = this.tableData.findIndex(item => item.name === row.name);
+        if (rowIndex >= 0) {
+          this.$error(this.$t('load_test.exist_related_file') + ": "  + row.name);
+          repeatRecord = true;
+          break;
+        }
+      }
+      if (!repeatRecord) {
+        if (this.type === 'add') {
+          // 新增
+          rows.forEach(row => {
+            this.relateFiles.push(row.id);
+            this.tableData.push({
+              id: row.id,
+              name: row.name,
+              size: byteToSize(row.size),
+              updateTime: row.createTime,
+              progress: 100,
+              status: 'toRelate',
+              creator: row.createUser,
+              type: row.type,
+              isLocal: false,
+            });
+          })
+        } else {
+          // 编辑
+          let metadataRefIds = [];
+          rows.forEach(row => metadataRefIds.push(row.id));
+          let data = {'belongType': 'testcase', 'belongId': this.caseId, 'metadataRefIds': metadataRefIds};
+          this.$post('/attachment/metadata/relate', data, response => {
+            this.$success(this.$t('commons.relate_success'));
+            this.getFileMetaData();
+          });
+        }
+      }
+    },
+    setModuleId(moduleId) {
+      let data = {id: getUUID(), resourceId: getCurrentProjectID(), moduleId: moduleId,
+        projectId: getCurrentProjectID(), fileName: this.dumpFile.name, attachmentId: this.dumpFile.id};
+      this.$post("/attachment/metadata/dump", data, (response) => {
+        this.$success(this.$t("organization.integration.successful_operation"));
+      });
     },
     getRelatedTest() {
       this.$refs.relateTest.initTable();
@@ -325,40 +529,38 @@ export default {
       }
     },
     getDemandOptions() {
-      if (this.demandOptions.length === 0) {
-        this.result = {loading: true};
-        this.$get("/issues/demand/list/" + this.projectId).then(response => {
-          this.demandOptions = [];
-          if (response.data.data && response.data.data.length > 0) {
-            this.buildDemandCascaderOptions(response.data.data, this.demandOptions, []);
-          }
-          this.demandOptions.unshift({
-            value: 'other',
-            label: 'Other: ' + this.$t('test_track.case.other'),
-            platform: 'Other'
-          });
-          if (this.form.demandId === 'other') {
-            this.demandValue = ['other'];
-          }
-          this.result = {loading: false};
-        }).catch(() => {
-          this.demandOptions.unshift({
-            value: 'other',
-            label: 'Other: ' + this.$t('test_track.case.other'),
-            platform: 'Other'
-          });
-          if (this.form.demandId === 'other') {
-            this.demandValue = ['other'];
-          }
-          this.result = {loading: false};
-        });
+      this.result = {loading: true};
+      this.demandLabel = '';
+      this.$get("/issues/demand/list/" + this.projectId).then(response => {
+        this.demandOptions = [];
+        if (response.data.data && response.data.data.length > 0) {
+          this.buildDemandCascaderOptions(response.data.data, this.demandOptions, []);
+        }
+        this.addOtherOption();
+      }).catch(() => {
+        this.addOtherOption();
+      });
+    },
+    addOtherOption() {
+      this.demandOptions.unshift({
+        value: 'other',
+        label: 'Other: ' + this.$t('test_track.case.other'),
+        platform: 'Other'
+      });
+      if (this.form.demandId === 'other') {
+        this.demandValue = ['other'];
+        this.demandLabel = 'Other: ' + this.$t('test_track.case.other');
       }
+      this.result = {loading: false};
     },
     buildDemandCascaderOptions(data, options, pathArray) {
       data.forEach(item => {
         let option = {
           label: item.platform + ': ' + item.name,
           value: item.id
+        }
+        if (this.form.demandId === item.id) {
+          this.demandLabel = option.label;
         }
         options.push(option);
         pathArray.push(item.id);
@@ -403,5 +605,60 @@ export default {
   width: 18px;
   font-size: xx-small;
   border-radius: 50%;
+}
+
+.demand-span {
+  display: inline-block;
+  max-width: 400px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  word-break: break-all;
+  margin-right: 5px;
+}
+
+.demandInput {
+  width: 200px;
+}
+
+.el-icon-plus {
+  font-size: 16px;
+}
+
+.upload-default {
+  background-color: #fbfdff;
+  border: 1px dashed #c0ccda;
+  border-radius: 6px;
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
+  width: 40px;
+  height: 30px;
+  line-height: 32px;
+  vertical-align: top;
+  text-align: center;
+  cursor: pointer;
+  display: inline-block;
+}
+
+.upload-default i {
+  color: #8c939d;
+}
+
+.upload-default:hover {
+  border: 1px dashed #783887;
+}
+
+.testplan-local-upload-tip {
+  display: inline-block;
+  position: relative;
+  left: 25px;
+  top: -5px;
+}
+
+.not-testplan-local-upload-tip {
+  display: inline-block;
+  position: relative;
+  left: 25px;
+  top: 8px;
 }
 </style>

@@ -1,18 +1,19 @@
 package io.metersphere.service;
 
 import com.alibaba.fastjson.JSON;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.google.common.collect.Lists;
 import io.metersphere.api.dto.DeleteAPITestRequest;
 import io.metersphere.api.dto.QueryAPITestRequest;
+import io.metersphere.api.dto.automation.ExecuteType;
 import io.metersphere.api.service.APITestService;
 import io.metersphere.api.service.ApiScenarioReportService;
 import io.metersphere.api.service.ApiTestDelService;
+import io.metersphere.api.service.ProjectApplicationSyncService;
 import io.metersphere.api.tcp.TCPPool;
 import io.metersphere.base.domain.*;
 import io.metersphere.base.mapper.*;
-import io.metersphere.base.mapper.ext.ExtProjectMapper;
-import io.metersphere.base.mapper.ext.ExtProjectVersionMapper;
-import io.metersphere.base.mapper.ext.ExtUserGroupMapper;
-import io.metersphere.base.mapper.ext.ExtUserMapper;
+import io.metersphere.base.mapper.ext.*;
 import io.metersphere.commons.constants.*;
 import io.metersphere.commons.exception.MSException;
 import io.metersphere.commons.utils.*;
@@ -28,8 +29,8 @@ import io.metersphere.log.utils.ReflexObjectUtil;
 import io.metersphere.log.vo.DetailColumn;
 import io.metersphere.log.vo.OperatingLogDetails;
 import io.metersphere.log.vo.system.SystemReference;
+import io.metersphere.metadata.service.FileMetadataService;
 import io.metersphere.performance.request.DeleteTestPlanRequest;
-import io.metersphere.performance.request.QueryProjectFileRequest;
 import io.metersphere.performance.service.PerformanceReportService;
 import io.metersphere.performance.service.PerformanceTestService;
 import io.metersphere.track.issue.AbstractIssuePlatform;
@@ -41,6 +42,7 @@ import io.metersphere.track.service.TestCaseService;
 import io.metersphere.track.service.TestPlanProjectService;
 import io.metersphere.track.service.TestPlanReportService;
 import io.metersphere.track.service.TestPlanService;
+import io.metersphere.xmind.utils.FileUtil;
 import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
@@ -51,7 +53,7 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.Resource;
-import java.io.IOException;
+import java.io.File;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -77,8 +79,6 @@ public class ProjectService {
     private APITestService apiTestService;
     @Resource
     private TestPlanProjectService testPlanProjectService;
-    @Resource
-    private FileService fileService;
     @Resource
     private LoadTestFileMapper loadTestFileMapper;
     @Resource
@@ -114,18 +114,25 @@ public class ProjectService {
     private ProjectApplicationService projectApplicationService;
     @Resource
     private ProjectVersionMapper projectVersionMapper;
+    @Resource
+    ExtModuleNodeMapper extModuleNodeMapper;
+    @Resource
+    ApiModuleMapper apiModuleMapper;
+    @Resource
+    private ApiScenarioReportMapper apiScenarioReportMapper;
+    @Resource
+    private ApiScenarioReportDetailMapper apiScenarioReportDetailMapper;
+    @Resource
+    private ApiScenarioReportStructureMapper apiScenarioReportStructureMapper;
+    @Resource
+    private ApiScenarioReportResultMapper apiScenarioReportResultMapper;
+    @Resource
+    private WorkspaceMapper workspaceMapper;
+    @Resource
+    private FileMetadataService fileMetadataService;
 
     public Project addProject(AddProjectRequest project) {
-        if (StringUtils.isBlank(project.getName())) {
-            MSException.throwException(Translator.get("project_name_is_null"));
-        }
-        ProjectExample example = new ProjectExample();
-        example.createCriteria()
-                .andWorkspaceIdEqualTo(project.getWorkspaceId())
-                .andNameEqualTo(project.getName());
-        if (projectMapper.countByExample(example) > 0) {
-            MSException.throwException(Translator.get("project_name_already_exists"));
-        }
+        this.checkCreateProjectParam(project);
 
         QuotaService quotaService = CommonBeanFactory.getBean(QuotaService.class);
         if (quotaService != null) {
@@ -176,8 +183,34 @@ public class ProjectService {
         addProjectVersion(project);
         // 初始化项目应用管理
         initProjectApplication(project.getId());
+        // 初始化项目默认节点
+        initProjectDefaultNode(project.getId());
         return project;
     }
+
+    private void checkCreateProjectParam(AddProjectRequest project) {
+        String name = project.getName();
+        if (StringUtils.isBlank(name)) {
+            MSException.throwException(Translator.get("project_name_is_null"));
+        }
+
+        String workspaceId = project.getWorkspaceId();
+        if (StringUtils.isBlank(workspaceId)) {
+            MSException.throwException("project workspace_id is null");
+        }
+
+        Workspace workspace = workspaceMapper.selectByPrimaryKey(workspaceId);
+        if (workspace == null) {
+            MSException.throwException("project workspace_id is not exist.");
+        }
+
+        ProjectExample example = new ProjectExample();
+        example.createCriteria().andWorkspaceIdEqualTo(workspaceId).andNameEqualTo(name);
+        if (projectMapper.countByExample(example) > 0) {
+            MSException.throwException(Translator.get("project_name_already_exists"));
+        }
+    }
+
 
     public void addProjectVersion(Project project) {
         ProjectVersion projectVersion = new ProjectVersion();
@@ -215,9 +248,56 @@ public class ProjectService {
         projectApplicationMapper.insert(projectApplication);
         projectApplication.setType(ProjectApplicationType.API_SHARE_REPORT_TIME.toString());
         projectApplicationMapper.insert(projectApplication);
+        projectApplication.setType(ProjectApplicationType.UI_SHARE_REPORT_TIME.toString());
+        projectApplicationMapper.insert(projectApplication);
         projectApplication.setType(ProjectApplicationType.CASE_CUSTOM_NUM.toString());
         projectApplication.setTypeValue(Boolean.FALSE.toString());
         projectApplicationMapper.insert(projectApplication);
+        //xpack的项目都有同步设置规则
+        ProjectApplicationSyncService projectApplicationSyncService = CommonBeanFactory.getBean(ProjectApplicationSyncService.class);
+        if (projectApplicationSyncService != null) {
+            try {
+                projectApplication = projectApplicationSyncService.initProjectApplicationAboutWorkstation(projectApplication);
+            } catch (JsonProcessingException e) {
+                e.printStackTrace();
+            }
+            projectApplicationMapper.insert(projectApplication);
+        }
+    }
+
+    private void initProjectDefaultNode(String projectId) {
+        ModuleNode record = new ModuleNode();
+        record.setId(UUID.randomUUID().toString());
+        record.setCreateUser(SessionUtils.getUserId());
+        record.setPos(1.0);
+        record.setLevel(1);
+        record.setCreateTime(System.currentTimeMillis());
+        record.setUpdateTime(System.currentTimeMillis());
+        record.setProjectId(projectId);
+        //每个新项目的默认测试用例节点, 接口场景节点, UI自动化场景, UI元素库, 接口节点{HTTP, DUBBO, SQL, TCP}
+        record.setName(ProjectModuleDefaultNodeEnum.TEST_CASE_DEFAULT_NODE.getNodeName());
+        extModuleNodeMapper.insert(ProjectModuleDefaultNodeEnum.TEST_CASE_DEFAULT_NODE.getTableName(), record);
+        record.setId(UUID.randomUUID().toString());
+        record.setName(ProjectModuleDefaultNodeEnum.API_SCENARIO_DEFAULT_NODE.getNodeName());
+        extModuleNodeMapper.insert(ProjectModuleDefaultNodeEnum.API_SCENARIO_DEFAULT_NODE.getTableName(), record);
+        record.setId(UUID.randomUUID().toString());
+        record.setName(ProjectModuleDefaultNodeEnum.UI_SCENARIO_DEFAULT_NODE.getNodeName());
+        extModuleNodeMapper.insert(ProjectModuleDefaultNodeEnum.UI_SCENARIO_DEFAULT_NODE.getTableName(), record);
+        record.setId(UUID.randomUUID().toString());
+        record.setName(ProjectModuleDefaultNodeEnum.UI_ELEMENT_DEFAULT_NODE.getNodeName());
+        record.setModulePath("/" + record.getName());
+        extModuleNodeMapper.insertWithModulePath(ProjectModuleDefaultNodeEnum.UI_ELEMENT_DEFAULT_NODE.getTableName(), record);
+        record.setModulePath(null);
+
+        ApiModule apiRecord = new ApiModule();
+        BeanUtils.copyBean(apiRecord, record);
+        apiRecord.setName(ProjectModuleDefaultNodeEnum.API_MODULE_DEFAULT_NODE.getNodeName());
+        String[] protocols = {"HTTP", "DUBBO", "SQL", "TCP"};
+        for (String protocol : protocols) {
+            apiRecord.setProtocol(protocol);
+            apiRecord.setId(UUID.randomUUID().toString());
+            apiModuleMapper.insert(apiRecord);
+        }
     }
 
     public void checkThirdProjectExist(Project project) {
@@ -359,6 +439,11 @@ public class ProjectService {
         extProjectMapper.updateUseDefaultCaseTemplateProject(originId, templateId, projectId);
     }
 
+    //修改默认接口模版id
+    public void updateApiTemplate(String originId, String templateId, String projectId) {
+        extProjectMapper.updateUseDefaultApiTemplateProject(originId, templateId, projectId);
+    }
+
     private void deleteLoadTestResourcesByProjectId(String projectId) {
         LoadTestExample loadTestExample = new LoadTestExample();
         loadTestExample.createCriteria().andProjectIdEqualTo(projectId);
@@ -423,14 +508,16 @@ public class ProjectService {
         Boolean cleanTrackReport = project.getCleanTrackReport();
         Boolean cleanApiReport = project.getCleanApiReport();
         Boolean cleanLoadReport = project.getCleanLoadReport();
-        LogUtil.info("clean track/api/performance report: " + cleanTrackReport + "/" + cleanApiReport + "/" + cleanLoadReport);
+        Boolean cleanUiReport = project.getCleanUiReport();
+        LogUtil.info("clean track/api/performance report: " + cleanTrackReport + "/" + cleanApiReport + "/" + cleanLoadReport + "/" + cleanUiReport);
         // 未设置则不更新定时任务
-        if (cleanTrackReport == null && cleanApiReport == null && cleanLoadReport == null) {
+        if (cleanTrackReport == null && cleanApiReport == null && cleanLoadReport == null && cleanUiReport == null) {
             return;
         }
         String projectId = project.getId();
         Boolean enable = BooleanUtils.isTrue(cleanTrackReport) ||
                 BooleanUtils.isTrue(cleanApiReport) ||
+                BooleanUtils.isTrue(cleanUiReport) ||
                 BooleanUtils.isTrue(cleanLoadReport);
         Schedule schedule = scheduleService.getScheduleByResource(projectId, ScheduleGroup.CLEAN_UP_REPORT.name());
         if (schedule != null && StringUtils.isNotBlank(schedule.getId())) {
@@ -533,7 +620,7 @@ public class ProjectService {
                     .andTypeValueEqualTo(String.valueOf(project.getMockTcpPort()))
                     .andProjectIdNotEqualTo(projectId);
             if (projectApplicationMapper.countByExample(example) > 0) {
-                MSException.throwException("TCP Port is not unique！");
+                MSException.throwException(Translator.get("tcp_mock_not_unique"));
             }
         }
     }
@@ -615,6 +702,13 @@ public class ProjectService {
         return projectMapper.selectByExample(example);
     }
 
+    public List<Project> getByApiTemplateId(String templateId) {
+        ProjectExample example = new ProjectExample();
+        example.createCriteria()
+                .andApiTemplateIdEqualTo(templateId);
+        return projectMapper.selectByExample(example);
+    }
+
     public List<Project> getByIssueTemplateId(String templateId) {
         ProjectExample example = new ProjectExample();
         example.createCriteria()
@@ -623,36 +717,11 @@ public class ProjectService {
     }
 
     public List<FileMetadata> uploadFiles(String projectId, List<MultipartFile> files) {
-        List<FileMetadata> result = new ArrayList<>();
-        if (files != null) {
-            for (MultipartFile file : files) {
-                QueryProjectFileRequest request = new QueryProjectFileRequest();
-                request.setName(file.getOriginalFilename());
-                if (CollectionUtils.isEmpty(fileService.getProjectFiles(projectId, request))) {
-                    result.add(fileService.saveFile(file, projectId));
-                } else {
-                    MSException.throwException(Translator.get("project_file_already_exists"));
-                }
-            }
-        }
-        return result;
+        return fileMetadataService.uploadFiles(projectId, files);
     }
 
     public FileMetadata updateFile(String fileId, MultipartFile file) {
-        QueryProjectFileRequest request = new QueryProjectFileRequest();
-        request.setName(file.getOriginalFilename());
-        FileMetadata fileMetadata = fileService.getFileMetadataById(fileId);
-        if (fileMetadata != null) {
-            fileMetadata.setSize(file.getSize());
-            fileMetadata.setUpdateTime(System.currentTimeMillis());
-            fileService.updateFileMetadata(fileMetadata);
-            try {
-                fileService.setFileContent(fileId, file.getBytes());
-            } catch (IOException e) {
-                MSException.throwException(e);
-            }
-        }
-        return fileMetadata;
+        return fileMetadataService.updateFile(fileId, file);
     }
 
     public void deleteFile(String fileId) {
@@ -683,7 +752,7 @@ public class ProjectService {
         if (StringUtils.isNotBlank(errorMessage)) {
             MSException.throwException(errorMessage + Translator.get("project_file_in_use"));
         }
-        fileService.deleteFileById(fileId);
+        fileMetadataService.deleteFile(fileId);
     }
 
     public String getLogDetails(String id) {
@@ -693,7 +762,7 @@ public class ProjectService {
             OperatingLogDetails details = new OperatingLogDetails(JSON.toJSONString(project.getId()), project.getId(), project.getName(), project.getCreateUser(), columns);
             return JSON.toJSONString(details);
         } else {
-            FileMetadata fileMetadata = fileService.getFileMetadataById(id);
+            FileMetadata fileMetadata = fileMetadataService.getFileMetadataById(id);
             if (fileMetadata != null) {
                 List<DetailColumn> columns = ReflexObjectUtil.getColumns(fileMetadata, SystemReference.projectColumns);
                 OperatingLogDetails details = new OperatingLogDetails(JSON.toJSONString(fileMetadata.getId()), fileMetadata.getProjectId(), fileMetadata.getName(), null, columns);
@@ -776,8 +845,19 @@ public class ProjectService {
         return extProjectMapper.getProjectForCustomField(workspaceId);
     }
 
+    public List<String> getThirdPartProjectIds() {
+        return extProjectMapper.getThirdPartProjectIds();
+    }
+
     public Map<String, Project> queryNameByIds(List<String> ids) {
         return extProjectMapper.queryNameByIds(ids);
+    }
+
+    public Map<String, Workspace> getWorkspaceNameByProjectIds(List<String> projectIds) {
+        if (projectIds.isEmpty()) {
+            return new HashMap<>(0);
+        }
+        return extProjectMapper.queryWorkNameByProjectIds(projectIds);
     }
 
     public void openMockTcp(Project project) {
@@ -919,7 +999,7 @@ public class ProjectService {
             }
         }
         if (returnPort == 0) {
-            MSException.throwException("无可用TCP端口");
+            MSException.throwException(Translator.get("no_tcp_mock_port"));
         }
         return String.valueOf(returnPort);
     }
@@ -964,6 +1044,43 @@ public class ProjectService {
         performanceReportService.cleanUpReport(time, projectId);
     }
 
+    // 删除 UI 报告产生的截图
+    public void cleanUpUiReportImg(long backupTime, String projectId) {
+        try {
+            // 属于定时任务删除调试报告情况
+            // 获取昨天的当前时间
+//            Date backupTime = org.apache.commons.lang3.time.DateUtils.addDays(new Date(), -1);
+            // 清理类型为 UI 报告类型，且时间为昨天之前的 UI 调试类型报告截图
+            ApiScenarioReportExample example = new ApiScenarioReportExample();
+            example.createCriteria()
+                    .andProjectIdEqualTo(projectId)
+                    .andCreateTimeLessThan(backupTime).andReportTypeIn(Lists.newArrayList(ReportTypeConstants.UI_INDEPENDENT.name(),
+                    ReportTypeConstants.UI_INTEGRATED.name()))
+                    .andExecuteTypeIn(Lists.newArrayList(ExecuteType.Debug.name(), ExecuteType.Saved.name()));
+            List<ApiScenarioReport> apiScenarioReports = apiScenarioReportMapper.selectByExample(example);
+            // 删除调试报告的截图
+            for (ApiScenarioReport apiScenarioReport : apiScenarioReports) {
+                // 删除调试报告
+                ApiScenarioReportResultExample resultExample = new ApiScenarioReportResultExample();
+                resultExample.createCriteria().andReportIdEqualTo(apiScenarioReport.getId());
+                ApiScenarioReportStructureExample structureExample = new ApiScenarioReportStructureExample();
+                structureExample.createCriteria().andReportIdEqualTo(apiScenarioReport.getId());
+
+                apiScenarioReportDetailMapper.deleteByPrimaryKey(apiScenarioReport.getId());
+                apiScenarioReportResultMapper.deleteByExample(resultExample);
+                apiScenarioReportStructureMapper.deleteByExample(structureExample);
+                apiScenarioReportMapper.deleteByPrimaryKey(apiScenarioReport.getId());
+                //如果有截图数据则删除
+                if (FileUtil.deleteDir(new File(FileUtils.UI_IMAGE_DIR + "/" + apiScenarioReport.getId()))) {
+                    LogUtil.info("删除 UI 调试报告截图成功，报告 ID 为 ：" + apiScenarioReport.getId());
+                }
+            }
+        } catch (Exception e) {
+            LogUtil.error(e.getMessage(), e);
+            MSException.throwException(e.getMessage());
+        }
+    }
+
     public void checkProjectIsRepeatable(String projectId) {
         Project project = this.getProjectById(projectId);
         if (project == null) {
@@ -974,6 +1091,15 @@ public class ProjectService {
             if (!urlRepeat) {
                 MSException.throwException(Translator.get("project_repeatable_is_false"));
             }
+        }
+    }
+
+    public String selectNameById(String projectId) {
+        Project project = projectMapper.selectByPrimaryKey(projectId);
+        if (project == null) {
+            return null;
+        } else {
+            return project.getName();
         }
     }
 }

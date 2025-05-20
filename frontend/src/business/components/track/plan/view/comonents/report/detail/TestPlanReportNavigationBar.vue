@@ -1,6 +1,12 @@
 <template>
   <div>
-    <ms-drawer class="drawer-content" :visible="true" :size="10" direction="left" :show-full-screen="false" :is-show-close="false">
+    <ms-drawer class="drawer-content"
+               direction="left"
+               :class="moveBarClass"
+               :visible="true"
+               :size="10"
+               :show-full-screen="false"
+               :is-show-close="false">
       <div class="title-item" >
          <span class="title-name">{{$t('test_track.report.content')}}</span>
         <el-tabs tab-position="right" v-model="activeName">
@@ -16,7 +22,7 @@
 
 <script>
 import MsDrawer from "@/business/components/common/components/MsDrawer";
-import {DEFAULT_LANGUAGE, EN_US} from "@/common/js/constants";
+import {DEFAULT_LANGUAGE, EN_US, ZH_CN} from "@/common/js/constants";
 import {getCurrentUser} from "@/common/js/utils";
 export default {
   name: "TestPlanReportNavigationBar",
@@ -28,6 +34,8 @@ export default {
     functionalEnable: Boolean,
     apiEnable: Boolean,
     loadEnable: Boolean,
+    uiEnable: Boolean,
+    needMoveBar: Boolean,
   },
   data() {
     return {
@@ -51,20 +59,21 @@ export default {
           title: this.$t('test_track.report.analysis_api'),
         },
         {
+          link: 'ui',
+          title: this.$t('test_track.report.analysis_ui')
+        },
+        {
           link: 'load',
           title: this.$t('test_track.report.analysis_load'),
         }
-      ]
+      ],
+      moveBarClass: '',
     }
   },
   watch: {
     activeName() {
-      let url = new URL(window.location.href);
-      if (this.isTemplate) {
-        window.location.href = window.location.href.split('#')[0] + '#' + this.activeName;
-      } else {
-        window.location.href = url.origin + '#' + this.activeName;
-      }
+      let target = document.getElementById(this.activeName);
+      target.parentNode.parentNode.parentNode.scrollTop = target.offsetTop - 100;
     },
     overviewEnable() {
       this.setData();
@@ -81,11 +90,22 @@ export default {
     loadEnable() {
       this.setData();
     },
+    uiEnable() {
+      this.setData();
+    },
+    '$store.state.appFixed'(newVal){
+      if (this.needMoveBar) {
+        this.toggleMoveBarClass(newVal);
+      }
+    },
   },
   computed: {
     navBtnClass() {
-      let lang = getCurrentUser().language;
-      if (!lang) {
+      let user = getCurrentUser();
+      let lang = ZH_CN;
+      if (user && user.language) {
+        lang = user.language;
+      } else {
         lang = localStorage.getItem(DEFAULT_LANGUAGE);
       }
       if (lang === EN_US) {
@@ -93,10 +113,13 @@ export default {
       } else {
         return 'zh-button-span';
       }
-    }
+    },
   },
   mounted() {
     this.setData();
+    if (this.needMoveBar) {
+      this.toggleMoveBarClass(this.$store.state.appFixed);
+    }
   },
   methods: {
     setData() {
@@ -106,6 +129,7 @@ export default {
         ['functional', this.functionalEnable],
         ['api', this.apiEnable],
         ['load', this.loadEnable],
+        ['ui', this.uiEnable],
       ]);
       this.data = [];
       this.contents.forEach(item => {
@@ -113,6 +137,9 @@ export default {
           this.data.push(item);
         }
       });
+    },
+    toggleMoveBarClass(val) {
+      this.moveBarClass = val ? 'fixed-move-bar' : 'move-bar';
     }
   }
 }
@@ -179,6 +206,14 @@ export default {
   box-sizing: border-box;
   background-color: #FFF;
   overflow: visible !important;
+}
+
+.move-bar {
+  margin-left: 53px;
+}
+
+.fixed-move-bar {
+  margin-left: 159px;
 }
 
 .drawer-content {

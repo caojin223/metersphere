@@ -6,7 +6,13 @@
         <el-col :span="24">
           <el-form-item :label="item.system ? $t(systemNameMap[item.name]) : item.name" :prop="item.name"
                         :label-width="formLabelWidth">
-            <custom-filed-component :data="item" :form="form" prop="defaultValue" :disabled="(item.type !== 'richText' && isPublic) || disabled"/>
+            <custom-filed-component
+              :data="item"
+              :form="form"
+              prop="defaultValue"
+              :disabled="(item.type !== 'richText' && isPublic) || disabled"
+              :default-open="defaultOpen"
+            />
           </el-form-item>
         </el-col>
       </span>
@@ -42,7 +48,13 @@ export default {
       default() {
         return false;
       }
-    }
+    },
+    defaultOpen: {
+      type: String,
+      default() {
+        return 'preview';
+      }
+    },
   },
   computed: {
     customFieldRowNums() {
@@ -57,7 +69,7 @@ export default {
       let total = 0;//定义total用于控制循环结束
       let customFields = this.issueTemplate.customFields;
       for (let i = 0; total < customFields.length; total++) {
-        if (customFields[i].type === 'input' && typeof (customFields[i].defaultValue) === 'string' || customFields[i].defaultValue instanceof String) {
+        if (typeof (customFields[i].defaultValue) === 'string' || customFields[i].defaultValue instanceof String) {
           try {
             customFields[i].defaultValue = JSON.parse(customFields[i].defaultValue);
           } catch (e) {

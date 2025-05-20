@@ -1,5 +1,7 @@
 package io.metersphere.commons.utils;
 
+import io.metersphere.base.domain.Group;
+import io.metersphere.base.domain.UserGroupPermission;
 import io.metersphere.commons.user.SessionUser;
 import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang.StringUtils;
@@ -15,12 +17,15 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import javax.servlet.http.HttpServletRequest;
-import java.util.Collection;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 import static io.metersphere.commons.constants.SessionConstants.ATTR_USER;
 
 public class SessionUtils {
+
+    private static final ThreadLocal<String> projectId = new ThreadLocal<>();
+    private static final ThreadLocal<String> workspaceId = new ThreadLocal<>();
 
     public static String getUserId() {
         SessionUser user = getUser();
@@ -88,10 +93,27 @@ public class SessionUtils {
         SecurityUtils.getSubject().getSession().setAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME, sessionUser.getId());
     }
 
+    /**
+     * 权限验证时从 controller 参数列表中找到 workspaceId 传入
+     */
+    public static void setCurrentWorkspaceId(String workspaceId) {
+        SessionUtils.workspaceId.set(workspaceId);
+    }
+
+    /**
+     * 权限验证时从 controller 参数列表中找到 projectId 传入
+     */
+    public static void setCurrentProjectId(String projectId) {
+        SessionUtils.projectId.set(projectId);
+    }
+
     public static String getCurrentWorkspaceId() {
+        if (StringUtils.isNotEmpty(workspaceId.get())) {
+            return workspaceId.get();
+        }
         try {
             HttpServletRequest request = ((ServletRequestAttributes) (RequestContextHolder.currentRequestAttributes())).getRequest();
-            LogUtil.info("WORKSPACE: {}", request.getHeader("WORKSPACE"));
+            LogUtil.debug("WORKSPACE: {}", request.getHeader("WORKSPACE"));
             if (request.getHeader("WORKSPACE") != null) {
                 return request.getHeader("WORKSPACE");
             }
@@ -102,9 +124,12 @@ public class SessionUtils {
     }
 
     public static String getCurrentProjectId() {
+        if (StringUtils.isNotEmpty(projectId.get())) {
+            return projectId.get();
+        }
         try {
             HttpServletRequest request = ((ServletRequestAttributes) (RequestContextHolder.currentRequestAttributes())).getRequest();
-            LogUtil.info("PROJECT: {}", request.getHeader("PROJECT"));
+            LogUtil.debug("PROJECT: {}", request.getHeader("PROJECT"));
             if (request.getHeader("PROJECT") != null) {
                 return request.getHeader("PROJECT");
             }
@@ -112,5 +137,66 @@ public class SessionUtils {
             LogUtil.error(e.getMessage(), e);
         }
         return getUser().getLastProjectId();
+    }
+
+    public static boolean hasPermission(String workspaceId, String projectId, String permission) {
+        Map<String, List<UserGroupPermission>> userGroupPermissions = new HashMap<>();
+        Map<String, Group> group = new HashMap<>();
+        SessionUser user = Objects.requireNonNull(SessionUtils.getUser());
+        user.getUserGroups().forEach(ug -> user.getGroupPermissions().forEach(gp -> {
+            if (org.apache.commons.lang3.StringUtils.equals(gp.getGroup().getId(), ug.getGroupId())) {
+                userGroupPermissions.put(ug.getId(), gp.getUserGroupPermissions());
+                group.put(ug.getId(), gp.getGroup());
+            }
+        }));
+
+
+        Set<String> currentProjectPermissions = getCurrentProjectPermissions(userGroupPermissions, projectId, group, user);
+        if (currentProjectPermissions.contains(permission)) {
+            return true;
+        }
+
+        Set<String> currentWorkspacePermissions = getCurrentWorkspacePermissions(userGroupPermissions, workspaceId, group, user);
+        if (currentWorkspacePermissions.contains(permission)) {
+            return true;
+        }
+
+        Set<String> systemPermissions = getSystemPermissions(userGroupPermissions, group, user);
+        return systemPermissions.contains(permission);
+    }
+
+    private static Set<String> getSystemPermissions(Map<String, List<UserGroupPermission>> userGroupPermissions, Map<String, Group> group, SessionUser user) {
+        return user.getUserGroups().stream()
+                .filter(ug -> group.get(ug.getId()) != null && StringUtils.equals(group.get(ug.getId()).getType(), "SYSTEM"))
+                .filter(ug -> StringUtils.equals(ug.getSourceId(), "system") || StringUtils.equals(ug.getSourceId(), "'adminSourceId'"))
+                .flatMap(ug -> userGroupPermissions.get(ug.getId()).stream())
+                .map(UserGroupPermission::getPermissionId)
+                .collect(Collectors.toSet());
+    }
+
+    private static Set<String> getCurrentWorkspacePermissions(Map<String, List<UserGroupPermission>> userGroupPermissions, String workspaceId, Map<String, Group> group, SessionUser user) {
+        return user.getUserGroups().stream()
+                .filter(ug -> group.get(ug.getId()) != null && StringUtils.equals(group.get(ug.getId()).getType(), "WORKSPACE"))
+                .filter(ug -> StringUtils.equals(ug.getSourceId(), workspaceId))
+                .flatMap(ug -> userGroupPermissions.get(ug.getId()).stream())
+                .map(UserGroupPermission::getPermissionId)
+                .collect(Collectors.toSet());
+    }
+
+    private static Set<String> getCurrentProjectPermissions(Map<String, List<UserGroupPermission>> userGroupPermissions, String projectId, Map<String, Group> group, SessionUser user) {
+        return user.getUserGroups().stream()
+                .filter(ug -> group.get(ug.getId()) != null && StringUtils.equals(group.get(ug.getId()).getType(), "PROJECT"))
+                .filter(ug -> StringUtils.equals(ug.getSourceId(), projectId))
+                .flatMap(ug -> userGroupPermissions.get(ug.getId()).stream())
+                .map(UserGroupPermission::getPermissionId)
+                .collect(Collectors.toSet());
+    }
+
+    public static void clearCurrentWorkspaceId() {
+        workspaceId.remove();
+    }
+
+    public static void clearCurrentProjectId() {
+        projectId.remove();
     }
 }

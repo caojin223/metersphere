@@ -2,8 +2,8 @@
   <ms-container>
     <ms-main-container>
       <el-card v-loading="result.loading">
-        <el-row>
-          <el-col :span="16">
+        <el-row :gutter="10">
+          <el-col :span="14">
             <el-row>
               <el-breadcrumb separator-class="el-icon-arrow-right">
                 <el-breadcrumb-item :to="{ path: '/performance/test/' + this.projectId }">{{ projectName }}
@@ -37,7 +37,7 @@
                 width="300">
                 <p>{{ shareUrl }}</p>
                 <span style="color: red;float: left;margin-left: 10px;" v-if="application.typeValue">{{
-                    $t('commons.validity_period')+application.typeValue
+                    $t('commons.validity_period') + application.typeValue
                   }}</span>
                 <div style="text-align: right; margin: 0">
                   <el-button type="primary" size="mini" :disabled="!shareUrl"
@@ -62,22 +62,37 @@
               </el-button>
             </el-row>
           </el-col>
-          <el-col :span="6">
-            <span class="ms-report-time-desc">
-              {{ $t('report.test_duration', [this.minutes, this.seconds]) }}
-            </span>
-            <span class="ms-report-time-desc" v-if="startTime !== '0'">
-              {{ $t('report.test_start_time') }}：{{ startTime | timestampFormatDate }}
-            </span>
-            <span class="ms-report-time-desc" v-else>
-              {{ $t('report.test_start_time') }}：-
-            </span>
-            <span class="ms-report-time-desc" v-if="report.status === 'Completed' && endTime !== '0'">
-              {{ $t('report.test_end_time') }}：{{ endTime | timestampFormatDate }}
-            </span>
-            <span class="ms-report-time-desc" v-else>
-              {{ $t('report.test_end_time') }}：-
-            </span>
+          <el-col :span="8">
+            <div style="float: right;">
+              <span class="ms-report-time-desc">
+                {{ $t('report.test_duration', [this.minutes, this.seconds]) }}
+              </span>
+              <span class="ms-report-time-desc" v-if="startTime !== '0'">
+                {{ $t('report.test_start_time') }}：{{ startTime | timestampFormatDate }}
+              </span>
+              <span class="ms-report-time-desc" v-else>
+                {{ $t('report.test_start_time') }}：-
+              </span>
+              <span class="ms-report-time-desc" v-if="report.status === 'Completed' && endTime !== '0'">
+                {{ $t('report.test_end_time') }}：{{ endTime | timestampFormatDate }}
+              </span>
+              <span class="ms-report-time-desc" v-else>
+                {{ $t('report.test_end_time') }}：-
+              </span>
+            </div>
+            <div style="float: right;margin-right: 10px;">
+              <div v-if="showProjectEnv" type="flex">
+                <span> {{ $t('commons.environment') + ':' }} </span>
+                <div v-for="(values,key) in projectEnvMap" :key="key" style="margin-right: 10px">
+                  {{ key + ":" }}
+                  <ms-tag v-for="(item,index) in values" :key="index" type="success" :content="item"
+                          style="margin-left: 2px"/>
+                </div>
+                <div v-show="showMoreProjectEnvMap">
+                  <el-link icon="el-icon-more" @click="showAllProjectInfo"></el-link>
+                </div>
+              </div>
+            </div>
           </el-col>
           <el-col :span="2">
             <el-select v-model="refreshTime"
@@ -126,6 +141,7 @@
         </div>
 
         <ms-performance-report-export :title="reportName" id="performanceReportExport" v-show="reportExportVisible"
+                                      :project-env-map="projectEnvMap"
                                       :report="report"/>
 
       </el-card>
@@ -139,6 +155,7 @@
           </el-button>
         </div>
       </el-dialog>
+      <project-environment-dialog ref="projectEnvDialog"></project-environment-dialog>
     </ms-main-container>
     <same-test-reports ref="compareReports"/>
   </ms-container>
@@ -152,8 +169,8 @@ import MsReportTestDetails from './components/TestDetails';
 import MsReportTestOverview from './components/TestOverview';
 import MsContainer from "../../common/components/MsContainer";
 import MsMainContainer from "../../common/components/MsMainContainer";
-
-import {exportPdf, getCurrentProjectID, hasPermission} from "@/common/js/utils";
+import MsTag from "@/business/components/common/components/MsTag";
+import {exportPdf, getCurrentProjectID, hasPermission, operationConfirm} from "@/common/js/utils";
 import html2canvas from 'html2canvas';
 import MsPerformanceReportExport from "./PerformanceReportExport";
 import {Message} from "element-ui";
@@ -161,6 +178,7 @@ import SameTestReports from "@/business/components/performance/report/components
 import MonitorCard from "@/business/components/performance/report/components/MonitorCard";
 import MsTestConfiguration from "@/business/components/performance/report/components/TestConfiguration";
 import {generateShareInfoWithExpired} from "@/network/share";
+import ProjectEnvironmentDialog from "@/business/components/common/dialog/ProjectEnvironmentDialog";
 
 
 export default {
@@ -177,6 +195,8 @@ export default {
     MsContainer,
     MsMainContainer,
     MsReportTestDetails,
+    MsTag,
+    ProjectEnvironmentDialog
   },
   props: {
     perReportId: String
@@ -203,6 +223,9 @@ export default {
       dialogFormVisible: false,
       reportExportVisible: false,
       test: {testResourcePoolId: null},
+      projectEnvMap: null,
+      showMoreProjectEnvMap: false,
+      allProjectEnvMap: null,
       refreshTime: localStorage.getItem("reportRefreshTime") || "10",
       refreshTimes: [
         {value: '1', label: '1s'},
@@ -216,10 +239,18 @@ export default {
       ],
       testDeleted: false,
       shareUrl: "",
-      application:{}
+      application: {}
     };
   },
+  computed:{
+    showProjectEnv() {
+      return this.projectEnvMap && JSON.stringify(this.projectEnvMap) !== '{}';
+    },
+  },
   methods: {
+    showAllProjectInfo() {
+      this.$refs.projectEnvDialog.open(this.allProjectEnvMap);
+    },
     initBreadcrumb(callback) {
       if (this.reportId) {
         this.result = this.$get("/performance/report/test/pro/info/" + this.reportId, res => {
@@ -306,22 +337,16 @@ export default {
       this.dialogFormVisible = false;
     },
     rerun(testId) {
-      this.$confirm(this.$t('report.test_rerun_confirm'), '', {
-        confirmButtonText: this.$t('commons.confirm'),
-        cancelButtonText: this.$t('commons.cancel'),
-        type: 'warning'
-      }).then(() => {
+      operationConfirm(this.$t('report.test_rerun_confirm'), () => {
         this.result = this.$post('/performance/run', {id: testId, triggerMode: 'MANUAL'}, (response) => {
           this.reportId = response.data;
           this.$router.push({path: '/performance/report/view/' + this.reportId});
           this.clearData();
         });
-      }).catch(() => {
       });
     },
     onOpen() {
       this.refresh();
-      // window.console.log("socket opening.");
     },
     onError(e) {
       // window.console.error(e)
@@ -336,7 +361,6 @@ export default {
       this.$set(this.report, "status", 'Running');
       this.status = 'Running';
       this.initReportTimeInfo();
-      // window.console.log('receive a message:', e.data);
     },
     onClose(e) {
       if (e.code === 1005) {
@@ -346,7 +370,6 @@ export default {
       this.$set(this.report, "refresh", Math.random()); // 触发刷新
       this.$set(this.report, "status", 'Completed');
       this.initReportTimeInfo();
-      // window.console.log("socket closed.");
     },
     handleExport(name) {
       this.result.loading = true;
@@ -378,22 +401,19 @@ export default {
         this.shareUrl = thisHost + "/sharePerformanceReport" + data.shareUrl;
       });
     },
-    getProjectApplication(){
-      this.$get('/project_application/get/' + getCurrentProjectID()+"/PERFORMANCE_SHARE_REPORT_TIME", res => {
-        if(res.data){
+    getProjectApplication() {
+      this.$get('/project_application/get/' + getCurrentProjectID() + "/PERFORMANCE_SHARE_REPORT_TIME", res => {
+        if (res.data) {
           let quantity = res.data.typeValue.substring(0, res.data.typeValue.length - 1);
           let unit = res.data.typeValue.substring(res.data.typeValue.length - 1);
-          if(unit==='H'){
-            res.data.typeValue = quantity+this.$t('commons.date_unit.hour');
-          }else
-          if(unit==='D'){
-            res.data.typeValue = quantity+this.$t('commons.date_unit.day');
-          }else
-          if(unit==='M'){
-            res.data.typeValue = quantity+this.$t('commons.date_unit.month');
-          }else
-          if(unit==='Y'){
-            res.data.typeValue = quantity+this.$t('commons.date_unit.year');
+          if (unit === 'H') {
+            res.data.typeValue = quantity + this.$t('commons.date_unit.hour');
+          } else if (unit === 'D') {
+            res.data.typeValue = quantity + this.$t('commons.date_unit.day');
+          } else if (unit === 'M') {
+            res.data.typeValue = quantity + this.$t('commons.workspace_unit') + this.$t('commons.date_unit.month');
+          } else if (unit === 'Y') {
+            res.data.typeValue = quantity + this.$t('commons.date_unit.year');
           }
           this.application = res.data;
         }
@@ -461,10 +481,29 @@ export default {
     compareReports() {
       this.$refs.compareReports.open(this.report);
     },
+    isProjectEnvShowMore(projectEnvMap) {
+      this.showMoreProjectEnvMap = false;
+      this.projectEnvMap = {};
+      if (projectEnvMap) {
+        let keySize = 0;
+        for (let key in projectEnvMap) {
+          keySize++;
+          if (keySize > 1) {
+            this.showMoreProjectEnvMap = true;
+            return;
+          } else {
+            this.projectEnvMap = {};
+            this.$set(this.projectEnvMap, key, projectEnvMap[key]);
+          }
+        }
+      }
+    },
     getReport(reportId) {
       this.result = this.$get("/performance/report/" + reportId, res => {
         let data = res.data;
         if (data) {
+          this.allProjectEnvMap = data.projectEnvMap;
+          this.isProjectEnvShowMore(data.projectEnvMap);
           this.status = data.status;
           this.$set(this, "report", data);
           this.$set(this.test, "testResourcePoolId", data.testResourcePoolId);
@@ -507,7 +546,7 @@ export default {
     this.getReport(this.reportId);
     this.$EventBus.$on('projectChange', this.handleProjectChange);
   },
-  destroyed () {
+  destroyed() {
     this.$EventBus.$off('projectChange', this.handleProjectChange);
   },
   watch: {
@@ -522,7 +561,6 @@ export default {
           this.initReportTimeInfo();
         });
       } else {
-        // console.log("close socket.");
         this.websocket.close(); //离开路由之后断开websocket连接
       }
     },

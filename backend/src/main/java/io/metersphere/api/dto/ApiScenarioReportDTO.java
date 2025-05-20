@@ -2,6 +2,7 @@ package io.metersphere.api.dto;
 
 import lombok.Data;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 
 @Data
@@ -32,4 +33,12 @@ public class ApiScenarioReportDTO {
     private long totalAssertions = 0;
     private long passAssertions = 0;
     private long errorCodeAssertions = 0;
+
+    private String actuator;
+    private String name;
+    private String envConfig;
+
+    //<项目名称，<环境名称>>
+    private LinkedHashMap<String, List<String>> projectEnvMap;
+
 }

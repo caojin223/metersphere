@@ -10,7 +10,13 @@
           :placeholder="$t('test_track.case.input_name')"
           :label="$t('test_track.case.name')"
           prop="name">
-          <el-input :disabled="readOnly" v-model="form.name" size="small" class="ms-case-input"></el-input>
+          <el-input
+            v-model="form.name"
+            size="small"
+            class="ms-case-input"
+            maxlength="255"
+            show-word-limit
+            :disabled="readOnly"/>
         </el-form-item>
       </el-row>
 
@@ -44,6 +50,7 @@
                class="case-form">
         <custom-filed-form-row :form="customFieldForm"
                                :disabled="readOnly"
+                               :default-open="defaultOpen"
                                :issue-template="testCaseTemplate"/>
       </el-form>
 
@@ -106,6 +113,7 @@ export default {
     customFieldForm: Object,
     customFieldRules: Object,
     testCaseTemplate: Object,
+    defaultOpen: String
   },
   computed: {
     isCustomNum() {
@@ -124,6 +132,10 @@ export default {
           isValidate = false;
         }
       });
+      return isValidate;
+    },
+    validateCustomForm() {
+      let isValidate = true;
       this.$refs['customFieldForm'].validate((valid) => {
         if (!valid) {
           isValidate = false;

@@ -125,14 +125,14 @@ export default {
       });
     },
     getWorkspace(resolve) {
-      this.$get("workspace/list/", res => {
+      this.$get("workspace/list", res => {
         let data = res.data ? res.data : [];
         data.forEach(d => d.leaf = true);
         resolve(data);
       })
     },
     getWorkspaceUserGroup() {
-      this.$post("/user/group/get", {type: GROUP_WORKSPACE}, (res) => {
+      this.$post("/user/group/get", {type: GROUP_WORKSPACE, onlyQueryGlobal: true}, (res) => {
         this.workspaceUserGroups = res.data ? res.data : [];
       })
     }

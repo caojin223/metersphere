@@ -4,6 +4,7 @@ import io.metersphere.api.dto.QueryAPIReportRequest;
 import io.metersphere.api.dto.datacount.ExecutedCaseInfoResult;
 import io.metersphere.base.domain.ApiDefinitionExecResult;
 import io.metersphere.base.domain.ApiDefinitionExecResultExpand;
+import io.metersphere.base.domain.ApiDefinitionExecResultWithBLOBs;
 import io.metersphere.task.dto.TaskCenterRequest;
 import io.metersphere.track.dto.PlanReportCaseDTO;
 import org.apache.ibatis.annotations.InsertProvider;
@@ -18,20 +19,20 @@ public interface ExtApiDefinitionExecResultMapper {
 
     void deleteByResourceId(String id);
 
-    ApiDefinitionExecResult selectMaxResultByResourceId(String resourceId);
+    ApiDefinitionExecResultWithBLOBs selectMaxResultByResourceId(String resourceId);
 
-    ApiDefinitionExecResult selectMaxResultByResourceIdAndType(String resourceId, String type);
+    ApiDefinitionExecResultWithBLOBs selectMaxResultByResourceIdAndType(String resourceId, String type);
 
 
     long countByProjectIDAndCreateInThisWeek(@Param("projectId") String projectId, @Param("firstDayTimestamp") long firstDayTimestamp, @Param("lastDayTimestamp") long lastDayTimestamp);
 
     long countByTestCaseIDInProject(String projectId);
 
-    List<ExecutedCaseInfoResult> findFaliureCaseInfoByProjectIDAndExecuteTimeAndLimitNumber(@Param("projectId") String projectId, @Param("startTimestamp") long startTimestamp);
+    List<ExecutedCaseInfoResult> findFaliureCaseInTestPlanByProjectIDAndExecuteTimeAndLimitNumber(@Param("projectId") String projectId, @Param("selectFunctionCase") boolean selectFunctionCase, @Param("startTimestamp") long startTimestamp);
 
     String selectExecResult(String resourceId);
 
-    ApiDefinitionExecResult selectPlanApiMaxResultByTestIdAndType(String resourceId, String type);
+    ApiDefinitionExecResultWithBLOBs selectPlanApiMaxResultByTestIdAndType(String resourceId, String type);
 
     List<ApiDefinitionExecResult> selectStatusByIdList(@Param("ids") Collection<String> values);
 
@@ -46,5 +47,15 @@ public interface ExtApiDefinitionExecResultMapper {
 
     List<ApiDefinitionExecResult> findByProjectIds(@Param("request") TaskCenterRequest request);
 
+    List<String> selectDistinctStatusByReportId(String reportId);
 
+    String selectResourceId(String id);
+
+    List<ApiDefinitionExecResultWithBLOBs> selectRerunResult(@Param("reportId") String reportId);
+
+    List<String> selectByProjectIdAndLessThanTime(@Param("projectId") String projectId, @Param("time") long time);
+
+    List<ApiDefinitionExecResultWithBLOBs> selectByResourceIdsAndMaxCreateTime(@Param("ids") List<String> resourceIds);
+
+    void updateAllStatus();
 }

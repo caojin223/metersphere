@@ -49,6 +49,11 @@ module.exports = {
       template: "src/template/report/api/share/share-api-report.html",
       filename: "share-api-report.html",
     },
+    shareUiReport: {
+      entry: "src/template/report/ui/share/share-ui-report.js",
+      template: "src/template/report/ui/share/share-ui-report.html",
+      filename: "share-ui-report.html",
+    },
     enterpriseReport: {
       entry: "src/template/enterprise/share/share-enterprise-report.js",
       template: "src/template/enterprise/share/share-enterprise-report.html",
@@ -69,6 +74,23 @@ module.exports = {
     },
   },
   chainWebpack: config => {
+    // svg rule loader
+    config.module
+      .rule('svg')
+      .exclude.add(resolve('src/assets/module'))
+      .end()
+
+    config.module
+      .rule('icons')
+      .test(/\.svg$/)
+      .include.add(resolve('src/assets/module'))
+      .end()
+      .use('svg-sprite-loader')
+      .loader('svg-sprite-loader')
+      .options({
+        symbolId: 'icon-[name]'
+      })
+
     // 报告模板打包成一个html
     config.plugin('html-planReport')
       .tap(args => {

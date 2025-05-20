@@ -2,7 +2,7 @@
   <el-card class="table-card" v-loading="cardResult.loading">
     <template v-slot:header>
       <ms-table-header :create-permission="['PROJECT_TRACK_PLAN:READ+CREATE']" :condition.sync="condition"
-                       @search="initTableData" @create="testPlanCreate"
+                       @search="search" @create="testPlanCreate"
                        :create-tip="$t('test_track.plan.create_plan')"/>
 
     </template>
@@ -22,8 +22,9 @@
       :fields.sync="fields"
       :field-key="tableHeaderKey"
       @handlePageChange="intoPlan"
-      @refresh="initTableData"
+      @order="initTableData"
       ref="testPlanLitTable"
+      @filter="search"
       @handleRowClick="intoPlan">
 
       <span v-for="item in fields" :key="item.key">
@@ -46,6 +47,7 @@
         <ms-table-column
           prop="createUser"
           :field="item"
+          :filters="userFilter"
           :fields-width="fieldsWidth"
           :label="$t('commons.create_user')"
           min-width="200px">
@@ -172,18 +174,11 @@
           :label="$t('test_track.plan.plan_project')"
           min-width="200px">
         </ms-table-column>
-        <ms-table-column
-          prop="tags"
+
+        <ms-tags-column
           :field="item"
-          :fields-width="fieldsWidth"
-          sortable
-          :label="$t('api_test.automation.tag')"
-          min-width="200px">
-          <template v-slot:default="scope">
-            <ms-tag v-for="(itemName,index)  in scope.row.tags" :key="index" type="success" effect="plain"
-                    :content="itemName" style="margin-left: 0px; margin-right: 2px"></ms-tag>
-          </template>
-        </ms-table-column>
+          :fields-width="fieldsWidth"/>
+
         <ms-table-column
           prop="testPlanTestCaseCount"
           :field="item"
@@ -203,6 +198,13 @@
           :field="item"
           :fields-width="fieldsWidth"
           :label="$t('test_track.plan.test_plan_api_scenario_count')"
+          min-width="200px">
+        </ms-table-column>
+        <ms-table-column
+          prop="testPlanUiScenarioCount"
+          :field="item"
+          :fields-width="fieldsWidth"
+          :label="$t('test_track.plan.test_plan_ui_scenario_count')"
           min-width="200px">
         </ms-table-column>
         <ms-table-column
@@ -265,11 +267,14 @@
         </ms-table-column>
       </span>
       <template v-slot:opt-before="scope">
-        <ms-table-operator-button :tip="$t('api_test.run')" icon="el-icon-video-play"  :class="[scope.row.status==='Archived'?'disable-run':'run-button']"  :disabled="scope.row.status === 'Archived'"
+        <ms-table-operator-button :tip="$t('api_test.run')" icon="el-icon-video-play"
+                                  :class="[scope.row.status==='Archived'?'disable-run':'run-button']"
+                                  :disabled="scope.row.status === 'Archived'"
                                   @exec="handleRun(scope.row)" v-permission="['PROJECT_TRACK_PLAN:READ+RUN']"
-                                  />
+        />
         <ms-table-operator-button :tip="$t('commons.edit')" icon="el-icon-edit"
-                                  @exec="handleEdit(scope.row)" v-permission="['PROJECT_TRACK_PLAN:READ+EDIT']" :disabled="scope.row.status === 'Archived'"
+                                  @exec="handleEdit(scope.row)" v-permission="['PROJECT_TRACK_PLAN:READ+EDIT']"
+                                  :disabled="scope.row.status === 'Archived'"
                                   style="margin-right: 10px"/>
       </template>
       <template v-slot:opt-behind="scope">
@@ -289,10 +294,11 @@
             <el-icon class="el-icon-more"></el-icon>
           </el-link>
           <el-dropdown-menu slot="dropdown">
-            <el-dropdown-item command="delete" v-permission="['PROJECT_TRACK_PLAN:READ+DELETE']" >
+            <el-dropdown-item command="delete" v-permission="['PROJECT_TRACK_PLAN:READ+DELETE']">
               {{ $t('commons.delete') }}
             </el-dropdown-item>
-            <el-dropdown-item command="schedule_task" v-permission="['PROJECT_TRACK_PLAN:READ+SCHEDULE']" :disabled="scope.row.status === 'Archived'" >
+            <el-dropdown-item command="schedule_task" v-permission="['PROJECT_TRACK_PLAN:READ+SCHEDULE']"
+                              :disabled="scope.row.status === 'Archived'">
               {{ $t('commons.trigger_mode.schedule') }}
             </el-dropdown-item>
           </el-dropdown-menu>
@@ -307,10 +313,10 @@
       {{ $t('test_track.plan.plan_delete_tip') }}
     </ms-delete-confirm>
     <ms-test-plan-schedule-maintain ref="scheduleMaintain" @refreshTable="initTableData" :plan-case-ids="[]"
-                                    :type="'plan'"/>
+                                    :type="'plan'" :have-u-i-case="haveUICase"/>
     <ms-test-plan-schedule-batch-switch ref="scheduleBatchSwitch" @refresh="refresh"/>
     <plan-run-mode-with-env @handleRunBatch="_handleRun" ref="runMode" :plan-case-ids="[]" :type="'plan'"
-                            :plan-id="currentPlanId" :show-save="true"/>
+                            :plan-id="currentPlanId" :show-save="true" :have-u-i-case="haveUICase"/>
     <test-plan-report-review ref="testCaseReportView"/>
     <ms-task-center ref="taskCenter" :show-menu="false"/>
     <el-dialog
@@ -324,7 +330,8 @@
           <el-radio label="serial">{{ $t("run_mode.serial") }}</el-radio>
           <el-radio label="parallel">{{ $t("run_mode.parallel") }}</el-radio>
         </el-radio-group>
-      </div><br/>
+      </div>
+      <br/>
       <span>注：运行模式仅对测试计划间有效</span>
       <template v-slot:footer>
         <ms-dialog-footer @cancel="closeExecute" @confirm="handleRunBatch"/>
@@ -346,7 +353,9 @@ import {TEST_PLAN_CONFIGS} from "../../../common/components/search/search-compon
 import {
   _filter,
   _sort,
-  deepClone, getCustomTableHeader, getCustomTableWidth,
+  deepClone,
+  getCustomTableHeader,
+  getCustomTableWidth,
   getLastTableSortField,
   saveLastTableSortField
 } from "@/common/js/tableUtils";
@@ -359,7 +368,8 @@ import {
   getCurrentProjectID,
   getCurrentUser,
   getCurrentUserId,
-  hasPermission
+  hasPermission,
+  operationConfirm
 } from "@/common/js/utils";
 import PlanRunModeWithEnv from "@/business/components/track/plan/common/PlanRunModeWithEnv";
 import TestPlanReportReview from "@/business/components/track/report/components/TestPlanReportReview";
@@ -368,11 +378,14 @@ import {getPlanStageOption} from "@/network/test-plan";
 import MsTableColumn from "@/business/components/common/components/table/MsTableColumn";
 import MsTable from "@/business/components/common/components/table/MsTable";
 import MsTestPlanScheduleBatchSwitch from "@/business/components/track/plan/components/ScheduleBatchSwitch";
+import MsTagsColumn from "@/business/components/common/components/table/MsTagsColumn";
+import {getProjectMemberUserFilter} from "@/network/user";
 
 
 export default {
   name: "TestPlanList",
   components: {
+    MsTagsColumn,
     TestPlanReportReview,
     MsTag,
     HeaderLabelOperate,
@@ -396,7 +409,7 @@ export default {
       result: {},
       cardResult: {},
       enableDeleteTip: false,
-      showExecute:false,
+      showExecute: false,
       queryPath: "/test/plan/list",
       deletePath: "/test/plan/delete",
       condition: {
@@ -410,7 +423,7 @@ export default {
       tableData: [],
       fields: getCustomTableHeader('TEST_PLAN_LIST'),
       fieldsWidth: getCustomTableWidth('TEST_PLAN_LIST'),
-      screenHeight: 'calc(100vh - 200px)',
+      screenHeight: 'calc(100vh - 160px)',
       statusFilters: [
         {text: this.$t('test_track.plan.plan_status_prepare'), value: 'Prepare'},
         {text: this.$t('test_track.plan.plan_status_running'), value: 'Underway'},
@@ -432,6 +445,7 @@ export default {
       stageOption: [],
       operators: [],
       batchButtons: [],
+      userFilter: [],
       publicButtons: [
         {
           name: this.$t('test_track.plan.test_plan_batch_switch'),
@@ -449,16 +463,17 @@ export default {
           tip: this.$t('commons.copy'),
           icon: "el-icon-copy-document",
           exec: this.handleCopy,
-          permission: ['PROJECT_TRACK_PLAN:READ+COPY']
+          permissions: ['PROJECT_TRACK_PLAN:READ+COPY']
         },
         {
           tip: this.$t('test_track.plan_view.view_report'),
           icon: "el-icon-s-data",
           exec: this.openReport,
-          permission: ['PROJECT_TRACK_PLAN:READ+EDIT']
+          permissions: ['PROJECT_TRACK_PLAN:READ+EDIT']
         },
       ],
-      batchExecuteType:"serial"
+      batchExecuteType: "serial",
+      haveUICase: false
     };
   },
   watch: {
@@ -480,6 +495,7 @@ export default {
     this.condition.orders = getLastTableSortField(this.tableHeaderKey);
     getPlanStageOption((data) => {
       this.stageOption = data;
+      this.setAdvSearchStageOption();
       if (this.stageOption.length > 0) {
         this.stageFilters = this.stageOption;
         this.stageFilters.forEach((stage) => {
@@ -489,9 +505,18 @@ export default {
         })
       }
     });
+    getProjectMemberUserFilter((data) => {
+      this.userFilter = data;
+    });
     this.initTableData();
   },
   methods: {
+    setAdvSearchStageOption() {
+      let comp = this.condition.components.find(c => c.key === 'stage');
+      if (comp) {
+        comp.options = this.stageOption;
+      }
+    },
     currentUser: () => {
       return getCurrentUser();
     },
@@ -501,6 +526,11 @@ export default {
     customHeader() {
       const list = deepClone(this.tableLabel);
       this.$refs.headerCustom.open(list);
+    },
+    search() {
+      // 添加搜索条件时，当前页设置成第一页
+      this.currentPage = 1;
+      this.initTableData();
     },
     initTableData() {
       if (this.planId) {
@@ -519,7 +549,7 @@ export default {
         data.listObject.forEach(item => {
           if (item.tags) {
             item.tags = JSON.parse(item.tags);
-            if(item.tags.length===0){
+            if (item.tags.length === 0) {
               item.tags = null;
             }
           }
@@ -565,7 +595,7 @@ export default {
             this.$set(item, "showFollow", showFollow);
           })
         });
-        this.tableData =data.listObject;
+        this.tableData = data.listObject;
       });
     },
     copyData(status) {
@@ -607,10 +637,10 @@ export default {
         this.$refs.scheduleBatchSwitch.open(param, size, this.condition.selectAll, this.condition);
       }
     },
-    handleBatchExecute(){
+    handleBatchExecute() {
       this.showExecute = true;
     },
-    handleRunBatch(){
+    handleRunBatch() {
       this.showExecute = false;
       let mode = this.batchExecuteType;
       let param = {mode};
@@ -618,8 +648,7 @@ export default {
       if (this.condition.selectAll) {
         param.isAll = true;
         param.queryTestPlanRequest = this.condition
-      }
-      else {
+      } else {
         this.$refs.testPlanLitTable.selectRows.forEach((item) => {
           ids.push(item.id)
         });
@@ -636,7 +665,7 @@ export default {
         // this.$error(error.message);
       });
     },
-    closeExecute(){
+    closeExecute() {
       this.showExecute = false;
     },
     statusChange(data) {
@@ -675,11 +704,8 @@ export default {
       if (row.scheduleOpen) {
         message = this.$t('api_test.home_page.running_task_list.confirm.open_title');
       }
-      this.$confirm(message, this.$t('commons.prompt'), {
-        confirmButtonText: this.$t('commons.confirm'),
-        cancelButtonText: this.$t('commons.cancel'),
-        type: 'warning',
-      }).then(() => {
+
+      operationConfirm(message, () => {
         this.result = this.$post('/test/plan/update/scheduleByEnable', param, response => {
           if (row.scheduleOpen) {
             row.scheduleStatus = 'OPEN'
@@ -690,8 +716,8 @@ export default {
           }
           this.$success(this.$t('commons.save_success'));
         });
-      }).catch(() => {
-        row.scheduleOpen = param.enable = !param.enable;
+      }, () => {
+        row.scheduleOpen = !row.scheduleOpen;
       });
     },
     handleDelete(testPlan) {
@@ -726,8 +752,11 @@ export default {
     openReport(plan) {
       this.$refs.testCaseReportView.open(plan);
     },
-    scheduleTask(row) {
+    async scheduleTask(row) {
       row.redirectFrom = "testPlan";
+      this.currentPlanId = row.id;
+      let r = await this.haveUIScenario();
+      this.haveUICase = r.data.data;
       this.$refs.scheduleMaintain.open(row);
     },
     saveSortField(key, orders) {
@@ -751,10 +780,12 @@ export default {
     },
     handleRun(row) {
       this.currentPlanId = row.id;
-      this.$get("/test/plan/have/exec/case/" + row.id, res => {
+      this.$get("/test/plan/have/exec/case/" + row.id, async res => {
         const haveExecCase = res.data;
-        if (haveExecCase) {
-          this.$refs.runMode.open('API');
+        let r = await this.haveUIScenario();
+        this.haveUICase = r.data.data;
+        if (haveExecCase || this.haveUICase) {
+          this.$refs.runMode.open('API', row.runModeConfig);
         } else {
           this.$router.push('/track/plan/view/' + row.id);
         }
@@ -769,7 +800,12 @@ export default {
         resourcePoolId,
         envMap,
         environmentType,
-        environmentGroupId
+        environmentGroupId,
+        browser,
+        headlessEnabled,
+        retryEnable,
+        retryNum,
+        triggerMode
       } = config;
       let param = {mode, reportType, onSampleError, runWithinResourcePool, resourcePoolId, envMap};
       param.testPlanId = this.currentPlanId;
@@ -779,17 +815,21 @@ export default {
       param.environmentType = environmentType;
       param.environmentGroupId = environmentGroupId;
       param.requestOriginator = "TEST_PLAN";
-      if(config.isRun === true){
+      param.retryEnable = config.retryEnable;
+      param.retryNum = config.retryNum;
+      param.browser = config.browser;
+      param.headlessEnabled = config.headlessEnabled;
+      if (config.isRun === true) {
         this.$refs.taskCenter.open();
-        this.result = this.$post('test/plan/run/', param, () => {
+        this.result = this.$post('test/plan/run/save', param, () => {
           this.$success(this.$t('commons.run_success'));
         });
-      }else{
+      } else {
         this.result = this.$post('test/plan/edit/runModeConfig', param, () => {
+          this.initTableData();
           this.$success(this.$t('commons.save_success'));
         });
       }
-
     },
     saveFollow(row) {
       if (row.showFollow) {
@@ -817,6 +857,9 @@ export default {
         return
       }
 
+    },
+    haveUIScenario() {
+      return this.$get("/test/plan/have/ui/case/" + this.currentPlanId);
     }
   }
 };

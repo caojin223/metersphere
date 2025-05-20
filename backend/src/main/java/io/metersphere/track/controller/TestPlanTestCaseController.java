@@ -13,6 +13,7 @@ import io.metersphere.track.dto.TestPlanCaseDTO;
 import io.metersphere.track.request.testcase.TestPlanCaseBatchRequest;
 import io.metersphere.track.request.testplancase.QueryTestPlanCaseRequest;
 import io.metersphere.track.request.testplancase.TestPlanFuncCaseBatchRequest;
+import io.metersphere.track.request.testplancase.TestPlanFuncCaseEditRequest;
 import io.metersphere.track.service.TestPlanTestCaseService;
 import org.springframework.web.bind.annotation.*;
 
@@ -29,8 +30,10 @@ public class TestPlanTestCaseController {
 
     @PostMapping("/list/{goPage}/{pageSize}")
     public Pager<List<TestPlanCaseDTO>> getTestPlanCases(@PathVariable int goPage, @PathVariable int pageSize, @RequestBody QueryTestPlanCaseRequest request) {
+        QueryTestPlanCaseRequest paramRequest = testPlanTestCaseService.setCustomNumOrderParam(request);
         Page<Object> page = PageHelper.startPage(goPage, pageSize, true);
-        return PageUtils.setPageInfo(page, testPlanTestCaseService.list(request));
+        List<TestPlanCaseDTO> list = testPlanTestCaseService.list(paramRequest);
+        return PageUtils.setPageInfo(page, list);
     }
 
     /*jenkins测试计划下全部用例*/
@@ -45,6 +48,12 @@ public class TestPlanTestCaseController {
     @PostMapping("/list/minder")
     public List<TestPlanCaseDTO> listForMinder(@RequestBody QueryTestPlanCaseRequest request) {
         return testPlanTestCaseService.listForMinder(request);
+    }
+
+    @PostMapping("/list/minder/{goPage}/{pageSize}")
+    public Pager<List<TestPlanCaseDTO>> listForMinder(@PathVariable int goPage, @PathVariable int pageSize, @RequestBody QueryTestPlanCaseRequest request) {
+        Page<Object> page = PageHelper.startPage(goPage, pageSize, true);
+        return PageUtils.setPageInfo(page, testPlanTestCaseService.listForMinder(request));
     }
 
     @GetMapping("/list/node/{planId}/{nodePaths}")
@@ -98,7 +107,7 @@ public class TestPlanTestCaseController {
 
     @PostMapping("/edit")
     @MsAuditLog(module = OperLogModule.TRACK_TEST_CASE_REVIEW, type = OperLogConstants.UPDATE, content = "#msClass.getLogDetails(#testPlanTestCase.id)", msClass = TestPlanTestCaseService.class)
-    public void editTestCase(@RequestBody TestPlanTestCaseWithBLOBs testPlanTestCase) {
+    public void editTestCase(@RequestBody TestPlanFuncCaseEditRequest testPlanTestCase) {
         testPlanTestCaseService.editTestCase(testPlanTestCase);
     }
 
@@ -126,9 +135,9 @@ public class TestPlanTestCaseController {
         return testPlanTestCaseService.deleteTestCase(id);
     }
 
-    @GetMapping("/list/failure/{planId}")
-    public List<TestPlanCaseDTO> getFailureCases(@PathVariable String planId) {
-        return testPlanTestCaseService.getFailureCases(planId);
+    @PostMapping("/list/all/{planId}")
+    public List<TestPlanCaseDTO> getFailureCases(@PathVariable String planId, @RequestBody(required = false) List<String> statusList) {
+        return testPlanTestCaseService.getAllCasesByStatusList(planId, statusList);
     }
 
     @GetMapping("/list/all/{planId}")

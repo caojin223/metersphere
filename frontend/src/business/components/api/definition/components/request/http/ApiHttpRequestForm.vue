@@ -2,10 +2,11 @@
   <div>
     <!-- HTTP 请求参数 -->
     <div style="border:1px #DCDFE6 solid; height: 100%;border-radius: 4px ;width: 100%" v-loading="isReloadData">
-      <el-tabs v-model="activeName" class="request-tabs" @tab-click="tabClick">
+      <el-tabs v-model="activeName" class="request-tabs ms-tabs__nav-scroll" @tab-click="tabClick">
         <!-- 请求头-->
         <el-tab-pane :label="$t('api_test.request.headers')" name="headers">
-          <el-tooltip class="item-tabs" effect="dark" :content="$t('api_test.request.headers')" placement="top-start" slot="label">
+          <el-tooltip class="item-tabs" effect="dark" :content="$t('api_test.request.headers')" placement="top-start"
+                      slot="label">
               <span>{{ $t('api_test.request.headers') }}
                 <div class="el-step__icon is-text ms-api-col ms-header" v-if="headers.length>1">
                   <div class="el-step__icon-inner">{{ headers.length - 1 }}</div>
@@ -13,7 +14,9 @@
               </span>
           </el-tooltip>
           <el-row>
-            <el-link class="ms-el-link" @click="batchAdd" style="color: #783887"> {{ $t("commons.batch_add") }}</el-link>
+            <el-link class="ms-el-link" @click="batchAdd" style="color: var(--primary_color);">
+              {{ $t("commons.batch_add") }}
+            </el-link>
           </el-row>
           <ms-api-key-value
             @editScenarioAdvance="editScenarioAdvance"
@@ -28,7 +31,8 @@
 
         <!--query 参数-->
         <el-tab-pane :label="$t('api_test.definition.request.query_param')" name="parameters">
-          <el-tooltip class="item-tabs" effect="dark" :content="$t('api_test.definition.request.query_info')" placement="top-start" slot="label">
+          <el-tooltip class="item-tabs" effect="dark" :content="$t('api_test.definition.request.query_info')"
+                      placement="top-start" slot="label">
               <span>{{ $t('api_test.definition.request.query_param') }}
                 <div class="el-step__icon is-text ms-api-col ms-header" v-if="request.arguments.length>1">
                   <div class="el-step__icon-inner">{{ request.arguments.length - 1 }}</div>
@@ -36,7 +40,9 @@
               </span>
           </el-tooltip>
           <el-row>
-            <el-link class="ms-el-link" @click="batchAdd" style="color: #783887"> {{ $t("commons.batch_add") }}</el-link>
+            <el-link class="ms-el-link" @click="batchAdd" style="color: var(--primary_color);">
+              {{ $t("commons.batch_add") }}
+            </el-link>
           </el-row>
           <ms-api-variable
             @editScenarioAdvance="editScenarioAdvance"
@@ -51,7 +57,8 @@
 
         <!--REST 参数-->
         <el-tab-pane :label="$t('api_test.definition.request.rest_param')" name="rest">
-          <el-tooltip class="item-tabs" effect="dark" :content="$t('api_test.definition.request.rest_info')" placement="top-start" slot="label">
+          <el-tooltip class="item-tabs" effect="dark" :content="$t('api_test.definition.request.rest_info')"
+                      placement="top-start" slot="label">
               <span>
                 {{ $t('api_test.definition.request.rest_param') }}
                 <div class="el-step__icon is-text ms-api-col ms-header" v-if="request.rest.length>1">
@@ -60,7 +67,9 @@
               </span>
           </el-tooltip>
           <el-row>
-            <el-link class="ms-el-link" @click="batchAdd" style="color: #783887"> {{ $t("commons.batch_add") }}</el-link>
+            <el-link class="ms-el-link" @click="batchAdd" style="color: var(--primary_color);">
+              {{ $t("commons.batch_add") }}
+            </el-link>
           </el-row>
           <ms-api-variable
             @editScenarioAdvance="editScenarioAdvance"
@@ -76,20 +85,22 @@
         <!--请求体-->
         <el-tab-pane v-if="isBodyShow" :label="$t('api_test.request.body')" name="body">
           <ms-api-body
-            @editScenarioAdvance="editScenarioAdvance"
-            :scenario-definition="scenarioDefinition"
-            @headersChange="reloadBody"
-            :is-read-only="isReadOnly"
-            :isShowEnable="isShowEnable"
-            :headers="headers"
-            :body="request.body"
-            v-if="activeName === 'body'"
+              @editScenarioAdvance="editScenarioAdvance"
+              :scenario-definition="scenarioDefinition"
+              @headersChange="reloadBody"
+              :is-read-only="isReadOnly"
+              :isShowEnable="isShowEnable"
+              :headers="headers"
+              :body="request.body"
+              :id="request.id"
+              v-if="activeName === 'body'"
           />
         </el-tab-pane>
 
         <!-- 认证配置 -->
         <el-tab-pane :label="$t('api_test.definition.request.auth_config')" name="authConfig">
-          <el-tooltip class="item-tabs" effect="dark" :content="$t('api_test.definition.request.auth_config_info')" placement="top-start" slot="label">
+          <el-tooltip class="item-tabs" effect="dark" :content="$t('api_test.definition.request.auth_config_info')"
+                      placement="top-start" slot="label">
             <span>{{ $t('api_test.definition.request.auth_config') }}</span>
           </el-tooltip>
 
@@ -177,13 +188,12 @@ import MsApiVariable from "../../ApiVariable";
 import MsApiAssertions from "../../assertion/ApiAssertions";
 import MsApiExtract from "../../extract/ApiExtract";
 import {Body, KeyValue} from "../../../model/ApiTestModel";
-import {hasLicense, getUUID} from "@/common/js/utils";
+import {getUUID, hasLicense, hasPermission} from "@/common/js/utils";
 import BatchAddParameter from "../../basis/BatchAddParameter";
 import MsApiAdvancedConfig from "./ApiAdvancedConfig";
 import MsJsr233Processor from "../../../../automation/scenario/component/Jsr233Processor";
-import {hasPermission} from '@/common/js/utils';
 import Convert from "@/business/components/common/json-schema/convert/convert";
-import {stepCompute, hisDataProcessing} from "@/business/components/api/definition/api-definition";
+import {hisDataProcessing, stepCompute} from "@/business/components/api/definition/api-definition";
 
 export default {
   name: "MsApiHttpRequestForm",
@@ -280,19 +290,7 @@ export default {
   },
   watch: {
     'request.changeId'() {
-      if (this.request.headers && this.request.headers.length > 1) {
-        this.activeName = 'headers';
-      }
-      if (this.request.rest && this.request.rest.length > 1) {
-        this.activeName = 'rest';
-      }
-      if (this.request.arguments && this.request.arguments.length > 1) {
-        this.activeName = 'parameters';
-      }
-      if (this.request.body) {
-        this.request.body.typeChange = this.request.changeId;
-      }
-      this.reload();
+      this.changeActiveName();
     },
     'request.hashTree': {
       handler(v) {
@@ -310,6 +308,21 @@ export default {
           this.filter(this.activeName);
         });
       });
+    },
+    changeActiveName() {
+      if (this.request.headers && this.request.headers.length > 1) {
+        this.activeName = 'headers';
+      }
+      if (this.request.rest && this.request.rest.length > 1) {
+        this.activeName = 'rest';
+      }
+      if (this.request.arguments && this.request.arguments.length > 1) {
+        this.activeName = 'parameters';
+      }
+      if (this.request.body) {
+        this.request.body.typeChange = this.request.changeId;
+      }
+      this.reload();
     },
     filter(activeName) {
       if (activeName === 'preOperate' && this.$refs.preStep) {
@@ -375,10 +388,14 @@ export default {
       if (!this.request.arguments) {
         this.request.arguments = [];
       }
+      if (this.headers && this.headers.length === 0) {
+        this.headers.push(new KeyValue({enable: true, name: '', value: ''}));
+      }
       if (this.request.hashTree) {
         this.initStepSize(this.request.hashTree);
         this.historicalDataProcessing(this.request.hashTree);
       }
+      this.changeActiveName();
     },
     historicalDataProcessing(array) {
       hisDataProcessing(array, this.request);
@@ -410,13 +427,13 @@ export default {
         if (isAdd) {
           switch (this.activeName) {
             case "parameters":
-              this.request.arguments.unshift(obj);
+              this.request.arguments.splice(this.request.arguments.indexOf(h => !h.name), 0, obj);
               break;
             case "rest":
-              this.request.rest.unshift(obj);
+              this.request.rest.splice(this.request.rest.indexOf(h => !h.name), 0, obj);
               break;
             case "headers":
-              this.request.headers.unshift(obj);
+              this.request.headers.splice(this.request.headers.indexOf(h => !h.name), 0, obj);
               break;
             default:
               break;
@@ -429,20 +446,22 @@ export default {
         let params = data.split("\n");
         let keyValues = [];
         params.forEach(item => {
-          let line = item.split(/：|:/);
-          let values = item.split(line[0] + ":");
-          let required = false;
-          keyValues.unshift(new KeyValue({
-            name: line[0],
-            required: required,
-            value: values[1],
-            type: "text",
-            valid: false,
-            file: false,
-            encode: true,
-            enable: true,
-            contentType: "text/plain"
-          }));
+          if (item) {
+            let line = item.split(/：|:/);
+            let values = item.split(line[0] + ":");
+            let required = false;
+            keyValues.push(new KeyValue({
+              name: line[0],
+              required: required,
+              value: values[1],
+              type: "text",
+              valid: false,
+              file: false,
+              encode: true,
+              enable: true,
+              contentType: "text/plain"
+            }));
+          }
         })
 
         keyValues.forEach(item => {
@@ -552,4 +571,13 @@ export default {
   float: right;
   margin-right: 45px;
 }
+
+.ms-tabs__nav-scroll >>> .el-tabs__nav-scroll {
+  width: 100%;
+}
+
+/deep/ .el-step__icon-inner {
+  border-top-color: var(--primary_color);
+}
+
 </style>

@@ -4,6 +4,7 @@ import com.github.pagehelper.Page;
 import com.github.pagehelper.PageHelper;
 import io.metersphere.base.domain.Issues;
 import io.metersphere.base.domain.IssuesDao;
+import io.metersphere.base.domain.IssuesStatusCountDao;
 import io.metersphere.base.domain.IssuesWithBLOBs;
 import io.metersphere.commons.constants.NoticeConstants;
 import io.metersphere.commons.constants.OperLogConstants;
@@ -15,16 +16,20 @@ import io.metersphere.dto.IssueTemplateDao;
 import io.metersphere.log.annotation.MsAuditLog;
 import io.metersphere.notice.annotation.SendNotice;
 import io.metersphere.track.dto.DemandDTO;
+import io.metersphere.track.dto.PlatformStatusDTO;
 import io.metersphere.track.issue.domain.PlatformUser;
 import io.metersphere.track.issue.domain.jira.JiraIssueType;
 import io.metersphere.track.issue.domain.zentao.ZentaoBuild;
 import io.metersphere.track.request.issues.JiraIssueTypeRequest;
+import io.metersphere.track.request.issues.PlatformIssueTypeRequest;
 import io.metersphere.track.request.testcase.AuthUserIssueRequest;
+import io.metersphere.track.request.testcase.IssuesCountRequest;
 import io.metersphere.track.request.testcase.IssuesRequest;
 import io.metersphere.track.request.testcase.IssuesUpdateRequest;
 import io.metersphere.track.service.IssuesService;
 import org.apache.shiro.authz.annotation.RequiresPermissions;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.Resource;
 import java.util.List;
@@ -57,22 +62,20 @@ public class IssuesController {
         return PageUtils.setPageInfo(page, issuesService.relateList(request));
     }
 
-    @PostMapping("/add")
+    @PostMapping(value = "/add", consumes = {"multipart/form-data"})
     @RequiresPermissions(PermissionConstants.PROJECT_TRACK_ISSUE_READ_CREATE)
     @MsAuditLog(module = OperLogModule.TRACK_BUG, type = OperLogConstants.CREATE, content = "#msClass.getLogDetails(#issuesRequest)", msClass = IssuesService.class)
-    @SendNotice(taskType = NoticeConstants.TaskType.DEFECT_TASK, target = "#issuesRequest",
-            event = NoticeConstants.Event.CREATE, subject = "缺陷通知")
-    public IssuesWithBLOBs addIssues(@RequestBody IssuesUpdateRequest issuesRequest) {
-        return issuesService.addIssues(issuesRequest);
+    @SendNotice(taskType = NoticeConstants.TaskType.DEFECT_TASK, event = NoticeConstants.Event.CREATE, subject = "缺陷通知")
+    public IssuesWithBLOBs addIssues(@RequestPart(value = "request") IssuesUpdateRequest issuesRequest, @RequestPart(value = "file", required = false) List<MultipartFile> files) {
+        return issuesService.addIssues(issuesRequest, files);
     }
 
-    @PostMapping("/update")
+    @PostMapping(value = "/update")
     @RequiresPermissions(PermissionConstants.PROJECT_TRACK_ISSUE_READ_EDIT)
     @MsAuditLog(module = OperLogModule.TRACK_BUG, type = OperLogConstants.UPDATE, beforeEvent = "#msClass.getLogDetails(#issuesRequest.id)", content = "#msClass.getLogDetails(#issuesRequest.id)", msClass = IssuesService.class)
-    @SendNotice(taskType = NoticeConstants.TaskType.DEFECT_TASK, target = "#issuesRequest",
-            event = NoticeConstants.Event.UPDATE, subject = "缺陷通知")
-    public void updateIssues(@RequestBody IssuesUpdateRequest issuesRequest) {
-        issuesService.updateIssues(issuesRequest);
+    @SendNotice(taskType = NoticeConstants.TaskType.DEFECT_TASK, event = NoticeConstants.Event.UPDATE, subject = "缺陷通知")
+    public IssuesWithBLOBs updateIssues(@RequestPart(value = "request") IssuesUpdateRequest issuesRequest) {
+        return issuesService.updateIssues(issuesRequest);
     }
 
     @GetMapping("/get/case/{refType}/{id}")
@@ -136,8 +139,13 @@ public class IssuesController {
     }
 
     @GetMapping("/sync/{projectId}")
-    public void getPlatformIssue(@PathVariable String projectId) {
-        issuesService.syncThirdPartyIssues(projectId);
+    public boolean getPlatformIssue(@PathVariable String projectId) {
+        return issuesService.syncThirdPartyIssues(projectId);
+    }
+
+    @GetMapping("/sync/check/{projectId}")
+    public boolean checkSync(@PathVariable String projectId) {
+        return issuesService.checkSync(projectId);
     }
 
     @PostMapping("/change/status")
@@ -146,7 +154,7 @@ public class IssuesController {
     }
 
     @PostMapping("/status/count")
-    public List<IssuesDao> getCountByStatus(@RequestBody IssuesRequest request) {
+    public List<IssuesStatusCountDao> getCountByStatus(@RequestBody IssuesCountRequest request) {
         return issuesService.getCountByStatus(request);
     }
 
@@ -173,5 +181,10 @@ public class IssuesController {
     @GetMapping("/demand/list/{projectId}")
     public List<DemandDTO> getDemandList(@PathVariable String projectId) {
         return issuesService.getDemandList(projectId);
+    }
+
+    @PostMapping("/platform/transitions")
+    public List<PlatformStatusDTO> getPlatformTransitions(@RequestBody PlatformIssueTypeRequest request) {
+        return issuesService.getPlatformTransitions(request);
     }
 }

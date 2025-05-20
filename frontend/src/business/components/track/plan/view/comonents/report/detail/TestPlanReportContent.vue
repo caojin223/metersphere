@@ -5,17 +5,25 @@
         <test-plan-report-buttons :is-db="isDb" :plan-id="planId" :is-share="isShare" :report="report"
                                   v-if="!isTemplate && !isShare"/>
         <test-plan-overview-report v-if="overviewEnable" :report="report"/>
-        <test-plan-summary-report v-if="summaryEnable" :is-db="isDb" :is-template="isTemplate" :is-share="isShare" :report="report" :plan-id="planId"/>
-        <test-plan-functional-report v-if="functionalEnable" :is-db="isDb" :share-id="shareId" :is-share="isShare" :is-template="isTemplate" :plan-id="planId" :report="report"/>
-        <test-plan-api-report v-if="apiEnable" :is-db="isDb" :share-id="shareId" :is-share="isShare" :is-template="isTemplate" :report="report" :plan-id="planId"/>
-        <test-plan-load-report v-if="loadEnable" :is-db="isDb" :share-id="shareId" :is-share="isShare" :is-template="isTemplate" :report="report" :plan-id="planId"/>
+        <test-plan-summary-report v-if="summaryEnable" :is-db="isDb" :is-template="isTemplate" :is-share="isShare"
+                                  :report="report" :plan-id="planId"/>
+        <test-plan-functional-report v-if="functionalEnable" :is-db="isDb" :share-id="shareId" :is-share="isShare"
+                                     :is-template="isTemplate" :plan-id="planId" :report="report"/>
+        <test-plan-api-report v-if="apiEnable" :is-db="isDb" :share-id="shareId" :is-share="isShare"
+                              :is-template="isTemplate" :report="report" :plan-id="planId"/>
+        <test-plan-ui-report v-if="uiEnable" :is-db="isDb" :share-id="shareId" :is-share="isShare"
+                             :is-template="isTemplate" :report="report" :plan-id="planId"/>
+        <test-plan-load-report v-if="loadEnable" :is-db="isDb" :share-id="shareId" :is-share="isShare"
+                               :is-template="isTemplate" :report="report" :plan-id="planId"/>
       </el-card>
     </ms-main-container>
     <test-plan-report-navigation-bar
       :api-enable="apiEnable"
+      :need-move-bar="needMoveBar"
       :summary-enable="summaryEnable"
       :functional-enable="functionalEnable"
       :load-enable="loadEnable"
+      :ui-enable="uiEnable"
       :overview-enable="overviewEnable"
       :is-template="isTemplate"/>
   </ms-container>
@@ -25,13 +33,13 @@
 import TestPlanFunctionalReport
   from "@/business/components/track/plan/view/comonents/report/detail/TestPlanFunctionalReport";
 import {
-  getExportReport,
   getShareTestPlanReport,
   getShareTestPlanReportContent,
   getTestPlanReport,
   getTestPlanReportContent
 } from "@/network/test-plan";
 import TestPlanApiReport from "@/business/components/track/plan/view/comonents/report/detail/TestPlanApiReport";
+import TestPlanUiReport from "@/business/components/track/plan/view/comonents/report/detail/TestPlanUiReport";
 import TestPlanLoadReport from "@/business/components/track/plan/view/comonents/report/detail/TestPlanLoadReport";
 import TestPlanReportContainer
   from "@/business/components/track/plan/view/comonents/report/detail/TestPlanReportContainer";
@@ -43,6 +51,7 @@ import TestPlanReportNavigationBar
   from "@/business/components/track/plan/view/comonents/report/detail/TestPlanReportNavigationBar";
 import MsContainer from "@/business/components/common/components/MsContainer";
 import MsMainContainer from "@/business/components/common/components/MsMainContainer";
+
 export default {
   name: "TestPlanReportContent",
   components: {
@@ -56,14 +65,16 @@ export default {
     TestPlanLoadReport,
     TestPlanApiReport,
     TestPlanFunctionalReport,
+    TestPlanUiReport,
   },
   props: {
-    planId:String,
+    planId: String,
     isShare: Boolean,
     isTemplate: Boolean,
     isDb: Boolean,
     shareId: String,
-    reportId: String
+    reportId: String,
+    needMoveBar: Boolean
   },
   data() {
     return {
@@ -83,7 +94,7 @@ export default {
       if (this.planReportTemplate) {
         this.init();
       }
-    }
+    },
   },
   created() {
     this.getReport();
@@ -102,20 +113,26 @@ export default {
     functionalEnable() {
       let disable = this.report.config && this.report.config.functional.enable === false;
       return !disable && this.report.functionResult
-        && this.report.functionResult.caseData && this.report.functionResult.caseData.length > 0 ;
+        && this.report.functionResult.caseData && this.report.functionResult.caseData.length > 0;
     },
     apiEnable() {
       let disable = this.report.config && this.report.config.api.enable === false;
-      return !disable && this.report.apiResult &&
+      return !disable && ((this.report.apiResult &&
         (
-          (this.report.apiResult.apiCaseData && this.report.apiResult.apiCaseData.length  > 0)
+          (this.report.apiResult.apiCaseData && this.report.apiResult.apiCaseData.length > 0)
           || (this.report.apiResult.apiScenarioData && this.report.apiResult.apiScenarioData.length > 0)
-        );
+        )) || (this.report.apiAllCases && this.report.apiAllCases.length > 0) || (this.report.scenarioAllCases && this.report.scenarioAllCases.length > 0));
+
     },
     loadEnable() {
       let disable = this.report.config && this.report.config.load.enable === false;
       return !disable && this.report.loadResult
         && this.report.loadResult.caseData && this.report.loadResult.caseData.length > 0;
+    },
+    uiEnable() {
+      let disable = this.report.config && this.report.config.ui.enable === false;
+      return !disable && this.report.uiResult
+        && this.report.uiResult.uiScenarioStepData && this.report.uiResult.uiScenarioStepData.length > 0;
     }
   },
   methods: {
@@ -126,7 +143,7 @@ export default {
           this.$setLang(this.report.lang);
         }
         this.report.config = this.getDefaultConfig(this.report);
-      }  else if (this.isDb) {
+      } else if (this.isDb) {
         if (this.isShare) {
           //持久化的报告分享
           this.result = getShareTestPlanReportContent(this.shareId, this.reportId, (data) => {
@@ -159,7 +176,7 @@ export default {
           dbConfig = JSON.parse(configStr);
         }
       }
-      let config =  {
+      let config = {
         overview: {
           enable: true,
           name: this.$t('test_track.report.overview')
@@ -176,10 +193,6 @@ export default {
               enable: true,
               name: this.$t('test_track.report.test_result'),
             },
-            failure: {
-              enable: true,
-              name: this.$t('test_track.report.fail_case'),
-            },
             issue: {
               enable: true,
               name: this.$t('test_track.report.issue_list'),
@@ -187,7 +200,19 @@ export default {
             all: {
               enable: true,
               name: this.$t('test_track.report.all_case'),
-            }
+            },
+            failure: {
+              enable: true,
+              name: this.$t('test_track.report.fail_case'),
+            },
+            blocking: {
+              enable: true,
+              name: this.$t('test_track.plan_view.blocking') + this.$t('commons.track'),
+            },
+            skip: {
+              enable: true,
+              name: this.$t('test_track.plan_view.skip') + this.$t('commons.track'),
+            },
           }
         },
         api: {
@@ -233,7 +258,29 @@ export default {
               name: this.$t('test_track.report.all_case'),
             }
           }
-        }
+        },
+        ui: {
+          enable: true,
+          name: this.$t('test_track.report.analysis_ui'),
+          children: {
+            result: {
+              enable: true,
+              name: this.$t('test_track.report.test_result'),
+            },
+            failure: {
+              enable: true,
+              name: this.$t('test_track.report.fail_case'),
+            },
+            unExecute: {
+              enable: true,
+              name: this.$t('api_test.home_page.detail_card.unexecute'),
+            },
+            all: {
+              enable: true,
+              name: this.$t('test_track.report.all_case'),
+            }
+          }
+        },
       };
       if (dbConfig) {
         this.mergeConfig(config, dbConfig);

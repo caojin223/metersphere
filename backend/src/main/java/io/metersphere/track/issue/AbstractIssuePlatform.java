@@ -3,6 +3,7 @@ package io.metersphere.track.issue;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import io.metersphere.base.domain.*;
+import io.metersphere.base.mapper.AttachmentModuleRelationMapper;
 import io.metersphere.base.mapper.IssuesMapper;
 import io.metersphere.base.mapper.ProjectMapper;
 import io.metersphere.base.mapper.TestCaseIssuesMapper;
@@ -17,31 +18,26 @@ import io.metersphere.dto.CustomFieldItemDTO;
 import io.metersphere.dto.IssueTemplateDao;
 import io.metersphere.dto.UserDTO;
 import io.metersphere.service.*;
+import io.metersphere.track.dto.PlatformStatusDTO;
 import io.metersphere.track.issue.domain.ProjectIssueConfig;
 import io.metersphere.track.request.testcase.EditTestCaseRequest;
 import io.metersphere.track.request.testcase.IssuesRequest;
 import io.metersphere.track.request.testcase.IssuesUpdateRequest;
+import io.metersphere.track.service.AttachmentService;
 import io.metersphere.track.service.IssuesService;
 import io.metersphere.track.service.TestCaseIssueService;
 import io.metersphere.track.service.TestCaseService;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
-import org.apache.http.conn.ssl.TrustStrategy;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
-import org.jsoup.safety.Whitelist;
+import org.jsoup.safety.Safelist;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
+import org.springframework.http.ResponseEntity;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestTemplate;
 
-import javax.net.ssl.SSLContext;
 import java.io.File;
 import java.net.URLDecoder;
-import java.security.cert.X509Certificate;
 import java.util.*;
 import java.util.function.Function;
 import java.util.regex.Matcher;
@@ -49,8 +45,6 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public abstract class AbstractIssuePlatform implements IssuesPlatform {
-
-    private static RestTemplate restTemplate;
 
     protected IntegrationService integrationService;
     protected TestCaseIssueService testCaseIssueService;
@@ -60,7 +54,6 @@ public abstract class AbstractIssuePlatform implements IssuesPlatform {
     protected IssuesMapper issuesMapper;
     protected ExtIssuesMapper extIssuesMapper;
     protected ResourceService resourceService;
-    protected RestTemplate restTemplateIgnoreSSL;
     protected UserService userService;
     protected ProjectMapper projectMapper;
     protected String testCaseId;
@@ -72,28 +65,13 @@ public abstract class AbstractIssuePlatform implements IssuesPlatform {
     protected boolean isThirdPartTemplate;
     protected CustomFieldIssuesService customFieldIssuesService;
     protected CustomFieldService customFieldService;
+    protected IssuesService issuesService;
+    protected FileService fileService;
+    protected AttachmentService attachmentService;
+    protected AttachmentModuleRelationMapper attachmentModuleRelationMapper;
 
     public String getKey() {
         return key;
-    }
-
-    static {
-        try {
-            TrustStrategy acceptingTrustStrategy = (X509Certificate[] chain, String authType) -> true;
-            SSLContext sslContext = org.apache.http.ssl.SSLContexts.custom()
-                    .loadTrustMaterial(null, acceptingTrustStrategy)
-                    .build();
-            SSLConnectionSocketFactory csf = new SSLConnectionSocketFactory(sslContext);
-            CloseableHttpClient httpClient = HttpClients.custom()
-                    .setSSLSocketFactory(csf)
-                    .build();
-            HttpComponentsClientHttpRequestFactory requestFactory = new HttpComponentsClientHttpRequestFactory();
-            requestFactory.setHttpClient(httpClient);
-
-            restTemplate = new RestTemplate(requestFactory);
-        } catch (Exception e) {
-            LogUtil.error(e);
-        }
     }
 
     public AbstractIssuePlatform(IssuesRequest issuesRequest) {
@@ -117,7 +95,10 @@ public abstract class AbstractIssuePlatform implements IssuesPlatform {
         this.testCaseIssueService = CommonBeanFactory.getBean(TestCaseIssueService.class);
         this.customFieldIssuesService = CommonBeanFactory.getBean(CustomFieldIssuesService.class);
         this.customFieldService = CommonBeanFactory.getBean(CustomFieldService.class);
-        this.restTemplateIgnoreSSL = restTemplate;
+        this.issuesService = CommonBeanFactory.getBean(IssuesService.class);
+        this.fileService = CommonBeanFactory.getBean(FileService.class);
+        this.attachmentService = CommonBeanFactory.getBean(AttachmentService.class);
+        this.attachmentModuleRelationMapper = CommonBeanFactory.getBean(AttachmentModuleRelationMapper.class);
     }
 
     protected String getPlatformConfig(String platform) {
@@ -258,7 +239,7 @@ public abstract class AbstractIssuePlatform implements IssuesPlatform {
         document.select("br").append("\\n");
         document.select("p").prepend("\\n\\n");
         desc = document.html().replaceAll("\\\\n", "\n");
-        desc = Jsoup.clean(desc, "", Whitelist.none(), new Document.OutputSettings().prettyPrint(false));
+        desc = Jsoup.clean(desc, "", Safelist.none(), new Document.OutputSettings().prettyPrint(false));
         return desc.replace("&nbsp;", "");
     }
 
@@ -374,12 +355,14 @@ public abstract class AbstractIssuePlatform implements IssuesPlatform {
         while (matcher.find()) {
             try {
                 String path = matcher.group(2);
-                if (path.contains("/resource/md/get/")) { // 兼容旧数据
-                    String name = path.substring(path.indexOf("/resource/md/get/") + 17);
-                    files.add(new File(FileUtils.MD_IMAGE_DIR + "/" + name));
-                } else if (path.contains("/resource/md/get")) { // 新数据走这里
-                    String name = path.substring(path.indexOf("/resource/md/get") + 26);
-                    files.add(new File(FileUtils.MD_IMAGE_DIR + "/" + URLDecoder.decode(name, "UTF-8")));
+                if (!path.contains("/resource/md/get/url")) {
+                    if (path.contains("/resource/md/get/")) { // 兼容旧数据
+                        String name = path.substring(path.indexOf("/resource/md/get/") + 17);
+                        files.add(new File(FileUtils.MD_IMAGE_DIR + "/" + name));
+                    } else if (path.contains("/resource/md/get")) { // 新数据走这里
+                        String name = path.substring(path.indexOf("/resource/md/get") + 26);
+                        files.add(new File(FileUtils.MD_IMAGE_DIR + "/" + URLDecoder.decode(name, "UTF-8")));
+                    }
                 }
             } catch (Exception e) {
                 LogUtil.error(e.getMessage(), e);
@@ -399,7 +382,7 @@ public abstract class AbstractIssuePlatform implements IssuesPlatform {
     }
 
     protected void addCustomFields(IssuesUpdateRequest issuesRequest, MultiValueMap<String, Object> paramMap) {
-        List<CustomFieldItemDTO> customFields = CustomFieldService.getCustomFields(issuesRequest.getCustomFields());
+        List<CustomFieldItemDTO> customFields = issuesRequest.getRequestFields();
         customFields.forEach(item -> {
             if (StringUtils.isNotBlank(item.getCustomData())) {
                 if (item.getValue() instanceof String) {
@@ -438,24 +421,43 @@ public abstract class AbstractIssuePlatform implements IssuesPlatform {
     }
 
     protected String syncIssueCustomField(String customFieldsStr, JSONObject issue) {
+        List<CustomFieldItemDTO> customFieldItemDTOList = syncIssueCustomFieldList(customFieldsStr, issue);
+        return JSONObject.toJSONString(customFieldItemDTOList);
+    }
+
+    protected List<CustomFieldItemDTO> syncIssueCustomFieldList(String customFieldsStr, JSONObject issue) {
         List<CustomFieldItemDTO> customFields = CustomFieldService.getCustomFields(customFieldsStr);
         Set<String> names = issue.keySet();
         customFields.forEach(item -> {
             String fieldName = item.getCustomData();
             Object value = issue.get(fieldName);
             if (value != null) {
-               if (value instanceof JSONObject) {
-                   item.setValue(getSyncJsonParamValue(value));
+                if (value instanceof JSONObject) {
+                    if (StringUtils.equals(fieldName, "assignee")) {
+                        item.setValue(((JSONObject) value).get("displayName"));
+                    } else {
+                        item.setValue(getSyncJsonParamValue(value));
+                    }
                 } else if (value instanceof JSONArray) {
-                    List<Object> values = new ArrayList<>();
-                    ((JSONArray)value).forEach(attr -> {
-                        if (attr instanceof JSONObject) {
-                            values.add(getSyncJsonParamValue(attr));
-                        } else {
-                            values.add(attr);
+                    // Sprint 是单选 同步回来是 JSONArray
+                    if (StringUtils.equals(item.getType(), "select")) {
+                        if (((JSONArray) value).size() > 0) {
+                            Object o = ((JSONArray) value).get(0);
+                            if (o instanceof JSONObject) {
+                                item.setValue(getSyncJsonParamValue(o));
+                            }
                         }
-                    });
-                    item.setValue(values);
+                    } else {
+                        List<Object> values = new ArrayList<>();
+                        ((JSONArray) value).forEach(attr -> {
+                            if (attr instanceof JSONObject) {
+                                values.add(getSyncJsonParamValue(attr));
+                            } else {
+                                values.add(attr);
+                            }
+                        });
+                        item.setValue(values);
+                    }
                 } else {
                     item.setValue(value);
                 }
@@ -465,9 +467,17 @@ public abstract class AbstractIssuePlatform implements IssuesPlatform {
                 } else {
                     item.setValue(null);
                 }
+            } else {
+                try {
+                    if (item.getValue() != null) {
+                        item.setValue(JSONObject.parse(item.getValue().toString()));
+                    }
+                } catch (Exception e) {
+                    LogUtil.error(e);
+                }
             }
         });
-        return JSONObject.toJSONString(customFields);
+        return customFields;
     }
 
     @Override
@@ -514,23 +524,52 @@ public abstract class AbstractIssuePlatform implements IssuesPlatform {
 
     protected void mergeCustomField(IssuesWithBLOBs issues, String defaultCustomField) {
         if (StringUtils.isNotBlank(defaultCustomField)) {
-            String issuesCustomFields = issues.getCustomFields();
-            if (StringUtils.isBlank(issuesCustomFields) || issuesCustomFields.startsWith("{")) issuesCustomFields = "[]";
-            JSONArray issueFields = JSONArray.parseArray(issuesCustomFields);
-            Set<String> ids = issueFields.stream().map(i -> ((JSONObject) i).getString("id")).collect(Collectors.toSet());
-            JSONArray defaultFields = JSONArray.parseArray(defaultCustomField);
-            defaultFields.forEach(item -> { // 如果自定义字段里没有模板新加的字段，就把新字段加上
-                String id = ((JSONObject) item).getString("id");
+            List<CustomFieldItemDTO> customFields = extIssuesMapper.getIssueCustomField(issues.getId());
+            Map<String, CustomFieldItemDTO> fieldMap = customFields.stream()
+                    .collect(Collectors.toMap(CustomFieldItemDTO::getId, i -> i));
+
+            List<CustomFieldItemDTO> defaultFields = JSONArray.parseArray(defaultCustomField, CustomFieldItemDTO.class);
+            for (CustomFieldItemDTO defaultField : defaultFields) {
+                String id = defaultField.getId();
                 if (StringUtils.isBlank(id)) {
-                    id = ((JSONObject) item).getString("key");
-                    ((JSONObject) item).put("id", id);
+                    defaultField.setId(defaultField.getKey());
                 }
-                if (!ids.contains(id)) {
-                    issueFields.add(item);
+                if (fieldMap.keySet().contains(id)) {
+                    // 设置第三方平台的属性名称
+                    fieldMap.get(id).setCustomData(defaultField.getCustomData());
+                } else {
+                    // 如果自定义字段里没有模板新加的字段，就把新字段加上
+                    customFields.add(defaultField);
                 }
-            });
-            issues.setCustomFields(issueFields.toJSONString());
+            }
+
+            // 过滤没有配置第三方字段名称的字段，不需要更新
+            customFields = customFields.stream()
+                    .filter(i -> StringUtils.isNotBlank(i.getCustomData()))
+                    .collect(Collectors.toList());
+            issues.setCustomFields(JSONObject.toJSONString(customFields));
         }
+    }
+
+    // 缺陷对象带有自定义字段数据
+    protected void mergeIfIssueWithCustomField(IssuesWithBLOBs issue, String defaultCustomField) {
+        if (StringUtils.isBlank(defaultCustomFields)) {
+            return;
+        }
+        JSONArray fields = JSONArray.parseArray(issue.getCustomFields());
+        Set<String> ids = fields.stream().map(i -> ((JSONObject) i).getString("id")).collect(Collectors.toSet());
+        JSONArray defaultFields = JSONArray.parseArray(defaultCustomField);
+        defaultFields.forEach(item -> { // 如果自定义字段里没有模板新加的字段，就把新字段加上
+            String id = ((JSONObject) item).getString("id");
+            if (StringUtils.isBlank(id)) {
+                id = ((JSONObject) item).getString("key");
+                ((JSONObject) item).put("id", id);
+            }
+            if (!ids.contains(id)) {
+                fields.add(item);
+            }
+        });
+        issue.setCustomFields(fields.toJSONString());
     }
 
     public <T> T getConfig(String platform, Class<T> clazz) {
@@ -592,5 +631,18 @@ public abstract class AbstractIssuePlatform implements IssuesPlatform {
         // 添加方法体逻辑可重写改方法
     }
 
+    /**
+     * 获取第三方平台的状态集合
+     * @param issueKey
+     * @return
+     */
+    public List<PlatformStatusDTO> getTransitions(String issueKey) {
+        return null;
+    }
+
+    @Override
+    public ResponseEntity proxyForGet(String url, Class responseEntityClazz) {
+        return null;
+    }
 
 }

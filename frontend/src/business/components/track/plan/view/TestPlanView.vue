@@ -14,6 +14,7 @@
                  class="el-menu-demo header-menu" mode="horizontal" @select="handleSelect">
           <el-menu-item index="functional">{{ $t('test_track.functional_test_case') }}</el-menu-item>
           <el-menu-item index="api" v-modules="['api']">{{ $t('test_track.api_test_case') }}</el-menu-item>
+          <el-menu-item index="ui" v-modules="['ui']">{{ $t('test_track.ui_test_case') }}</el-menu-item>
           <el-menu-item index="load" v-modules="['performance']">{{ $t('test_track.performance_test_case') }}</el-menu-item>
           <el-menu-item index="report">{{ $t('test_track.report_statistics') }}</el-menu-item>
         </el-menu>
@@ -23,15 +24,35 @@
     <test-plan-functional v-if="activeIndex === 'functional'" :redirectCharType="redirectCharType"
                           :clickType="clickType" :plan-id="planId" :version-enable="versionEnable" :plan-status="currentPlan.status"
                           ref="testPlanFunctional"/>
-    <test-plan-api v-if="activeIndex === 'api'" :redirectCharType="redirectCharType" :clickType="clickType"
-                   :plan-id="planId" :version-enable="versionEnable" :plan-status="currentPlan.status"/>
-    <test-plan-load v-if="activeIndex === 'load'" :redirectCharType="redirectCharType" :clickType="clickType"
-                    :plan-id="planId" :version-enable="versionEnable" :plan-status="currentPlan.status"/>
-    <test-plan-report-content class="plan-report" v-if="activeIndex === 'report'" :plan-id="planId" :version-enable="versionEnable"/>
+    <test-plan-api
+      v-if="activeIndex === 'api'"
+      :redirectCharType="redirectCharType"
+      :clickType="clickType"
+      :plan-id="planId"
+      :version-enable="versionEnable"
+      :plan-status="currentPlan.status"/>
+    <test-plan-ui
+      v-if="activeIndex === 'ui'"
+      :redirectCharType="redirectCharType"
+      :clickType="clickType"
+      :plan-id="planId"
+      :version-enable="versionEnable"
+      :plan-status="currentPlan.status"/>
+    <test-plan-load
+      v-if="activeIndex === 'load'"
+      :redirectCharType="redirectCharType"
+      :clickType="clickType"
+      :plan-id="planId"
+      :version-enable="versionEnable"
+      :plan-status="currentPlan.status"/>
+    <test-plan-report-content
+      class="plan-report"
+      v-if="activeIndex === 'report'"
+      :need-move-bar="true"
+      :plan-id="planId"
+      :version-enable="versionEnable"/>
 
     <is-change-confirm
-      :title="'请保存脑图'"
-      :tip="'脑图未保存，确认保存脑图吗？'"
       @confirm="changeConfirm"
       ref="isChangeConfirm"/>
 
@@ -49,6 +70,7 @@ import MsMainContainer from "../../../common/components/MsMainContainer";
 import MsTestPlanHeaderBar from "./comonents/head/TestPlanHeaderBar";
 import TestPlanFunctional from "./comonents/functional/TestPlanFunctional";
 import TestPlanApi from "./comonents/api/TestPlanApi";
+import TestPlanUi from "./comonents/api/TestPlanUi";
 import TestPlanLoad from "@/business/components/track/plan/view/comonents/load/TestPlanLoad";
 import {getCurrentProjectID, hasLicense} from "@/common/js/utils";
 import TestPlanReportContent from "@/business/components/track/plan/view/comonents/report/detail/TestPlanReportContent";
@@ -64,7 +86,12 @@ export default {
     TestPlanFunctional,
     MsTestPlanHeaderBar,
     MsMainContainer,
-    MsAsideContainer, MsContainer, NodeTree, SelectMenu, TestPlanLoad
+    MsAsideContainer,
+    MsContainer,
+    NodeTree,
+    SelectMenu,
+    TestPlanLoad,
+    TestPlanUi
   },
   data() {
     return {
@@ -90,6 +117,12 @@ export default {
     }
   },
   watch: {
+    '$route.query.projectId'() {
+      let projectId = this.$route.query.projectId;
+      if (projectId && projectId !== getCurrentProjectID()) {
+        sessionStorage.setItem(PROJECT_ID, projectId);
+      }
+    },
     '$route.params.planId'() {
       this.genRedirectParam();
       this.getTestPlans();
@@ -150,7 +183,7 @@ export default {
         this.redirectCharType = this.$route.query.charType;
       }
       this.clickType = this.$route.params.clickType;
-      if (this.redirectCharType != "") {
+      if (this.redirectCharType) {
         if (this.redirectCharType == 'scenario') {
           this.activeIndex = 'api';
         } else if (this.redirectCharType != null && this.redirectCharType != '') {

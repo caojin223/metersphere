@@ -5,6 +5,8 @@
       <node-tree class="node-tree"
                  v-loading="result.loading"
                  @nodeSelectEvent="nodeChange"
+                 local-suffix="test_case"
+                 default-label="未规划用例"
                  :tree-nodes="treeNodes"
                  ref="nodeTree"/>
     </template>
@@ -21,14 +23,16 @@
         <functional-test-case-list
           class="table-list"
           v-if="activeDom === 'left'"
-          @openTestCaseRelevanceDialog="openTestCaseRelevanceDialog"
-          @refresh="refresh"
-          @setCondition="setCondition"
           :plan-id="planId"
           :plan-status="planStatus "
           :clickType="clickType"
           :select-node-ids="selectNodeIds"
           :version-enable="versionEnable"
+          @refresh="refresh"
+          @refreshTree="refreshTree"
+          @setCondition="setCondition"
+          @search="refreshTreeByCaseFilter"
+          @openTestCaseRelevanceDialog="openTestCaseRelevanceDialog"
           ref="testPlanTestCaseList"/>
         <test-plan-minder
           :tree-nodes="treeNodes"
@@ -49,8 +53,6 @@
       ref="testCaseRelevance"/>
 
     <is-change-confirm
-      :title="'请保存脑图'"
-      :tip="'脑图未保存，确认保存脑图吗？'"
       @confirm="changeConfirm"
       ref="isChangeConfirm"/>
   </ms-test-plan-common-component>
@@ -68,6 +70,7 @@ import TestPlanFunctionalRelevance
   from "@/business/components/track/plan/view/comonents/functional/TestPlanFunctionalRelevance";
 import IsChangeConfirm from "@/business/components/common/components/IsChangeConfirm";
 import {openMinderConfirm, saveMinderConfirm} from "@/business/components/track/common/minder/minderUtils";
+import {getTestPlanCaseNodesByCaseFilter} from "@/network/testCase";
 const requireComponent = require.context('@/business/components/xpack/', true, /\.vue$/);
 
 export default {
@@ -90,7 +93,8 @@ export default {
       selectNode: {},
       condition: {},
       tmpActiveDom: null,
-      tmpPath: null
+      tmpPath: null,
+      currentNode: null
     };
   },
   props: [
@@ -101,7 +105,6 @@ export default {
     'planStatus'
   ],
   mounted() {
-    this.$store.commit('setTestPlanViewSelectNode', {});
     this.initData();
   },
   computed: {
@@ -110,6 +113,7 @@ export default {
     },
   },
   activated() {
+    this.clearSelectNode();
     this.initData();
     this.openTestCaseEdit(this.$route.path);
   },
@@ -118,15 +122,22 @@ export default {
       this.openTestCaseEdit(to.path);
     },
     planId() {
+      this.clearSelectNode();
       this.initData();
     }
   },
   methods: {
     refresh() {
-      this.selectNodeIds = [];
-      this.$store.commit('setTestPlanViewSelectNode', {});
+      this.clearSelectNode();
       this.$refs.testCaseRelevance.search();
       this.getNodeTreeByPlanId();
+    },
+    refreshTree() {
+      this.getNodeTreeByPlanId();
+    },
+    clearSelectNode() {
+      this.selectNodeIds = [];
+      this.$store.commit('setTestPlanViewSelectNode', {});
     },
     initData() {
       this.getNodeTreeByPlanId();
@@ -134,24 +145,37 @@ export default {
     openTestCaseRelevanceDialog() {
       this.$refs.testCaseRelevance.open();
     },
+    refreshTreeByCaseFilter() {
+      this.getNodeTreeByPlanId(this.condition);
+    },
     nodeChange(node, nodeIds, pNodes) {
       this.selectNodeIds = nodeIds;
       this.$store.commit('setTestPlanViewSelectNode', node);
+      this.currentNode = node;
       // 切换node后，重置分页数
       if (this.$refs.testPlanTestCaseList) {
         this.$refs.testPlanTestCaseList.currentPage = 1;
         this.$refs.testPlanTestCaseList.pageSize = 10;
       }
     },
-    getNodeTreeByPlanId() {
+    getNodeTreeByPlanId(condition) {
       if (this.planId) {
-        let url = "/case/node/list/plan/" + this.planId;
         if (this.clickType) {
-          url = url + "/" + this.clickType;
+          this.result = this.$get('/' + this.clickType, response => {
+            this.treeNodes = response.data;
+            this.setCurrentKey();
+          });
+        } else {
+          this.result = getTestPlanCaseNodesByCaseFilter(this.planId, condition, (data) => {
+            this.treeNodes = data;
+            this.setCurrentKey();
+          });
         }
-        this.result = this.$get(url, response => {
-          this.treeNodes = response.data;
-        });
+      }
+    },
+    setCurrentKey() {
+      if (this.$refs.nodeTree) {
+        this.$refs.nodeTree.setCurrentKey(this.currentNode);
       }
     },
     setCondition(data) {

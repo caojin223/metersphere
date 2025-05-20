@@ -13,9 +13,7 @@ import io.metersphere.performance.parse.EngineSourceParser;
 import io.metersphere.performance.parse.EngineSourceParserFactory;
 import io.metersphere.service.TestResourcePoolService;
 import org.apache.commons.lang3.BooleanUtils;
-import org.apache.commons.lang3.ClassUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.reflect.MethodUtils;
 import org.dom4j.Document;
 import org.dom4j.Element;
 import org.dom4j.Node;
@@ -33,6 +31,7 @@ public class JmeterDocumentParser implements EngineSourceParser {
     private final static String STRING_PROP = "stringProp";
     private final static String ELEMENT_PROP = "elementProp";
     private final static String BOOL_PROP = "boolProp";
+    private final static String INT_PROP = "intProp";
     private final static String COLLECTION_PROP = "collectionProp";
     private final static String CONCURRENCY_THREAD_GROUP = "com.blazemeter.jmeter.threads.concurrency.ConcurrencyThreadGroup";
     private final static String VARIABLE_THROUGHPUT_TIMER = "kg.apc.jmeter.timers.VariableThroughputTimer";
@@ -549,7 +548,7 @@ public class JmeterDocumentParser implements EngineSourceParser {
     }
 
     private void appendIntProp(Element ele, String name, int value) {
-        Element intProp = ele.addElement(BOOL_PROP);
+        Element intProp = ele.addElement(INT_PROP);
         intProp.addAttribute("name", name);
         intProp.setText(String.valueOf(value));
     }
@@ -557,7 +556,9 @@ public class JmeterDocumentParser implements EngineSourceParser {
     private void processBackendListener(Element backendListener) {
         String resourcePoolId = context.getResourcePoolId();
         TestResourcePool resourcePool = CommonBeanFactory.getBean(TestResourcePoolService.class).getResourcePool(resourcePoolId);
-        if (checkLicense() && !BooleanUtils.toBoolean(resourcePool.getBackendListener())) {
+        if (!BooleanUtils.toBoolean(resourcePool.getBackendListener())) {
+            // 禁用现有的backend listener
+            backendListener.addAttribute("enabled", "false");
             return;
         }
         KafkaProperties kafkaProperties = CommonBeanFactory.getBean(KafkaProperties.class);
@@ -617,7 +618,7 @@ public class JmeterDocumentParser implements EngineSourceParser {
     private void processCheckoutBackendListener(Element element) {
         String resourcePoolId = context.getResourcePoolId();
         TestResourcePool resourcePool = CommonBeanFactory.getBean(TestResourcePoolService.class).getResourcePool(resourcePoolId);
-        if (checkLicense() && !BooleanUtils.toBoolean(resourcePool.getBackendListener())) {
+        if (!BooleanUtils.toBoolean(resourcePool.getBackendListener())) {
             return;
         }
         // 已经添加过不再重复添加
@@ -646,20 +647,6 @@ public class JmeterDocumentParser implements EngineSourceParser {
         listenerParent.addElement(HASH_TREE_ELEMENT);
         // 标记已经添加上
         context.setCheckBackendListener(true);
-    }
-
-    private boolean checkLicense() {
-        try {
-            ClassUtils.getClass("io.metersphere.xpack.license.service.LicenseService");
-            Object licenseService = CommonBeanFactory.getBean("licenseService");
-            Object result = MethodUtils.invokeMethod(licenseService, "valid");
-            Object status = MethodUtils.invokeMethod(result, "getStatus");
-            if (StringUtils.equalsIgnoreCase("VALID", status.toString())) {
-                return true;
-            }
-        } catch (Exception ignored) {
-        }
-        return false;
     }
 
     private void processThreadGroup(Element threadGroup) {
@@ -949,8 +936,10 @@ public class JmeterDocumentParser implements EngineSourceParser {
         // elementProp
         // 避免出现配置错位
         Object durations = context.getProperty("duration");
+        String duration = "2";
         if (durations instanceof List) {
-            ((List<?>) durations).remove(0);
+            Object o = ((List<?>) durations).remove(0);
+            duration = o.toString();
         }
         Object units = context.getProperty("unit");
         if (units instanceof List) {
@@ -1027,10 +1016,10 @@ public class JmeterDocumentParser implements EngineSourceParser {
         appendStringProp(threadGroup, "ThreadGroup.on_sample_error", onSampleError);
         appendStringProp(threadGroup, "ThreadGroup.num_threads", threads);
         appendStringProp(threadGroup, "ThreadGroup.ramp_time", rampUp);
-        appendBoolProp(threadGroup, "ThreadGroup.scheduler", false);
+        appendBoolProp(threadGroup, "ThreadGroup.scheduler", true);
         appendStringProp(threadGroup, "Hold", "1");
-        appendStringProp(threadGroup, "ThreadGroup.duration", "10");
-        appendStringProp(threadGroup, "ThreadGroup.delay", "");
+        appendStringProp(threadGroup, "ThreadGroup.duration", duration);
+        appendStringProp(threadGroup, "ThreadGroup.delay", "0");
         appendBoolProp(threadGroup, "ThreadGroup.same_user_on_next_iteration", true);
     }
 

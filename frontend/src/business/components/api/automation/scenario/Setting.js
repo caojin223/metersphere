@@ -23,7 +23,8 @@ export function STEP() {
         ['CustomizeReq', getDefaultSamplerMenu()],
         ['MaxSamplerProxy', getDefaultSamplerMenu()],
         ['GenericController', getAll()],
-        ['AllSamplerProxy', ['HTTPSamplerProxy', 'DubboSampler', 'JDBCSampler', 'TCPSampler', 'Sampler', 'AbstractSampler', 'JSR223Processor', 'API', 'MsUiCommand']],
+        ['SpecialSteps', ['HTTPSamplerProxy', 'Assertions', 'DubboSampler', 'JDBCSampler', 'TCPSampler', 'Sampler', 'AbstractSampler', 'JSR223Processor', 'API', 'MsUiCommand']],
+        ['AllSamplerProxy', ['GenericController','HTTPSamplerProxy', 'DubboSampler', 'JDBCSampler', 'TCPSampler', 'Sampler', 'AbstractSampler', 'JSR223Processor', 'API', 'MsUiCommand']],
         ['DEFINITION', ['HTTPSamplerProxy', 'DubboSampler', 'JDBCSampler', 'TCPSampler']],
         ['ALlSamplerStep', ['JSR223PreProcessor', 'JSR223PostProcessor', 'JDBCPreProcessor', 'JDBCPostProcessor', 'Assertions', 'Extract', 'ConstantTimer']],
         ['AllCanExecType', ['HTTPSamplerProxy', 'DubboSampler', 'JDBCSampler', 'TCPSampler', 'JSR223Processor', 'AbstractSampler']]]);
@@ -51,6 +52,7 @@ export const ELEMENT_TYPE = {
 
 export const TYPE_TO_C = new Map([
     ['scenario', 'io.metersphere.api.dto.definition.request.MsScenario'],
+    ['customCommand', 'io.metersphere.xpack.ui.hashtree.MsUiCustomCommand'],
     ['UiScenario', 'io.metersphere.xpack.ui.hashtree.MsUiScenario'],
     ['HTTPSamplerProxy', 'io.metersphere.api.dto.definition.request.sampler.MsHTTPSamplerProxy'],
     ['DubboSampler', 'io.metersphere.api.dto.definition.request.sampler.MsDubboSampler'],

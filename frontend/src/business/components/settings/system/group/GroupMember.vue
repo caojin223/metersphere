@@ -5,7 +5,7 @@
                class="group-member">
       <template v-slot:title>
         <ms-table-header :condition.sync="condition" @create="addMemberBtn" @search="search"
-                         :create-tip="$t('member.create')" :title="$t('commons.member')"/>
+                         :create-permission="createPermission" :create-tip="$t('member.create')" :title="$t('commons.member')"/>
       </template>
       <el-table :border="true" class="adjust-table" :data="memberData" style="width: 100%;margin-top:5px;">
         <el-table-column prop="id" label="ID"/>
@@ -41,6 +41,8 @@
             <div>
               <ms-table-operator :tip2="$t('commons.remove')"
                                  :show-edit="showTypeLabel"
+                                 :delete-permission="deletePermission"
+                                 :edit-permission="editPermission"
                                  @editClick="editMemberBtn(scope.row)"
                                  @deleteClick="removeMember(scope.row)"/>
             </div>
@@ -100,7 +102,7 @@ import MsTablePagination from "@/business/components/common/pagination/TablePagi
 import {GROUP_PROJECT, GROUP_SYSTEM, GROUP_WORKSPACE} from "@/common/js/constants";
 import MsTableOperator from "@/business/components/common/components/MsTableOperator";
 import UserOptionItem from "@/business/components/settings/common/UserOptionItem";
-import {getCurrentProjectID, getCurrentUserId} from "@/common/js/utils";
+import {getCurrentProjectID, getCurrentUserId, operationConfirm} from "@/common/js/utils";
 
 export default {
   name: "GroupMember",
@@ -140,7 +142,27 @@ export default {
         userIds: {required: true, message: this.$t('member.please_choose_member'), trigger: 'blur'},
         sourceIds: {required: true, message: this.$t('group.select_belong_source'), trigger: 'blur'}
       }
-    }
+    };
+  },
+  props: {
+    editPermission: {
+      type: Array,
+      default() {
+        return [];
+      }
+    },
+    deletePermission: {
+      type: Array,
+      default() {
+        return [];
+      }
+    },
+    createPermission: {
+      type: Array,
+      default() {
+        return []
+      }
+    },
   },
   computed: {
     typeLabel() {
@@ -167,10 +189,12 @@ export default {
           this.total = itemCount;
           this.memberData = listObject;
         }
-      })
-      this.$get("/project/get/" + getCurrentProjectID(), res => {
-        this.currentProject = res.data;
       });
+      if (getCurrentProjectID()) {
+        this.$get("/project/get/" + getCurrentProjectID(), res => {
+          this.currentProject = res.data;
+        });
+      }
     },
     open(group, initUserGroupUrl, initUserUrl) {
       this.initUserGroupUrl = initUserGroupUrl ? initUserGroupUrl : "/user/group/user/";
@@ -206,7 +230,7 @@ export default {
         let sourceIds = data.map(d => d.id);
         this.$set(this.form, 'userIds', userIds);
         this.$set(this.form, 'sourceIds', sourceIds);
-      })
+      });
     },
     editMember() {
       this.form.groupId = this.group.id;
@@ -220,19 +244,15 @@ export default {
         } else {
           return false;
         }
-      })
+      });
     },
     getUser() {
       this.memberResult = this.$get(this.initUserUrl, response => {
         this.users = response.data;
-      })
+      });
     },
     removeMember(row) {
-      this.$confirm(this.$t('member.remove_member').toString(), '', {
-        confirmButtonText: this.$t('commons.confirm'),
-        cancelButtonText: this.$t('commons.cancel'),
-        type: 'warning'
-      }).then(() => {
+      operationConfirm(this.$t('member.remove_member'), () => {
         if (this.initUserUrl === 'user/ws/current/member/list') {
           if (row.id === getCurrentUserId()) {
             this.$warning(this.$t('group.unable_to_remove_current_member'));
@@ -243,15 +263,13 @@ export default {
           this.$success(this.$t('commons.remove_success'));
           this.init();
         });
-      }).catch(() => {
-        this.$info(this.$t('commons.remove_cancel'));
       });
     },
     getGroupSource(row) {
       this.groupSource = [];
       this.sourceResult = this.$get('/user/group/source/' + row.id + "/" + this.group.id, res => {
         this.groupSource = res.data;
-      })
+      });
     },
     addMember() {
       if (this.submitType === 'ADD') {
@@ -272,7 +290,7 @@ export default {
         } else {
           return false;
         }
-      })
+      });
     },
     getResource() {
       this.memberResult = this.$get('/workspace/list/resource/' + this.group.id + "/" + this.group.type, res => {
@@ -280,7 +298,7 @@ export default {
         if (data) {
           this._setResource(this.group.type, data);
         }
-      })
+      });
     },
     _setResource(type, data) {
       switch (type) {
@@ -307,13 +325,14 @@ export default {
       this.userSelectDisable = false;
     }
   }
-}
+};
 </script>
 
 <style scoped>
 .member_select, .other_source_select {
   display: block;
 }
+
 .group-member >>> .el-dialog__body {
   padding-top: 0;
 }

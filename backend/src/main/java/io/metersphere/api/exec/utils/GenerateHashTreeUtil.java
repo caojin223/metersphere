@@ -10,6 +10,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.metersphere.api.dto.EnvironmentType;
 import io.metersphere.api.dto.definition.request.*;
 import io.metersphere.api.dto.definition.request.variable.ScenarioVariable;
+import io.metersphere.api.exec.api.ApiRetryOnFailureService;
+import io.metersphere.api.jmeter.NewDriverManager;
 import io.metersphere.api.jmeter.ResourcePoolCalculation;
 import io.metersphere.api.service.ApiExecutionQueueService;
 import io.metersphere.api.service.RemakeReportService;
@@ -26,9 +28,11 @@ import io.metersphere.plugin.core.MsTestElement;
 import io.metersphere.service.EnvironmentGroupProjectService;
 import io.metersphere.utils.LoggerUtil;
 import io.metersphere.vo.BooleanPool;
+import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.jorphan.collections.HashTree;
 
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -122,6 +126,18 @@ public class GenerateHashTreeUtil {
     public static HashTree generateHashTree(ApiScenarioWithBLOBs item, Map<String, String> planEnvMap, JmeterRunRequestDTO runRequest) {
         HashTree jmeterHashTree = new HashTree();
         MsTestPlan testPlan = new MsTestPlan();
+        if (!runRequest.getPool().isPool()) {
+            // 获取自定义JAR
+            String projectId = item.getProjectId();
+            List<String> projectIds = new ArrayList<>();
+            projectIds.add(projectId);
+            if (MapUtils.isNotEmpty(planEnvMap)) {
+                planEnvMap.forEach((k, v) -> {
+                    projectIds.add(k);
+                });
+            }
+            testPlan.setJarPaths(NewDriverManager.getJars(projectIds));
+        }
         testPlan.setHashTree(new LinkedList<>());
         try {
             MsThreadGroup group = new MsThreadGroup();
@@ -134,7 +150,15 @@ public class GenerateHashTreeUtil {
             } else {
                 setScenarioEnv(scenario, item);
             }
-            GenerateHashTreeUtil.parse(item.getScenarioDefinition(), scenario);
+            String data = item.getScenarioDefinition();
+            // 失败重试
+            if (runRequest.isRetryEnable() && runRequest.getRetryNum() > 0) {
+                ApiRetryOnFailureService apiRetryOnFailureService = CommonBeanFactory.getBean(ApiRetryOnFailureService.class);
+                String retryData = apiRetryOnFailureService.retry(data, runRequest.getRetryNum(), false);
+                data = StringUtils.isNotEmpty(retryData) ? retryData : data;
+            }
+
+            GenerateHashTreeUtil.parse(data, scenario);
 
             group.setEnableCookieShare(scenario.isEnableCookieShare());
             LinkedList<MsTestElement> scenarios = new LinkedList<>();
@@ -143,24 +167,35 @@ public class GenerateHashTreeUtil {
             group.setHashTree(scenarios);
             testPlan.getHashTree().add(group);
 
-            LoggerUtil.info("报告ID" + runRequest.getReportId() + " 场景资源：" + item.getName() + ", 生成执行脚本JMX成功");
+            ParameterConfig config = new ParameterConfig();
+            config.setScenarioId(item.getId());
+            config.setReportType(runRequest.getReportType());
+            testPlan.toHashTree(jmeterHashTree, testPlan.getHashTree(), config);
+
+            LoggerUtil.info("场景资源：" + item.getName() + ", 生成执行脚本JMX成功", runRequest.getReportId());
         } catch (Exception ex) {
-            RemakeReportService remakeReportService = CommonBeanFactory.getBean(RemakeReportService.class);
-            remakeReportService.remake(runRequest);
-            ResultDTO dto = new ResultDTO();
-            BeanUtils.copyBean(dto, runRequest);
-            CommonBeanFactory.getBean(ApiExecutionQueueService.class).queueNext(dto);
-            LoggerUtil.error("报告ID" + runRequest.getReportId() + " 场景资源：" + item.getName() + ", 生成执行脚本失败", ex);
+            remakeException(runRequest);
+            LoggerUtil.error("场景资源：" + item.getName() + ", 生成执行脚本失败", runRequest.getReportId(), ex);
         }
-        ParameterConfig config = new ParameterConfig();
-        config.setScenarioId(item.getId());
-        config.setReportType(runRequest.getReportType());
-        testPlan.toHashTree(jmeterHashTree, testPlan.getHashTree(), config);
+
+        LogUtil.info(testPlan.getJmx(jmeterHashTree));
         return jmeterHashTree;
     }
 
+    public static void remakeException(JmeterRunRequestDTO runRequest) {
+        RemakeReportService remakeReportService = CommonBeanFactory.getBean(RemakeReportService.class);
+        remakeReportService.remake(runRequest);
+        ResultDTO dto = new ResultDTO();
+        BeanUtils.copyBean(dto, runRequest);
+        CommonBeanFactory.getBean(ApiExecutionQueueService.class).queueNext(dto);
+    }
+
     public static boolean isSetReport(RunModeConfigDTO config) {
-        return config != null && StringUtils.equals(config.getReportType(), RunModeConstants.SET_REPORT.toString()) && StringUtils.isNotEmpty(config.getReportName());
+        return config != null && isSetReport(config.getReportType()) && StringUtils.isNotEmpty(config.getReportName());
+    }
+
+    public static boolean isSetReport(String reportType) {
+        return StringUtils.equals(reportType, RunModeConstants.SET_REPORT.toString());
     }
 
     public static String getPlatformUrl(BaseSystemConfigDTO baseInfo, JmeterRunRequestDTO request, String queueDetailId) {

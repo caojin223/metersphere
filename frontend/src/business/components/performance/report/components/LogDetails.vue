@@ -13,14 +13,17 @@
         </el-select>
       </el-col>
       <el-col :span="20">
-        <div v-if="currentInstance" class="logging-content">
-          <ul class="infinite-list" v-infinite-scroll="load(currentInstance)">
-            <li class="infinite-list-item" v-for="(log, index) in logContent[currentInstance]"
+        <div class="logging-content" v-loading="loading">
+          <ul class="infinite-list">
+            <li class="infinite-list-item" v-for="(log, index) in logContent"
                 :key="currentInstance+index">
               {{ log.content }}
             </li>
           </ul>
-          <el-link type="primary" @click="downloadLogFile(currentInstance)">{{ $t('load_test.download_log_file') }}</el-link>
+          <el-link type="primary" @click="downloadLogFile(currentInstance)">{{
+              $t('load_test.download_log_file')
+            }}
+          </el-link>
         </div>
       </el-col>
     </el-row>
@@ -41,13 +44,12 @@ export default {
   data() {
     return {
       resource: [],
-      logContent: {},
+      logContent: [],
       result: {},
       id: '',
-      page: {},
+      page: 1,
       pageCount: 5,
       loading: false,
-      logStatus: {},
       currentInstance: ''
     };
   },
@@ -71,50 +73,57 @@ export default {
       if (!this.currentInstance) {
         this.currentInstance = this.resource[0]?.resourceId;
       }
-      this.page = data.map(item => item.resourceId).reduce((result, curr) => {
-        result[curr] = 1;
-        return result;
-      }, {});
-      this.logContent = data.map(item => item.resourceId).reduce((result, curr) => {
-        result[curr] = [];
-        return result;
-      }, {});
+
+      //
+      if (this.currentInstance) {
+        this.changeInstance(this.currentInstance);
+      }
     },
     load(resourceId) {
-      if (this.loading || this.page[resourceId] > this.pageCount) {
+      if (this.loading || this.page > this.pageCount) {
         return;
       }
-      this.logStatus[resourceId] = true;
       this.loading = true;
       if (this.planReportTemplate) {
-        // this.handleGetLogResourceDetail(this.planReportTemplate.logResourceDetail, resourceId);
+        let {reportLogResource} = this.planReportTemplate;
+        if (reportLogResource && reportLogResource.length > 0) {
+          let {reportLogs} = reportLogResource[0];
+          if (reportLogs) {
+            this.handleGetPlanTemplateLog(reportLogs);
+          }
+        }
       } else if (this.isShare) {
-        getSharePerformanceReportLogResourceDetail(this.shareId, this.id, resourceId, this.page[resourceId] || 1, data => {
+        getSharePerformanceReportLogResourceDetail(this.shareId, this.id, resourceId, this.page || 1, data => {
           this.handleGetLogResourceDetail(data, resourceId);
         });
       } else {
-        getPerformanceReportLogResourceDetail(this.id, resourceId, this.page[resourceId] || 1, data => {
+        getPerformanceReportLogResourceDetail(this.id, resourceId, this.page || 1, data => {
           this.handleGetLogResourceDetail(data, resourceId);
         });
       }
     },
-    handleGetLogResourceDetail(data, resourceId) {
-      data.listObject.forEach(log => {
-        if (this.logContent[resourceId]) {
-          this.logContent[resourceId].push(log);
+    handleGetPlanTemplateLog(data) {
+      data.forEach(log => {
+        if (this.logContent) {
+          this.logContent.push(log);
         }
       });
-      this.page[resourceId]++;
+      this.loading = false;
+    },
+    handleGetLogResourceDetail(data, resourceId) {
+      data.listObject.forEach(log => {
+        if (this.logContent) {
+          this.logContent.push(log);
+        }
+      });
+      this.page++;
       this.loading = false;
     },
     changeInstance(instance) {
       this.currentInstance = instance;
-      if (this.logStatus[instance]) {
-        return;
-      }
       this.loading = false;
-      this.page[instance] = 1;
-      this.logContent[instance] = [];
+      this.page = 1;
+      this.logContent = [];
       this.load(instance);
     },
     downloadLogFile(resourceId) {

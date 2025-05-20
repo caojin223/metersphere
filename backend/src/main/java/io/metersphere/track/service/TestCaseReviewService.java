@@ -26,9 +26,9 @@ import io.metersphere.notice.sender.NoticeModel;
 import io.metersphere.notice.service.NoticeSendService;
 import io.metersphere.service.SystemParameterService;
 import io.metersphere.service.UserService;
+import io.metersphere.track.dto.CountMapDTO;
 import io.metersphere.track.dto.TestCaseDTO;
 import io.metersphere.track.dto.TestCaseReviewDTO;
-import io.metersphere.track.dto.TestReviewCaseDTO;
 import io.metersphere.track.dto.TestReviewDTOWithMetric;
 import io.metersphere.track.request.testreview.*;
 import org.apache.commons.beanutils.BeanMap;
@@ -358,6 +358,7 @@ public class TestCaseReviewService {
                 caseReview.setUpdateTime(System.currentTimeMillis());
                 caseReview.setReviewId(request.getReviewId());
                 caseReview.setStatus(TestCaseReviewStatus.Prepare.name());
+                caseReview.setIsDel(false);
                 caseReview.setOrder(nextOrder);
                 batchMapper.insert(caseReview);
                 nextOrder += ServiceUtils.ORDER_STEP;
@@ -393,16 +394,14 @@ public class TestCaseReviewService {
         TestCaseReview testCaseReview = new TestCaseReview();
         testCaseReview.setId(reviewId);
 
-        for (String status : statusList) {
-            if (StringUtils.equals(status, TestReviewCaseStatus.Prepare.name())) {
-                testCaseReview.setStatus(TestCaseReviewStatus.Underway.name());
-                testCaseReviewMapper.updateByPrimaryKeySelective(testCaseReview);
-                return;
-            } else if (StringUtils.equals(status, TestReviewCaseStatus.UnPass.name())) {
-                testCaseReview.setStatus(TestCaseReviewStatus.Finished.name());
-                testCaseReviewMapper.updateByPrimaryKeySelective(testCaseReview);
-                return;
-            }
+        if (statusList.contains(TestReviewCaseStatus.Prepare.name())) {
+            testCaseReview.setStatus(TestCaseReviewStatus.Underway.name());
+            testCaseReviewMapper.updateByPrimaryKeySelective(testCaseReview);
+            return;
+        } else if(statusList.contains(TestReviewCaseStatus.UnPass.name())){
+            testCaseReview.setStatus(TestCaseReviewStatus.Finished.name());
+            testCaseReviewMapper.updateByPrimaryKeySelective(testCaseReview);
+            return;
         }
         testCaseReview.setStatus(TestCaseReviewStatus.Completed.name());
         testCaseReviewMapper.updateByPrimaryKeySelective(testCaseReview);
@@ -446,25 +445,11 @@ public class TestCaseReviewService {
         request.setProjectId(projectId);
         request.setReviewIds(extTestReviewCaseMapper.findRelateTestReviewId(user.getId(), workspaceId, projectId));
 
-        List<String> projectIds = extProjectMapper.getProjectIdByWorkspaceId(workspaceId);
-
         List<TestReviewDTOWithMetric> testReviews = extTestCaseReviewMapper.listRelate(request);
-
-        Map<String, List<TestReviewCaseDTO>> testCaseMap = new HashMap<>();
-        listTestCaseByProjectIds(projectIds).forEach(testCase -> {
-            List<TestReviewCaseDTO> list = testCaseMap.get(testCase.getReviewId());
-            if (list == null) {
-                list = new ArrayList<>();
-                list.add(testCase);
-                testCaseMap.put(testCase.getReviewId(), list);
-            } else {
-                list.add(testCase);
-            }
-        });
 
         if (!CollectionUtils.isEmpty(testReviews)) {
             testReviews.forEach(testReview -> {
-                List<TestReviewCaseDTO> testCases = testCaseMap.get(testReview.getId());
+                List<CountMapDTO> countMapDTOS = extTestReviewCaseMapper.getStatusMapByReviewId(testReview.getId());
 
                 TestCaseReviewUsersExample testCaseReviewUsersExample = new TestCaseReviewUsersExample();
                 testCaseReviewUsersExample.createCriteria().andReviewIdEqualTo(testReview.getId());
@@ -481,18 +466,15 @@ public class TestCaseReviewService {
                 testReview.setReviewed(0);
                 testReview.setTotal(0);
                 testReview.setPass(0);
-                if (testCases != null) {
-                    testReview.setTotal(testCases.size());
-                    testCases.forEach(testCase -> {
-                        if (!StringUtils.equals(testCase.getReviewStatus(), TestReviewCaseStatus.Prepare.name())) {
-                            testReview.setReviewed(testReview.getReviewed() + 1);
-                        }
-                        if (StringUtils.equals(testCase.getReviewStatus(), TestReviewCaseStatus.Pass.name())) {
-                            testReview.setPass(testReview.getPass() + 1);
-                        }
-                    });
-                }
-
+                countMapDTOS.forEach(item -> {
+                    testReview.setTotal(testReview.getTotal() + item.getValue());
+                    if (!StringUtils.equals(item.getKey(), TestReviewCaseStatus.Prepare.name())) {
+                        testReview.setReviewed(testReview.getReviewed() + item.getValue());
+                    }
+                    if (StringUtils.equals(item.getKey(), TestReviewCaseStatus.Pass.name())) {
+                        testReview.setPass(testReview.getPass() + item.getValue());
+                    }
+                });
             });
         }
         return testReviews;
@@ -501,7 +483,7 @@ public class TestCaseReviewService {
     private String getReviewName(List<String> userIds, String projectId) {
         QueryMemberRequest queryMemberRequest = new QueryMemberRequest();
         queryMemberRequest.setProjectId(projectId);
-        Map<String, String> userMap = userService.getProjectMember(queryMemberRequest)
+        Map<String, String> userMap = userService.getProjectMemberList(queryMemberRequest)
                 .stream().collect(Collectors.toMap(User::getId, User::getName));
         StringBuilder stringBuilder = new StringBuilder();
         String name = "";
@@ -517,13 +499,6 @@ public class TestCaseReviewService {
             }
         }
         return name;
-    }
-
-    private List<TestReviewCaseDTO> listTestCaseByProjectIds(List<String> projectIds) {
-        if (CollectionUtils.isEmpty(projectIds)) {
-            return new ArrayList<>();
-        }
-        return extTestReviewCaseMapper.listTestCaseByProjectIds(projectIds);
     }
 
     /*编辑，新建，完成,删除通知内容*/

@@ -25,7 +25,7 @@
           <bug-count-card class="track-card"/>
         </el-col>
         <el-col :span="12">
-          <ms-failure-test-case-list class="track-card" @redirectPage="redirectPage"/>
+          <ms-failure-test-case-list class="track-card" :select-function-case="true" @redirectPage="redirectPage"/>
         </el-col>
       </el-row>
 
@@ -165,21 +165,30 @@ export default {
       //api页面跳转
       //传入UUID是为了进行页面重新加载判断
       let uuid = getUUID();
+      let redirectObj = {
+        redirectID: uuid, dataType: dataType, dataSelectRange: selectType
+      };
       switch (page) {
-        case "api":
+        case "testCase":
           this.$router.push({
-            name: 'ApiDefinition',
-            params: {redirectID: uuid, dataType: dataType, dataSelectRange: selectType}
-          });
-          break;
-        case "scenario":
-          this.$router.push({
-            name: 'ApiAutomation',
+            name: 'testCaseRedirect',
             params: {redirectID: uuid, dataType: dataType, dataSelectRange: selectType}
           });
           break;
         case "testPlanEdit":
           this.$router.push('/track/plan/view/' + selectType)
+          break;
+        case "scenarioWithQuery":
+          this.$router.push({
+            name: 'ApiAutomationWithQuery',
+            params: {redirectID: uuid, dataType: dataType, dataSelectRange: selectType}
+          });
+          break;
+        case "api":
+          this.$router.push({
+            name: 'ApiDefinitionWithQuery',
+            params: {redirectID: uuid, dataType: dataType, dataSelectRange: selectType}
+          });
           break;
       }
     }

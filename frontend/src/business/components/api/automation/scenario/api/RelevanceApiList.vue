@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div v-loading="result.loading">
     <api-list-container
       :is-api-list-enable="isApiListEnable"
       @isApiListEnableChange="isApiListEnableChange">
@@ -114,6 +114,10 @@ export default {
       this.initTable();
     },
     projectId() {
+      this.condition = {
+        components: TEST_PLAN_RELEVANCE_API_DEFINITION_CONFIGS
+      };
+      this.selectNodeIds.length = 0;
       this.initTable();
     },
     currentVersion() {

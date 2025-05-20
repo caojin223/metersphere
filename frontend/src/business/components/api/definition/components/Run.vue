@@ -11,7 +11,6 @@ export default {
   name: 'MsRun',
   components: {},
   props: {
-    environment: Object,
     editCaseRequest: {
       type: Boolean,
       default: false
@@ -36,7 +35,7 @@ export default {
   watch: {
     reportId() {
       // 开启链接
-      this.socketSyncResult();
+      this.socketSync();
     },
     isStop() {
       if (!this.isStop && this.websocket && this.websocket.close instanceof Function) {
@@ -45,7 +44,7 @@ export default {
     }
   },
   methods: {
-    socketSyncResult() {
+    socketSync() {
       let protocol = "ws://";
       if (window.location.protocol === 'https:') {
         protocol = "wss://";
@@ -53,10 +52,18 @@ export default {
       const uri = protocol + window.location.host + "/ws/" + this.reportId;
       this.websocket = new WebSocket(uri);
       this.websocket.onmessage = this.onMessages;
-      // 开始执行
-      this.websocket.onopen = this.run();
+      this.websocket.onerror = this.onError;
+    },
+    onError() {
+      this.$emit('runRefresh', "");
+      this.$error(this.$t('api_test.automation.rerun_warning'));
     },
     onMessages(e) {
+      // 确认连接建立成功，开始执行
+      if (e && e.data === "CONN_SUCCEEDED") {
+        this.run();
+      }
+
       if (e.data && e.data.startsWith("result_")) {
         try {
           let data = e.data.substring(7);
@@ -77,7 +84,10 @@ export default {
             stepArray[i].clazzName = TYPE_TO_C.get(stepArray[i].type);
           }
           if (stepArray[i].type === "Assertions" && !stepArray[i].document) {
-            stepArray[i].document = {type: "JSON", data: {xmlFollowAPI: false, jsonFollowAPI: false, json: [], xml: []}};
+            stepArray[i].document = {
+              type: "JSON",
+              data: {xmlFollowAPI: false, jsonFollowAPI: false, json: [], xml: []}
+            };
           }
           if (stepArray[i] && stepArray[i].authManager && !stepArray[i].authManager.clazzName) {
             stepArray[i].authManager.clazzName = TYPE_TO_C.get(stepArray[i].authManager.type);
@@ -115,7 +125,14 @@ export default {
       })
       this.sort(testPlan.hashTree);
       this.requestResult.reportId = this.reportId;
-      let reqObj = {id: this.reportId, testElement: testPlan, type: this.type, clazzName: this.clazzName ? this.clazzName : TYPE_TO_C.get(this.type), projectId: projectId, environmentMap: strMapToObj(this.envMap)};
+      let reqObj = {
+        id: this.reportId,
+        testElement: testPlan,
+        type: this.type,
+        clazzName: this.clazzName ? this.clazzName : TYPE_TO_C.get(this.type),
+        projectId: projectId,
+        environmentMap: strMapToObj(this.envMap)
+      };
       let bodyFiles = getBodyUploadFiles(reqObj, this.runData);
       reqObj.editCaseRequest = this.editCaseRequest;
       reqObj.debug = this.debug;
@@ -123,6 +140,9 @@ export default {
         reqObj.name = this.runData[0].url;
       } else {
         reqObj.name = this.runData[0].path;
+      }
+      if (this.runData[0].useEnvironment) {
+        reqObj.environmentId = this.runData[0].useEnvironment;
       }
       reqObj.reportId = this.reportId;
       let url = "/api/definition/run/debug";

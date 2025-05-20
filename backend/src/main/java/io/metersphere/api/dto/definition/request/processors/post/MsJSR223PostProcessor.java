@@ -39,7 +39,7 @@ public class MsJSR223PostProcessor extends MsTestElement {
         ParameterConfig config = (ParameterConfig) msParameter;
         if (StringUtils.isEmpty(this.getEnvironmentId())) {
             if (config.getConfig() != null) {
-                if (config.getProjectId() != null) {
+                if (config.getProjectId() != null && config.getConfig().containsKey(config.getProjectId())) {
                     String evnId = config.getConfig().get(config.getProjectId()).getApiEnvironmentid();
                     this.setEnvironmentId(evnId);
                 } else {
@@ -57,7 +57,7 @@ public class MsJSR223PostProcessor extends MsTestElement {
         //替换Metersphere环境变量
         script = StringUtils.replace(script, RunningParamKeys.API_ENVIRONMENT_ID, "\"" + RunningParamKeys.RUNNING_PARAMS_PREFIX + this.getEnvironmentId() + ".\"");
 
-        if(config.isOperating()){
+        if (config.isOperating()) {
             if (StringUtils.isNotEmpty(script) && script.startsWith("io.metersphere.utils.JMeterVars.addVars")) {
                 return;
             }
@@ -87,7 +87,6 @@ public class MsJSR223PostProcessor extends MsTestElement {
             processor.setProperty("scriptLanguage", "rhino");
         }
         processor.setProperty("script", this.getScript());
-
         final HashTree jsr223PostTree = tree.add(processor);
         if (CollectionUtils.isNotEmpty(hashTree)) {
             hashTree.forEach(el -> {

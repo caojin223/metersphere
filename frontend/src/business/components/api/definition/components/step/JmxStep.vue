@@ -18,7 +18,8 @@
           :value="item.id">
         </el-option>
       </el-select>
-      <el-button size="mini" @click="add" type="primary" v-if="tabType !== 'assertionsRule'">
+      <el-button size="mini" @click="add" type="primary" v-if="tabType !== 'assertionsRule'"
+                 style="background-color: var(--primary_color); border-color:var(--primary_color);">
         {{ $t('api_test.request.assertions.add') }}
       </el-button>
     </p>
@@ -30,86 +31,97 @@
              :filter-node-method="filterNode"
              @node-drag-end="allowDrag"
              draggable ref="generalSteps" class="ms-step-tree-cell">
-       <span class="custom-tree-node father" slot-scope="{node,data}" style="width: calc(100% - 20px);">
+      <span class="custom-tree-node father" slot-scope="{node,data}" style="width: calc(100% - 20px);">
         <!--前置脚本-->
-         <div v-if="tabType === 'pre'">
-           <ms-jsr233-processor
-             v-if="data.type==='JSR223PreProcessor'"
-             @remove="remove"
-             @copyRow="copyRow"
-             :protocol="protocol"
-             :title="$t('api_test.definition.request.pre_script')"
-             :jsr223-processor="data"
-             color="#B8741A"
-             background-color="#F9F1EA"/>
-           <!--前置SQL-->
-          <ms-jdbc-processor
-            v-if="data.type ==='JDBCPreProcessor'"
-            @copyRow="copyRow"
-            @remove="remove"
-            :title="$t('api_test.definition.request.pre_sql')"
-            :is-read-only="false"
-            :scenarioId="scenarioId"
-            :request="data"
-            :jdbc-processor="data"
-            color="#B8741A"
-            background-color="#F9F1EA"/>
+    <div v-if="tabType === 'pre'">
+      <ms-jsr233-processor
+        v-if="data.type==='JSR223PreProcessor'"
+        @remove="remove"
+        @copyRow="copyRow"
+        :protocol="protocol"
+        :draggable="true"
+        :title="$t('api_test.definition.request.pre_script')"
+        :jsr223-processor="data"
+        color="#B8741A"
+        background-color="#F9F1EA"/>
+      <!--前置SQL-->
+      <ms-jdbc-processor
+        v-if="data.type ==='JDBCPreProcessor'"
+        @copyRow="copyRow"
+        @remove="remove"
+        :title="$t('api_test.definition.request.pre_sql')"
+        :is-read-only="false"
+        :scenarioId="scenarioId"
+        :request="data"
+        :jdbc-processor="data"
+        :draggable="true"
+        color="#B8741A"
+        background-color="#F9F1EA"/>
 
-           <ms-constant-timer :inner-step="true" :timer="data" :node="node" v-if="data.type ==='ConstantTimer'"
-                              @remove="remove" @copyRow="copyRow"/>
+      <ms-constant-timer
+        :inner-step="true"
+        :timer="data"
+        :node="node"
+        :draggable="true"
+        @remove="remove"
+        @copyRow="copyRow"
+        v-if="data.type ==='ConstantTimer'"
+      />
 
-         </div>
-        <div v-if="tabType ==='post'">
-           <!--后置脚本-->
-          <ms-jsr233-processor
-            v-if="data.type ==='JSR223PostProcessor'"
-            @copyRow="copyRow"
-            @remove="remove"
-            :protocol="protocol"
-            :is-read-only="false"
-            :title="$t('api_test.definition.request.post_script')"
-            :jsr223-processor="data"
-            color="#783887"
-            background-color="#F2ECF3"/>
+    </div>
+    <div v-if="tabType ==='post'">
+      <!--后置脚本-->
+      <ms-jsr233-processor
+        v-if="data.type ==='JSR223PostProcessor'"
+        @copyRow="copyRow"
+        @remove="remove"
+        :protocol="protocol"
+        :is-read-only="false"
+        :title="$t('api_test.definition.request.post_script')"
+        :jsr223-processor="data"
+        :draggable="true"
+        color="#783887"
+        background-color="#F2ECF3"/>
 
-          <!--后置SQL-->
-          <ms-jdbc-processor
-            v-if="data.type ==='JDBCPostProcessor'"
-            @copyRow="copyRow"
-            @remove="remove"
-            :title="$t('api_test.definition.request.post_sql')"
-            :is-read-only="false"
-            :request="data"
-            :scenarioId="scenarioId"
-            :jdbc-processor="data"
-            color="#783887"
-            background-color="#F2ECF3"/>
-          <!--提取规则-->
-           <ms-api-extract
-             :response="response"
-             :is-read-only="data.disabled"
-             :extract="data"
-             :draggable="true"
-             @copyRow="copyRow"
-             @remove="remove"
-             v-if="data.type==='Extract'"
-           />
-          </div>
-         <div v-if="tabType === 'assertionsRule'">
-         <!--断言规则-->
-          <ms-api-assertions
-            v-if="data.type==='Assertions'"
-            @copyRow="copyRow"
-            @remove="remove"
-            @reload="reloadRule"
-            :response="response"
-            :request="request"
-            :apiId="apiId"
-            :draggable="true"
-            :is-read-only="data.disabled"
-            :assertions="data"/>
-         </div>
-       </span>
+      <!--后置SQL-->
+      <ms-jdbc-processor
+        v-if="data.type ==='JDBCPostProcessor'"
+        @copyRow="copyRow"
+        @remove="remove"
+        :title="$t('api_test.definition.request.post_sql')"
+        :is-read-only="false"
+        :request="data"
+        :scenarioId="scenarioId"
+        :jdbc-processor="data"
+        :draggable="true"
+        color="#783887"
+        background-color="#F2ECF3"/>
+      <!--提取规则-->
+      <ms-api-extract
+        :response="response"
+        :is-read-only="data.disabled"
+        :extract="data"
+        :draggable="true"
+        @copyRow="copyRow"
+        @remove="remove"
+        v-if="data.type==='Extract'"
+      />
+    </div>
+    <div v-if="tabType === 'assertionsRule'">
+      <!--断言规则-->
+      <ms-api-assertions
+        v-if="data.type==='Assertions'"
+        @copyRow="copyRow"
+        @remove="remove"
+        @reload="reloadRule"
+        :response="response"
+        :request="request"
+        :apiId="apiId"
+        :draggable="true"
+        :is-read-only="data.disabled"
+        :assertions="data"/>
+    </div>
+    </span>
     </el-tree>
   </div>
 </template>
@@ -120,11 +132,13 @@ import {createComponent} from "../jmeter/components";
 import MsApiAssertions from "../assertion/ApiAssertions";
 import MsApiExtract from "../extract/ApiExtract";
 import {Assertions, Body, ConstantTimer, Extract, KeyValue} from "../../model/ApiTestModel";
-import {getUUID} from "@/common/js/utils";
+import {getUUID, getCurrentProjectID} from "@/common/js/utils";
 import BatchAddParameter from "../basis/BatchAddParameter";
 import MsJsr233Processor from "../../../automation/scenario/component/Jsr233Processor";
 import MsConstantTimer from "../../../automation/scenario/component/ConstantTimer";
 import MsJdbcProcessor from "@/business/components/api/automation/scenario/component/JDBCProcessor";
+import {TYPE_TO_C} from "@/business/components/api/automation/scenario/Setting";
+import {parseEnvironment} from "../../model/EnvironmentModel";
 
 export default {
   name: "MsJmxStep",
@@ -163,6 +177,14 @@ export default {
       type: Boolean,
       default: false
     }
+  },
+  watch: {
+    // 接口/用例 右上角公共环境监听
+    '$store.state.useEnvironment': function () {
+      if (this.request.hashTree && this.request.hashTree.length > 0 && !this.scenarioId) {
+        this.setSubset(this.request.hashTree, this.$store.state.useEnvironment);
+      }
+    },
   },
   data() {
     let validateURL = (rule, value, callback) => {
@@ -207,6 +229,7 @@ export default {
       isReloadData: false,
       isBodyShow: true,
       dialogVisible: false,
+      environments: [],
     }
   },
   created() {
@@ -257,6 +280,67 @@ export default {
       }
       this.sort();
       this.reload();
+    },
+    setSubset(scenarioDefinition, env) {
+      for (let i in scenarioDefinition) {
+        let typeArray = ["JDBCPostProcessor", "JDBCSampler", "JDBCPreProcessor"]
+        if (typeArray.indexOf(scenarioDefinition[i].type) !== -1) {
+          // 找到原始数据源名称
+          this.getTargetSource(scenarioDefinition[i])
+          scenarioDefinition[i].environmentId = env;
+          this.setSameSourceId(env, scenarioDefinition[i])
+        }
+        if (scenarioDefinition[i].hashTree !== undefined && scenarioDefinition[i].hashTree.length > 0) {
+          this.setSubset(scenarioDefinition[i].hashTree, env);
+        }
+      }
+    },
+    getEnvs() {
+      if (!this.scenarioId) {
+        let projectId = this.request.projectId ? this.request.projectId : getCurrentProjectID();
+        this.result = this.$get('/api/environment/list/' + projectId, response => {
+          this.environments = response.data;
+          this.environments.forEach(environment => {
+            parseEnvironment(environment);
+          });
+        });
+      }
+    },
+    getTargetSource(obj) {
+      this.environments.forEach(environment => {
+        // 找到原始环境和数据源名称
+        if (environment.id === obj.environmentId) {
+          if (environment.config && environment.config.databaseConfigs) {
+            environment.config.databaseConfigs.forEach(item => {
+              if (item.id === obj.dataSourceId) {
+                obj.targetDataSourceName = item.name;
+              }
+            });
+          }
+        }
+      });
+    },
+    setSameSourceId(envId, obj) {
+      let currentEnvironment;
+      for (let i in this.environments) {
+        if (this.environments[i].id === envId) {
+          currentEnvironment = this.environments[i];
+          break;
+        }
+      }
+      let isSame = false;
+      if (currentEnvironment && currentEnvironment.config && currentEnvironment.config.databaseConfigs) {
+        currentEnvironment.config.databaseConfigs.forEach(item => {
+          // 按照名称匹配
+          if (item.name === obj.targetDataSourceName) {
+            obj.dataSourceId = item.id;
+            isSame = true;
+          }
+        });
+        if (!isSame && currentEnvironment.config.databaseConfigs.length > 0) {
+          obj.dataSourceId = currentEnvironment.config.databaseConfigs[0].id;
+        }
+      }
     },
     setOwnEnvironment(scenarioDefinition) {
       for (let i in scenarioDefinition) {
@@ -328,6 +412,7 @@ export default {
       if (this.request.disabled) {
         jdbcPreProcessor.label = 'SCENARIO-REF-STEP';
       }
+      jdbcPreProcessor.projectId = this.request.projectId;
       jdbcPreProcessor.active = false;
       this.request.hashTree.push(jdbcPreProcessor);
       this.sort();
@@ -341,6 +426,7 @@ export default {
       if (this.request.disabled) {
         jdbcPostProcessor.label = 'SCENARIO-REF-STEP';
       }
+      jdbcPostProcessor.projectId = this.request.projectId;
       jdbcPostProcessor.active = false;
       this.request.hashTree.push(jdbcPostProcessor);
       this.sort();
@@ -442,22 +528,30 @@ export default {
         this.request.arguments = [];
       }
       this.sort();
+      this.getEnvs();
     },
     sort() {
       let index = 1;
       for (let i in this.request.hashTree) {
-        if (this.tabType === 'pre' && (this.request.hashTree[i].type === 'JSR223PreProcessor' ||
-          this.request.hashTree[i].type === 'JDBCPreProcessor' || this.request.hashTree[i].type === 'ConstantTimer')) {
-          this.request.hashTree[i].index = Number(index);
+        let step = this.request.hashTree[i];
+        if (this.tabType === 'pre' &&
+          (step.type === 'JSR223PreProcessor' ||
+            step.type === 'JDBCPreProcessor' || step.type === 'ConstantTimer')) {
+          step.index = Number(index);
           index++;
-        } else if (this.tabType === 'post' && (this.request.hashTree[i].type === 'JSR223PostProcessor' ||
-          this.request.hashTree[i].type === 'JDBCPostProcessor' ||
-          this.request.hashTree[i].type === 'Extract')) {
-          this.request.hashTree[i].index = Number(index);
+        } else if (this.tabType === 'post' &&
+          (step.type === 'JSR223PostProcessor' ||
+            step.type === 'JDBCPostProcessor' ||
+            step.type === 'Extract')) {
+          step.index = Number(index);
           index++;
-        } else if (this.tabType === 'assertionsRule' && this.request.hashTree[i].type === 'Assertions') {
-          this.request.hashTree[i].index = Number(index);
+        } else if (this.tabType === 'assertionsRule' && step.type === 'Assertions') {
+          step.index = Number(index);
           index++;
+        }
+        // 兼容历史数据
+        if (!step.clazzName) {
+          step.clazzName = TYPE_TO_C.get(step.type);
         }
       }
     },

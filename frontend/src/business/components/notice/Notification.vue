@@ -1,24 +1,18 @@
 <template>
   <div>
-    <el-menu :unique-opened="true" class="header-user-menu align-right header-top-menu"
-             mode="horizontal"
-             :background-color="color"
-             text-color="#fff"
-             active-text-color="#fff">
-      <el-menu-item onselectstart="return false">
-        <el-tooltip effect="light">
-          <template v-slot:content>
-            <span>{{ $t('commons.notice_center') }}</span>
-          </template>
-          <div @click="showNoticeCenter" v-if="noticeCount > 0 || noticeShow">
-            <el-badge is-dot class="item" type="danger">
-              <font-awesome-icon class="icon global focusing" :icon="['fas', 'bell']"/>
-            </el-badge>
-          </div>
-          <font-awesome-icon @click="showNoticeCenter" class="icon global focusing" :icon="['fas', 'bell']" v-else/>
-        </el-tooltip>
-      </el-menu-item>
-    </el-menu>
+    <div class="ms-header-menu align-right">
+      <el-tooltip effect="light">
+        <template v-slot:content>
+          <span>{{ $t('commons.notice_center') }}</span>
+        </template>
+        <div @click="showNoticeCenter" v-if="noticeCount > 0 || noticeShow">
+          <el-badge is-dot class="item" type="danger">
+            <font-awesome-icon class="icon global focusing" :icon="['fas', 'bell']"/>
+          </el-badge>
+        </div>
+        <font-awesome-icon @click="showNoticeCenter" class="icon global focusing" :icon="['fas', 'bell']" v-else/>
+      </el-tooltip>
+    </div>
 
     <el-drawer :visible.sync="taskVisible" :destroy-on-close="true" direction="rtl"
                :withHeader="true" :modal="false" :title="$t('commons.notice_center')" size="550px"
@@ -79,9 +73,6 @@ export default {
       noticeShow: false,
     };
   },
-  props: {
-    color: String
-  },
   created() {
     this.getNotifications();
     this.getUserList();
@@ -93,9 +84,12 @@ export default {
       }
     }
   },
+  beforeDestroy() {
+    this.websocket.close();
+  },
   methods: {
     getUserList() {
-      this.$get('/user/list', response => {
+      this.$get('/user/ws/current/member/list', response => {
         this.userList = response.data;
         this.userMap = this.userList.reduce((r, c) => {
           r[c.id] = c;
@@ -223,7 +217,7 @@ export default {
 }
 
 .global {
-  color: #fff;
+  color: rgb(146, 147, 150);
 }
 
 .header-top-menu {
@@ -260,7 +254,7 @@ export default {
 }
 
 /deep/ .el-badge__content.is-fixed {
-  top: 25px;
+  top: 15px;
 }
 
 /deep/ .el-badge__content {
@@ -280,4 +274,14 @@ export default {
 .ms-task-success {
   color: #67C23A;
 }
+
+.ms-header-menu {
+  padding: 12px 0px 0px;
+}
+
+.ms-header-menu:hover {
+  cursor: pointer;
+  border-color: var(--color);
+}
+
 </style>

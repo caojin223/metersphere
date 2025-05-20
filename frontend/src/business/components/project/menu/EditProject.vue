@@ -1,8 +1,9 @@
 <template>
-  <div v-loading="result.loading">
-    <el-dialog :close-on-click-modal="false" :title="title" :visible.sync="createVisible" destroy-on-close
+  <div>
+    <el-dialog :close-on-click-modal="false" :title="title" :visible.sync="createVisible" v-if="createVisible"
                @close="handleClose">
-      <el-form :model="form" :rules="rules" ref="form" label-position="right" label-width="80px" size="small">
+      <el-form ref="form" v-loading="result.loading" :model="form" :rules="rules" label-position="right"
+               label-width="80px" size="small">
         <el-form-item :label-width="labelWidth" :label="$t('commons.name')" prop="name">
           <el-input v-model="form.name" autocomplete="off"></el-input>
         </el-form-item>
@@ -17,7 +18,8 @@
         </el-form-item>
 
         <el-form-item :label-width="labelWidth" :label="$t('workspace.case_template_manage')" prop="caseTemplateId">
-          <template-select :data="form" scene="API_CASE" prop="caseTemplateId" ref="caseTemplate" :project-id="form.id"/>
+          <template-select ref="caseTemplate" :data="form" :project-id="form.id" prop="caseTemplateId"
+                           scene="API_CASE"/>
         </el-form-item>
 
         <el-form-item :label-width="labelWidth"
@@ -34,22 +36,36 @@
 
         </el-form-item>
 
+        <el-form-item :label="$t('workspace.api_template_manage')" :label-width="labelWidth" prop="apiTemplateId">
+          <template-select ref="apiTemplate" :data="form" :project-id="form.id" prop="apiTemplateId"
+                           scene="API"/>
+        </el-form-item>
+
         <el-form-item :label-width="labelWidth" :label="$t('commons.description')" prop="description">
           <el-input :autosize="{ minRows: 2, maxRows: 4}" type="textarea" v-model="form.description"></el-input>
         </el-form-item>
         <el-form-item :label-width="labelWidth" :label="$t('project.tapd_id')" v-if="tapd">
           <el-input v-model="form.tapdId" autocomplete="off"></el-input>
-          <el-button @click="check" type="primary" class="checkButton">{{ $t('test_track.issue.check_id_exist') }}</el-button>
+          <el-button class="checkButton" type="primary" @click="check">{{
+              $t('test_track.issue.check_id_exist')
+            }}
+          </el-button>
         </el-form-item>
 
-        <project-jira-config v-if="jira" :label-width="labelWidth" :form="form">
+        <project-jira-config :result="result" v-if="jira" :label-width="labelWidth" :form="form" ref="jiraConfig">
           <template #checkBtn>
-            <el-button @click="check" type="primary" class="checkButton">{{ $t('test_track.issue.check_id_exist') }}</el-button>
+            <el-button class="checkButton" type="primary" @click="check">{{
+                $t('test_track.issue.check_id_exist')
+              }}
+            </el-button>
           </template>
         </project-jira-config>
         <el-form-item :label-width="labelWidth" :label="$t('project.zentao_id')" v-if="zentao">
           <el-input v-model="form.zentaoId" autocomplete="off"></el-input>
-          <el-button @click="check" type="primary" class="checkButton">{{ $t('test_track.issue.check_id_exist') }}</el-button>
+          <el-button class="checkButton" type="primary" @click="check">{{
+              $t('test_track.issue.check_id_exist')
+            }}
+          </el-button>
           <ms-instructions-icon effect="light">
             <template>
               禅道流程：产品-项目 | 产品-迭代 | 产品-冲刺 | 项目-迭代 | 项目-冲刺 <br/><br/>
@@ -88,6 +104,7 @@ import {
   getCurrentUserId,
   getCurrentWorkspaceId,
   listenGoBack,
+  operationConfirm,
   removeGoBackListener
 } from "@/common/js/utils";
 
@@ -152,7 +169,7 @@ export default {
         // caseTemplateId: [{required: true}],
         // issueTemplateId: [{required: true}],
       },
-      screenHeight: 'calc(100vh - 195px)',
+      screenHeight: 'calc(100vh - 155px)',
       labelWidth: '150px',
       platformOptions: [],
       issueOptions: [],
@@ -208,6 +225,9 @@ export default {
       if (this.$refs.caseTemplate) {
         this.$refs.caseTemplate.getTemplateOptions();
       }
+      if (this.$refs.apiTemplate) {
+        this.$refs.apiTemplate.getTemplateOptions();
+      }
     },
     thirdPartTemplateChange(val) {
       if (val)
@@ -219,15 +239,28 @@ export default {
       listenGoBack(this.handleClose);
       if (row) {
         this.title = this.$t('project.edit');
-        row.issueConfigObj = row.issueConfig ? JSON.parse(row.issueConfig) : {};
+        row.issueConfigObj = row.issueConfig ? JSON.parse(row.issueConfig) : {
+          jiraIssueTypeId: null,
+          jiraStoryTypeId: null
+        };
+        // 兼容性处理
+        if (!row.issueConfigObj.jiraIssueTypeId) {
+          row.issueConfigObj.jiraIssueTypeId = null;
+        }
+        if (!row.issueConfigObj.jiraStoryTypeId) {
+          row.issueConfigObj.jiraStoryTypeId = null;
+        }
         this.form = Object.assign({}, row);
         this.issueTemplateId = row.issueTemplateId;
       } else {
-        this.form = {issueConfigObj: {}};
+        this.form = {issueConfigObj: {jiraIssueTypeId: null, jiraStoryTypeId: null}};
+      }
+      if (this.$refs.jiraConfig) {
+        this.$refs.jiraConfig.getIssueTypeOption(this.form);
       }
       this.platformOptions = [];
       this.platformOptions.push(...ISSUE_PLATFORM_OPTION);
-      this.$get("/service/integration/all/" + getCurrentUser().lastWorkspaceId, response => {
+      this.result = this.$get("/service/integration/all", response => {
         let data = response.data;
         let platforms = data.map(d => d.platform);
         this.filterPlatformOptions(platforms, TAPD);
@@ -278,11 +311,7 @@ export default {
       this.$refs.deleteConfirm.open(project);
     },
     _handleDelete(project) {
-      this.$confirm(this.$t('project.delete_tip'), '', {
-        confirmButtonText: this.$t('commons.confirm'),
-        cancelButtonText: this.$t('commons.cancel'),
-        type: 'warning'
-      }).then(() => {
+      operationConfirm(this.$t('project.delete_tip'), () => {
         this.$get('/project/delete/' + project.id, () => {
           if (project.id === getCurrentProjectID()) {
             localStorage.removeItem(PROJECT_ID);
@@ -290,11 +319,6 @@ export default {
           }
           this.$success(this.$t('commons.delete_success'));
           this.list();
-        });
-      }).catch(() => {
-        this.$message({
-          type: 'info',
-          message: this.$t('commons.delete_cancelled')
         });
       });
     },

@@ -3,7 +3,7 @@ const mutations = {
   setTest: (state, test) => state.test = test,
   setScenarioJmxs: (state, scenarioJmxs) => state.scenarioJmxs = scenarioJmxs,
   clearTest: state => state.test = {},
-  clearScenarioJmxs:state => state.scenarioJmxs = {},
+  clearScenarioJmxs: state => state.scenarioJmxs = {},
   setVersionSwitch: (state, value) => state.versionSwitch = value,
   setTheme: (state, value) => state.theme = value,
 
@@ -17,6 +17,7 @@ const mutations = {
   setIsTestCaseMinderChanged: (state, value) => state.isTestCaseMinderChanged = value,
   setCurrentProjectIsCustomNum: (state, value) => state.currentProjectIsCustomNum = value,
   setTestCaseTemplate: (state, value) => state.testCaseTemplate = value,
+  setApiTemplate: (state, value) => state.apiTemplate = value,
   setCurTabId: (state, value) => state.curTabId = value,
   setTestCaseDefaultValue: (state, value) => state.testCaseDefaultValue = value,
   setSelectCommand: (state, value) => state.selectCommand = value,
@@ -30,6 +31,20 @@ const mutations = {
   setRefreshUiScenario: (state, value) => state.refreshUiScenario = value,
   setSelectUiGroup: (state, value) => state.selectUiGroup = value,
   setShowLicenseCountWarning: (state, value) => state.showLicenseCountWarning = value,
+  setTemWorkspaceId: (state, value) => state.temWorkspaceId = value,
+  setDownloadFile: (state, downloadFile) => {
+    // 实时更新下载进度条
+    let loadingFile = state.fileDownloadList.find(item => item.id === downloadFile.id);
+    if (loadingFile) {
+      loadingFile.progress = downloadFile.progress;
+    } else {
+      state.fileDownloadList.push(downloadFile);
+    }
+  },
+  deleteDownloadFile: (state, props) => {
+    state.fileDownloadList.splice(state.fileDownloadList.findIndex(item => item.id === props), 1);
+  },
+  setAppFixed: (state, value) => state.appFixed = value,
 }
 
 export default mutations;

@@ -6,38 +6,38 @@
                 @change="handleChange"
                 filterable v-model="data[prop]" :placeholder="$t('commons.default')">
       <el-option
-        v-for="(item,index) in data.options ? data.options : []"
-        :key="index"
-        @change="handleChange"
-        :label="getTranslateOption(item)"
-        :value="item.value">
+          v-for="(item,index) in data.options ? data.options : []"
+          :key="index"
+          :label="getTranslateOption(item)"
+          :value="item.value"
+          @change="handleChange">
       </el-option>
     </el-select>
 
     <el-cascader
-      v-else-if="data.type === 'cascadingSelect'"
-      expand-trigger="hover"
-      @change="handleChange"
-      :props="{label: 'text'}"
-      :options="data.options"
-      v-model="data[prop]">
+        v-else-if="data.type === 'cascadingSelect'"
+        v-model="data[prop]"
+        :options="data.options"
+        :props="{label: 'text'}"
+        expand-trigger="hover"
+        @change="handleChange">
     </el-cascader>
 
     <el-input
-      v-else-if="data.type === 'textarea'"
-      type="textarea"
-      @change="handleChange"
-      :rows="2"
-      :disabled="disabled"
-      :placeholder="$t('commons.input_content')"
-      class="custom-with"
-      v-model="data[prop]">
+        v-else-if="data.type === 'textarea'"
+        v-model="data[prop]"
+        :disabled="disabled"
+        :placeholder="$t('commons.input_content')"
+        :rows="2"
+        class="custom-with"
+        type="textarea"
+        @change="handleChange">
     </el-input>
 
     <el-checkbox-group
-      v-else-if="data.type === 'checkbox'"
-      :disabled="disabled"
-      v-model="data[prop]">
+        v-else-if="data.type === 'checkbox'"
+        v-model="data[prop]"
+        :disabled="disabled">
       <el-checkbox v-for="(item, index) in data.options ? data.options : []"
                    :key="index"
                    @change="handleChange"
@@ -47,36 +47,37 @@
     </el-checkbox-group>
 
     <el-radio
-      v-else-if="data.type === 'radio'"
-      v-model="data[prop]"
-      :disabled="disabled"
-      v-for="(item,index) in data.options ? data.options : []"
-      :key="index"
-      @change="handleChange"
-      :label="item.value">
+        v-for="(item,index) in data.options ? data.options : []"
+        v-else-if="data.type === 'radio'"
+        :key="index"
+        v-model="data[prop]"
+        :disabled="disabled"
+        :label="item.value"
+        @change="handleChange">
       {{ getTranslateOption(item) }}
     </el-radio>
 
     <el-input-number
-      v-else-if="data.type === 'int'"
-      v-model="data[prop]"
-      :disabled="disabled"
-      @change="handleChange"/>
+        v-else-if="data.type === 'int'"
+        v-model="data[prop]"
+        :disabled="disabled"
+        @change="handleChange"/>
 
     <el-input-number
-      v-else-if="data.type === 'float'"
-      :disabled="disabled"
-      @change="handleChange"
-      v-model="data[prop]" :precision="2" :step="0.1"/>
+        v-else-if="data.type === 'float'"
+        v-model="data[prop]"
+        :disabled="disabled"
+        :precision="2" :step="0.1" @change="handleChange"/>
 
      <el-date-picker
-       class="custom-with"
-       @change="handleChange"
-       v-else-if="data.type === 'date' || data.type === 'datetime'"
-       :disabled="disabled"
-       v-model="data[prop]"
-       :type="data.type === 'date' ? 'date' : 'datetime'"
-       :placeholder="$t('commons.select_date')">
+         v-else-if="data.type === 'date' || data.type === 'datetime'"
+         v-model="data[prop]"
+         :disabled="disabled"
+         :placeholder="$t('commons.select_date')"
+         :type="data.type === 'date' ? 'date' : 'datetime'"
+         :value-format="data.type === 'date' ? 'yyyy-MM-dd' : 'yyyy-MM-dd HH:mm:ss'"
+         class="custom-with"
+         @change="handleChange">
     </el-date-picker>
 
     <el-select v-else-if="data.type === 'member' || data.type === 'multipleMember'"
@@ -85,10 +86,10 @@
                :disabled="disabled"
                filterable v-model="data[prop]" :placeholder="$t('commons.default')">
        <el-option
-         v-for="(item) in memberOptions"
-         :key="item.id"
-         :label="item.name + ' (' + item.email + ')'"
-         :value="item.id">
+           v-for="(item) in memberOptions"
+           :key="item.id"
+           :label="item.name + (item.email ? ' (' + item.email + ')' : '')"
+           :value="item.id">
        </el-option>
     </el-select>
 
@@ -99,12 +100,13 @@
     <ms-mark-down-text v-else-if="data.type === 'richText'"
                        :prop="prop"
                        @change="handleChange"
+                       :default-open="defaultOpen"
                        :data="data" :disabled="disabled"/>
 
     <el-input class="custom-with"
               @input="handleChange"
               :disabled="disabled"
-              v-else v-model="data[prop]"/>
+              v-else v-model="data[prop]" maxlength="450" show-word-limit/>
 
   </span>
 
@@ -112,7 +114,6 @@
 
 <script>
 import MsTableColumn from "@/business/components/common/components/table/MsTableColumn";
-import {getCurrentProjectID} from "@/common/js/utils";
 import MsInputTag from "@/business/components/api/automation/scenario/MsInputTag";
 import MsMarkDownText from "@/business/components/track/case/components/MsMarkDownText";
 import {getProjectMemberOption} from "@/network/user";
@@ -124,7 +125,9 @@ export default {
     'data',
     'prop',
     'form',
-    'disabled'
+    'disabled',
+    'defaultOpen',
+    'isTemplateEdit'
   ],
   data() {
     return {
@@ -132,9 +135,35 @@ export default {
     };
   },
   mounted() {
-    getProjectMemberOption((data) => {
-      this.memberOptions = data;
-    });
+    if (['select', 'multipleSelect', 'checkbox', 'radio'].indexOf(this.data.type) > -1 && this.data.options) {
+      let values = this.data[this.prop];
+      if (['multipleSelect', 'checkbox'].indexOf(this.data.type) > -1) {
+        if (values && values instanceof Array) {
+          for (let i = values.length - 1; i >= 0; i--) {
+            if (!this.data.options.find(item => item.value === values[i])) {
+              // 删除已删除的选项
+              values.splice(i, 1);
+            }
+          }
+        } else {
+          // 不是数组类型，改成空数组
+          this.data[this.prop] = [];
+        }
+      } else {
+        if (!this.data.options.find(item => item.value === values)) {
+          // 没有选项则清空
+          this.data[this.prop] = '';
+        }
+      }
+    }
+    if (this.data.type === 'member' || this.data.type === 'multipleMember') {
+      getProjectMemberOption((data) => {
+        this.memberOptions = data;
+        if (this.data.name === '责任人' && this.data.system && this.isTemplateEdit) {
+          this.memberOptions.unshift({id: 'CURRENT_USER', name: '创建人', email: ''});
+        }
+      });
+    }
   },
   methods: {
     getTranslateOption(item) {
@@ -144,6 +173,7 @@ export default {
       if (this.form) {
         this.$set(this.form, this.data.name, this.data[this.prop]);
       }
+      this.$forceUpdate();
     },
   }
 };
@@ -153,13 +183,16 @@ export default {
 .el-select {
   width: 100%;
 }
+
 .el-date-editor.el-input {
   width: 100%;
 }
-.custom-with >>> .el-input__inner{
+
+.custom-with >>> .el-input__inner {
   height: 32px;
 }
->>> .el-input--suffix .el-input__inner{
+
+>>> .el-input--suffix .el-input__inner {
   height: 32px;
 }
 </style>

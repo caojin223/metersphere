@@ -90,7 +90,7 @@ public class MsJDBCPreProcessor extends MsTestElement {
         if (config.getConfig() == null) {
             // 单独接口执行
             this.setProjectId(config.getProjectId());
-            config.setConfig(ElementUtil.getEnvironmentConfig(StringUtils.isNotEmpty(useEnvironment) ? useEnvironment : environmentId, this.getProjectId(), isMockEnvironment()));
+            config.setConfig(ElementUtil.getEnvironmentConfig(StringUtils.isNotEmpty(useEnvironment) ? useEnvironment : environmentId, this.getProjectId()));
         }
 
         // 数据兼容处理
@@ -126,7 +126,12 @@ public class MsJDBCPreProcessor extends MsTestElement {
             } else {
                 // 取当前环境下默认的一个数据源
                 if (config.isEffective(this.getProjectId()) && CollectionUtils.isNotEmpty(config.getConfig().get(this.getProjectId()).getDatabaseConfigs())) {
-                    this.dataSource = config.getConfig().get(this.getProjectId()).getDatabaseConfigs().get(0);
+                    DatabaseConfig dataSourceOrg = ElementUtil.dataSource(getProjectId(), dataSourceId, config.getConfig().get(this.getProjectId()));
+                    if (dataSourceOrg != null) {
+                        this.dataSource = dataSourceOrg;
+                    } else {
+                        this.dataSource = config.getConfig().get(this.getProjectId()).getDatabaseConfigs().get(0);
+                    }
                 }
             }
         }
@@ -239,7 +244,7 @@ public class MsJDBCPreProcessor extends MsTestElement {
             arguments.setProperty(TestElement.TEST_CLASS, Arguments.class.getName());
             arguments.setProperty(TestElement.GUI_CLASS, SaveService.aliasToClass("ArgumentsPanel"));
             variables.stream().filter(KeyValue::isValid).filter(KeyValue::isEnable).forEach(keyValue ->
-                    arguments.addArgument(keyValue.getName(), keyValue.getValue(), "=")
+                    arguments.addArgument(keyValue.getName(), ElementUtil.getEvlValue(keyValue.getValue()), "=")
             );
             return arguments;
         }

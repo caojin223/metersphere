@@ -1,6 +1,6 @@
 <template>
   <div class="card-container">
-    <ms-table-header :condition.sync="condition" @search="initTableData" ref="tableHeader"
+    <ms-table-header :condition.sync="condition" @search="search" ref="tableHeader"
                      :show-create="false" :tip="$t('commons.search_by_id_name_tag')">
 
       <!-- 不显示 “全部用例” 标题,使标题为空 -->
@@ -13,7 +13,8 @@
                          :content="$t('test_track.plan_view.my_case')" @click="searchMyTestCase"/>
         <ms-table-button v-permission="['PROJECT_TRACK_CASE:READ']" v-if="showMyTestCase" icon="el-icon-files"
                          :content="$t('test_track.plan_view.all_case')" @click="searchMyTestCase"/>
-        <ms-table-button v-permission="['PROJECT_TRACK_PLAN:READ+RELEVANCE_OR_CANCEL']" icon="el-icon-connection" :disabled="planStatus==='Archived'"
+        <ms-table-button v-permission="['PROJECT_TRACK_PLAN:READ+RELEVANCE_OR_CANCEL']" icon="el-icon-connection"
+                         :disabled="planStatus==='Archived'"
                          :content="$t('test_track.plan_view.relevance_test_case')"
                          @click="$emit('openTestCaseRelevanceDialog')"/>
       </template>
@@ -34,7 +35,8 @@
       :row-order-group-id="planId"
       :row-order-func="editTestPlanTestCaseOrder"
       :enable-order-drag="enableOrderDrag"
-      @refresh="initTableData"
+      @filter="search"
+      @order="initTableData"
       @handlePageChange="initTableData"
       @handleRowClick="handleEdit"
       row-key="id"
@@ -154,7 +156,7 @@
           :fields-width="fieldsWidth"
           :label="$t('test_track.plan_view.executor')">
           <template v-slot:default="scope">
-            {{scope.row.executorName}}
+            {{ scope.row.executorName }}
           </template>
         </ms-table-column>
 
@@ -181,18 +183,18 @@
                   <status-table-item :value="scope.row.status"/>
                 </span>
                 <el-dropdown-menu slot="dropdown" chang>
-                  <el-dropdown-item :disabled="!hasEditPermission" :command="{id: scope.row.id, status: 'Pass'}">
+                  <el-dropdown-item :disabled="!hasEditPermission" :command="{id: scope.row.id, caseId: scope.row.caseId, status: 'Pass'}">
                     {{ $t('test_track.plan_view.pass') }}
                   </el-dropdown-item>
                   <el-dropdown-item :disabled="!hasEditPermission"
-                                    :command="{id: scope.row.id, status: 'Failure'}">
+                                    :command="{id: scope.row.id, caseId: scope.row.caseId, status: 'Failure'}">
                     {{ $t('test_track.plan_view.failure') }}
                   </el-dropdown-item>
                   <el-dropdown-item :disabled="!hasEditPermission"
-                                    :command="{id: scope.row.id, status: 'Blocking'}">
+                                    :command="{id: scope.row.id, caseId: scope.row.caseId, status: 'Blocking'}">
                     {{ $t('test_track.plan_view.blocking') }}
                   </el-dropdown-item>
-                  <el-dropdown-item :disabled="!hasEditPermission" :command="{id: scope.row.id, status: 'Skip'}">
+                  <el-dropdown-item :disabled="!hasEditPermission" :command="{id: scope.row.id, caseId: scope.row.caseId, status: 'Skip'}">
                     {{ $t('test_track.plan_view.skip') }}
                   </el-dropdown-item>
                 </el-dropdown-menu>
@@ -223,10 +225,11 @@
                          :prop="field.name">
           <template v-slot="scope">
               <span v-if="field.name === '用例等级'">
-                  <priority-table-item :value="getCustomFieldValue(scope.row, field) ? getCustomFieldValue(scope.row, field) : scope.row.priority"/>
+                  <priority-table-item
+                    :value="getCustomFieldValue(scope.row, field) ? getCustomFieldValue(scope.row, field) : scope.row.priority"/>
               </span>
             <span v-else>
-                {{getCustomFieldValue(scope.row, field)}}
+                {{ getCustomFieldValue(scope.row, field) }}
               </span>
           </template>
         </ms-table-column>
@@ -234,7 +237,7 @@
       </span>
     </ms-table>
 
-    <ms-table-pagination :change="search" :current-page.sync="currentPage" :page-size.sync="pageSize"
+    <ms-table-pagination :change="initTableData" :current-page.sync="currentPage" :page-size.sync="pageSize"
                          :total="total"/>
 
     <functional-test-case-edit
@@ -250,7 +253,7 @@
       :test-cases="tableData"
       :is-read-only="isReadOnly"
       :total="total"
-      @refreshTable="search"/>
+      @refreshTable="initTableData"/>
 
     <batch-edit ref="batchEdit" @batchEdit="batchEdit"
                 :type-arr="typeArr" :value-arr="valueArr" :dialog-title="$t('test_track.case.batch_edit_case')"/>
@@ -267,11 +270,8 @@ import MsTableHeader from '../../../../../common/components/MsTableHeader';
 import MsTableButton from '../../../../../common/components/MsTableButton';
 import NodeBreadcrumb from '../../../../common/NodeBreadcrumb';
 
-import {
-  TEST_PLAN_FUNCTION_TEST_CASE,
-  TokenKey,
-} from "@/common/js/constants";
-import {getCurrentProjectID, hasPermission, hasLicense} from "@/common/js/utils";
+import {TEST_PLAN_FUNCTION_TEST_CASE, TokenKey,} from "@/common/js/constants";
+import {getCurrentProjectID, hasLicense, hasPermission} from "@/common/js/utils";
 import PriorityTableItem from "../../../../common/tableItems/planview/PriorityTableItem";
 import StatusTableItem from "../../../../common/tableItems/planview/StatusTableItem";
 import TypeTableItem from "../../../../common/tableItems/planview/TypeTableItem";
@@ -283,7 +283,10 @@ import BatchEdit from "../../../../case/components/BatchEdit";
 import MsTag from "@/business/components/common/components/MsTag";
 import {
   buildBatchParam,
-  getCustomFieldValue, getCustomTableHeader, getCustomTableWidth, getLastTableSortField,
+  getCustomFieldValue,
+  getCustomTableHeader,
+  getCustomTableWidth,
+  getLastTableSortField,
   getTableHeaderWithCustomFields,
   initCondition,
 } from "@/common/js/tableUtils";
@@ -333,6 +336,7 @@ export default {
       currentPage: 1,
       pageSize: 10,
       total: 0,
+      pageCount: 0,
       status: 'default',
       testPlan: {},
       isReadOnly: false,
@@ -353,8 +357,7 @@ export default {
         {text: this.$t('test_track.plan_view.pass'), value: 'Pass'},
         {text: this.$t('test_track.plan_view.failure'), value: 'Failure'},
         {text: this.$t('test_track.plan_view.blocking'), value: 'Blocking'},
-        {text: this.$t('test_track.plan_view.skip'), value: 'Skip'},
-        {text: this.$t('test_track.plan.plan_status_running'), value: 'Underway'},
+        {text: this.$t('test_track.plan_view.skip'), value: 'Skip'}
       ],
       executorFilters: [],
       maintainerFilters: [],
@@ -400,8 +403,8 @@ export default {
     systemFiledMap() {
       return SYSTEM_FIELD_NAME_MAP;
     },
-    operators(){
-      if (this.planStatus==='Archived') {
+    operators() {
+      if (this.planStatus === 'Archived') {
         return [
           {
             tip: this.$t('commons.edit'), icon: "el-icon-edit",
@@ -431,8 +434,8 @@ export default {
         ]
       }
     },
-    buttons(){
-      if (this.planStatus==='Archived') {
+    buttons() {
+      if (this.planStatus === 'Archived') {
         return [
           {
             name: this.$t('test_track.case.batch_edit_case'), handleClick: this.handleBatchEdit,
@@ -458,7 +461,7 @@ export default {
           }
         ]
       }
-    } ,
+    },
   },
   watch: {
     planId() {
@@ -466,7 +469,7 @@ export default {
     },
     selectNodeIds() {
       this.condition.selectAll = false;
-      this.search();
+      this.initTableData();
     },
     tableLabel: {
       handler(newVal) {
@@ -476,10 +479,14 @@ export default {
     },
     condition() {
       this.$emit('setCondition', this.condition);
+    },
+    pageCount() {
+      this.currentPage = 1;
     }
   },
   created() {
     this.condition.orders = getLastTableSortField(this.tableHeaderKey);
+    this.pageCount = Math.ceil(this.total / this.pageSize);
   },
   mounted() {
     this.$emit('setCondition', this.condition);
@@ -495,7 +502,7 @@ export default {
   },
   methods: {
     loadIssue(row) {
-      if(row.issuesSize && !row.hasLoadIssue) {
+      if (row.issuesSize && !row.hasLoadIssue) {
         this.$get("/issues/get/case/PLAN_FUNCTIONAL/" + row.id).then(response => {
           this.$set(row, "issuesContent", response.data.data);
           this.$set(row, "hasLoadIssue", true);
@@ -555,14 +562,15 @@ export default {
         }
         this.status = 'all';
       }
+      this.condition.nodeIds = [];
       if (this.selectNodeIds && this.selectNodeIds.length > 0) {
-        // param.nodeIds = this.selectNodeIds;
         this.condition.nodeIds = this.selectNodeIds;
       }
       this.condition.projectId = getCurrentProjectID();
       if (this.planId) {
-        getTestPlanTestCase(this.currentPage, this.pageSize, this.condition, (data) => {
+        this.result = getTestPlanTestCase(this.currentPage, this.pageSize, this.condition, (data) => {
           this.total = data.itemCount;
+          this.pageCount = Math.ceil(this.total / this.pageSize);
           this.tableData = data.listObject;
           for (let i = 0; i < this.tableData.length; i++) {
             if (this.tableData[i]) {
@@ -623,13 +631,9 @@ export default {
       this.$refs.testPlanTestCaseEdit.openTestCaseEdit(row, this.tableData);
     },
     refresh() {
-      this.condition = {components: TEST_PLAN_TEST_CASE_CONFIGS};
       this.$refs.table.clear();
-      this.$emit('refresh');
-    },
-    breadcrumbRefresh() {
-      this.showMyTestCase = false;
-      this.refresh();
+      this.initTableData();
+      this.$emit('refreshTree');
     },
     refreshTableAndPlan() {
       if (this.$refs.tableHeader) {
@@ -646,6 +650,7 @@ export default {
     },
     search() {
       this.initTableData();
+      this.$emit('search');
     },
     buildPagePath(path) {
       return path + "/" + this.currentPage + "/" + this.pageSize;
@@ -675,8 +680,7 @@ export default {
           if (action === 'confirm') {
             let param = buildBatchParam(this, this.$refs.table.selectIds);
             this.$post('/test/plan/case/batch/delete', param, () => {
-              this.$refs.table.clear();
-              this.$emit("refresh");
+              this.refresh();
               this.$success(this.$t('test_track.cancel_relevance_success'));
             });
           }
@@ -686,7 +690,7 @@ export default {
     _handleDelete(testCase) {
       let testCaseId = testCase.id;
       this.result = this.$post('/test/plan/case/delete/' + testCaseId, {}, () => {
-        this.$emit("refresh");
+        this.refresh();
         this.$success(this.$t('test_track.cancel_relevance_success'));
       });
     },
@@ -730,11 +734,10 @@ export default {
       }
       param.ids = this.$refs.table.selectIds;
       this.$post('/test/plan/case/batch/edit', param, () => {
-        this.$refs.table.clear();
         this.status = '';
         this.$post('/test/plan/edit/status/' + this.planId);
         this.$success(this.$t('commons.save_success'));
-        this.$emit('refresh');
+        this.refresh();
       });
     },
     handleBatchEdit() {
@@ -742,7 +745,7 @@ export default {
       this.$refs.batchEdit.open(this.condition.selectAll ? this.total : this.$refs.table.selectRows.size);
     },
     getMaintainerOptions() {
-      this.$post('/user/project/member/tester/list', {projectId: getCurrentProjectID()}, response => {
+      this.$get('/user/project/member/list', response => {
         this.valueArr.executor = response.data;
         this.executorFilters = response.data.map(u => {
           return {text: u.name, value: u.id};
@@ -755,7 +758,7 @@ export default {
     getVersionOptions() {
       if (hasLicense()) {
         this.$get('/project/version/get-project-versions/' + getCurrentProjectID(), response => {
-          this.versionOptions= response.data;
+          this.versionOptions = response.data;
           this.versionFilters = response.data.map(u => {
             return {text: u.name, value: u.id};
           });

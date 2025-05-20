@@ -1,7 +1,9 @@
 import i18n from "@/i18n/i18n";
-import {getCurrentProjectID} from "../../../../../common/js/utils";
+import {getCurrentProjectID, getCurrentWorkspaceId} from "../../../../../common/js/utils";
 import {success, warning} from "../../../../../common/js/message";
 import {deleteIssueRelate} from "@/network/Issue";
+import {minderPageInfoMap} from "@/network/testCase";
+import {setPriorityView} from "vue-minder-editor-plus/src/script/tool/utils";
 
 export function listenNodeSelected(callback) {
   let minder = window.minder;
@@ -49,32 +51,59 @@ export function getSelectedNodes() {
  * @param result
  */
 export function loadNode(node, param, getCaseFuc, setParamCallback, getExtraNodeFuc) {
-  let data = node.data;
-  if (!data.loaded && data.type === 'node') {
-    if (param.result) {
-      param.result.loading = true;
+  return new Promise((resolve) => {
+    let data = node.data;
+    if (!data.loaded && data.type === 'node') {
+      if (param.result) {
+        param.result.loading = true;
+      }
+      let request = param.request;
+      request.nodeId = data.id;
+      if (data.id === 'root') {
+        request.nodeId = '';
+      }
+      if (getCaseFuc) {
+        // 加载用例
+        getCaseFuc(request, (testCases) => {
+          initNodeCase(node, testCases, param, setParamCallback);
+          if (getExtraNodeFuc) {
+            param.result.loading = true;
+            // 加载临时节点
+            getExtraNodeFuc(getCurrentProjectID(), data.id, (nodes) => {
+              appendExtraNodes(node, nodes);
+              param.result.loading = false;
+              resolve();
+            });
+          } else {
+            resolve();
+          }
+        });
+      } else {
+        resolve();
+      }
+    } else if (data.type === 'nextPage') {
+      // 分页处理，如果某个模块下用例太多，则分步加载
+      if (param.result) {
+        param.result.loading = true;
+      }
+      let request = param.request;
+      request.nodeId = data.nodeId;
+      let minderPageInfo = minderPageInfoMap.get(request.nodeId);
+      minderPageInfo.pageNum++;
+      if (getCaseFuc) {
+        getCaseFuc(request, (testCases) => {
+          appendNodeCases(node.parent, testCases, param, setParamCallback);
+          window.minder.removeNode(node);
+          resolve();
+        });
+      } else {
+        resolve();
+      }
+    } else {
+      resolve();
     }
-    let request = param.request;
-    request.nodeId = data.id;
-    if (data.id === 'root') {
-      request.nodeId = '';
-    }
-    if (getCaseFuc) {
-      getCaseFuc(request, (testCases) => {
-        appendCaseNodes(node, testCases, param, setParamCallback);
-
-        if (getExtraNodeFuc) {
-          param.result.loading = true;
-          getExtraNodeFuc(getCurrentProjectID(), data.id, (nodes) => {
-            appendExtraNodes(node, nodes);
-            param.result.loading = false;
-          });
-        }
-
-      });
-    }
-  }
-  data.loaded = true;
+    data.loaded = true;
+  });
 }
 
 /**
@@ -86,20 +115,17 @@ export function loadSelectNodes(param, getCaseFuc, setParamCallback, getExtraNod
   let minder = window.minder;
   let selectNodes = minder.getSelectedNodes();
   selectNodes.forEach(node => {
-    if (node.children && node.children.length > 0) {
-      loadNode(node, param, getCaseFuc, setParamCallback, getExtraNodeFuc);
-    }
+    loadNode(node, param, getCaseFuc, setParamCallback, getExtraNodeFuc);
   });
 }
 
-
-export function handleExpandToLevel(level, node, param, getCaseFuc, setParamCallback) {
-  loadNode(node, param, getCaseFuc, setParamCallback);
+export function handleExpandToLevel(level, node, param, getCaseFuc, setParamCallback, getExtraNodeFuc) {
+  loadNode(node, param, getCaseFuc, setParamCallback, getExtraNodeFuc);
   level--;
   if (level > 0) {
     if (node.children) {
       node.children.forEach(item => {
-        handleExpandToLevel(level, item, param, getCaseFuc, setParamCallback);
+        handleExpandToLevel(level, item, param, getCaseFuc, setParamCallback, getExtraNodeFuc);
       });
     }
   }
@@ -153,41 +179,50 @@ export function handTestCaeEdit(data) {
   });
 }
 
-export function tagChildren(node, resourceName, distinctTags) {
+export async function tagChildren(node, resourceName, distinctTags, loadNodeParam) {
+
+  // 先加载当前模块下的用例再打标签
+  if (isModuleNode(node)) {
+    await loadNode(node, loadNodeParam.param,
+      loadNodeParam.getCaseFuc, loadNodeParam.setParamCallback);
+  }
+
   let children = node.children;
   if (!children) {
     children = [];
   }
-  if (!resourceName || !/\S/.test(resourceName)) {return;}
-  children.forEach((item) => {
+
+  if (!resourceName || !/\S/.test(resourceName)) {
+    return;
+  }
+
+  for (const item of children) {
     let isCaseNode = item.data.resource && item.data.resource.indexOf(i18n.t('api_test.definition.request.case')) > -1;
     if (item.data.type === 'node' || isCaseNode) {
       let origin = item.data.resource;
       if (!origin) {
         origin = [];
       }
-      let index = origin.indexOf(resourceName);
       // 先删除排他的标签
       if (distinctTags.indexOf(resourceName) > -1) {
         for (let i = 0; i < origin.length; i++) {
-          if (distinctTags.indexOf(origin[i]) > -1) {
+          if (distinctTags.indexOf(origin[i]) > -1 && origin[i] !== resourceName) {
             origin.splice(i, 1);
             i--;
           }
         }
       }
-      if (index !== -1) {
-        origin.splice(index, 1);
-      } else {
+      if (origin.indexOf(resourceName) < 0) {
         origin.push(resourceName);
       }
       item.data.resource = origin;
       if (isCaseNode) {
         item.data.changed = true;
       }
-      tagChildren(item, resourceName, distinctTags);
+      await tagChildren(item, resourceName, distinctTags, loadNodeParam);
     }
-  });
+  }
+  return;
 }
 
 
@@ -210,7 +245,7 @@ export function appendCase(parent, item, isDisable, setParamCallback) {
   let caseData = {
     id: item.id,
     text: item.name,
-    priority: Number.parseInt(item.priority.substring(item.priority.length - 1 )) + 1,
+    priority: item.priority ? Number.parseInt(item.priority.substring(item.priority.length - 1 )) + 1 : null,
     resource: [i18n.t('api_test.definition.request.case')],
     type: 'case',
     method: item.method,
@@ -279,21 +314,61 @@ function getNodeData(text, resource, isDisable, type) {
 }
 
 /**
- * 添加用例节点
+ * 初始化模块下的用例
  * @param parent
  * @param testCases
  * @param result
  */
-export function appendCaseNodes(parent, testCases, param, setParamCallback) {
+export function initNodeCase(parent, testCases, param, setParamCallback) {
   clearChildren(parent);
+  appendNodeCases(parent, testCases, param, setParamCallback);
+}
+
+/**
+ * 在模块下添加用例
+ * @param parent
+ * @param testCases
+ * @param param
+ * @param setParamCallback
+ */
+export function appendNodeCases(parent, testCases, param, setParamCallback) {
   if (testCases) {
     for (let i = 0; i < testCases.length; i++) {
       appendCase(parent, testCases[i], param.isDisable, setParamCallback);
     }
   }
+
+  appendNextPageNode(parent);
+
   expandNode(parent);
   if (param.result) {
     param.result.loading = false;
+  }
+}
+
+/**
+ * 判断下当前模块的用例数量是不是分页的
+ * 是分页的话，添加下一页节点
+ * @param parent
+ */
+export function appendNextPageNode(parent) {
+  let caseNum = 0;
+  if (parent.children) {
+    for (const item of parent.children) {
+      if (item.data.type === 'case') {
+        caseNum++;
+      }
+    }
+  }
+  let minderPageInfo = minderPageInfoMap.get(parent.data.id === 'root' ? '' : parent.data.id);
+  let total = minderPageInfo ? minderPageInfo.total : 0;
+  if (total > caseNum) {
+    let nexPageNode = {
+      text: '...',
+      type: 'nextPage',
+      nodeId: parent.data.id
+    }
+    appendChildNode(parent, nexPageNode);
   }
 }
 
@@ -344,7 +419,6 @@ function appendChildNode(parent, childData, fresh) {
   }
   let km = window.minder;
   var node = km.createNode(childData, parent);
-  km.select(node, true);
   if (fresh) {
     if (parent.isExpanded()) {
       node.render();
@@ -362,6 +436,8 @@ function expandNode(node) {
   node.expand();
   node.renderTree();
   window.minder.layout(60);
+  // 手动修改优先级的设置，避免展开时优先级显示不正确
+  setPriorityView(true, 'P');
 }
 
 
@@ -369,20 +445,19 @@ function expandNode(node) {
  *  测试计划和评审支持给模块批量打标签
  * @param distinctTags
  */
-export function tagBatch(distinctTags) {
+export function tagBatch(distinctTags, loadNodeParam) {
   listenBeforeExecCommand((even) => {
     let minder = window.minder;
     let selectNodes = window.minder.getSelectedNodes();
     let args = even.commandArgs;
     if (selectNodes) {
-      selectNodes.forEach((node) => {
+      selectNodes.forEach(async (node) => {
         if (node.data.type === 'node' && even.commandName === 'resource') {
-          // let origin = minder.queryCommandValue('resource');
           if (args && args.length > 0) {
             let origin = args[0];
             if (origin && origin.length > 0) {
               let resourceName = origin[0];
-              tagChildren(node, resourceName, distinctTags);
+              await tagChildren(node, resourceName, distinctTags, loadNodeParam);
               let modifyTopNode = modifyParentNodeTag(node, resourceName);
               if (modifyTopNode) {
                 modifyTopNode.renderTree();
@@ -542,7 +617,12 @@ export function handleMinderIssueDelete(commandName, isPlan) {
         if (data.type === 'issue') {
           let caseResourceId = node.parent.data.id;
           let p = new Promise((resolve) => {
-            deleteIssueRelate({id: data.id, caseResourceId, isPlanEdit: isPlan}, () => {
+            deleteIssueRelate({
+              id: data.id,
+              caseResourceId,
+              isPlanEdit: isPlan,
+              workspaceId: getCurrentWorkspaceId()
+            }, () => {
               resolve();
             });
           });

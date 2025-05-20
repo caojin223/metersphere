@@ -13,7 +13,8 @@ import java.util.Map;
 public class TestPlanUtils {
 
     public static void buildStatusResultMap(Map<String, TestCaseReportStatusResultDTO> reportStatusResultMap, String result) {
-        if (StringUtils.isBlank(result)) {
+        // unexecute 存在于 ui 执行结果中
+        if (StringUtils.isBlank(result) || StringUtils.equals("UnExecute", result)) {
             result = TestPlanTestCaseStatus.Prepare.name();
         }
         TestCaseReportStatusResultDTO statusResult = reportStatusResultMap.get(result);
@@ -53,7 +54,7 @@ public class TestPlanUtils {
         addToReportStatusResultList(resultMap, statusResult, "SUCCESS");
         addToReportStatusResultList(resultMap, statusResult, "STOP");
         addToReportStatusResultList(resultMap, statusResult, TestPlanTestCaseStatus.Prepare.name());
-        addToReportStatusResultList(resultMap, statusResult, ExecuteResult.errorReportResult.name());
+        addToReportStatusResultList(resultMap, statusResult, ExecuteResult.ERROR_REPORT_RESULT.toString());
     }
 
     /**
@@ -66,7 +67,8 @@ public class TestPlanUtils {
             report.setCaseCount((report.getCaseCount() == null ? 0 : report.getCaseCount()) + 1);
             String status = item.getStatus();
             if (StringUtils.isNotBlank(status)
-                    && !StringUtils.equalsAny(status, TestPlanTestCaseStatus.Underway.name(), TestPlanTestCaseStatus.Prepare.name())) {
+                    && !StringUtils.equalsAnyIgnoreCase(status, TestPlanTestCaseStatus.Underway.name(), TestPlanTestCaseStatus.Prepare.name(),
+                    ExecuteResult.UN_EXECUTE.getValue(), ExecuteResult.STOP.getValue())) {
                 // 计算执行过的数量
                 report.setExecuteCount(report.getExecuteCount() + 1);
                 if (StringUtils.equals(successStatus, status)) {

@@ -1,11 +1,7 @@
 package io.metersphere.base.mapper.ext;
 
-import io.metersphere.base.domain.TestCase;
 import io.metersphere.controller.request.BaseQueryRequest;
-import io.metersphere.track.dto.PlanReportCaseDTO;
-import io.metersphere.track.dto.TestCaseReportStatusResultDTO;
-import io.metersphere.track.dto.TestCaseTestDTO;
-import io.metersphere.track.dto.TestPlanCaseDTO;
+import io.metersphere.track.dto.*;
 import io.metersphere.track.request.testplancase.QueryTestPlanCaseRequest;
 import io.metersphere.track.request.testplancase.TestPlanFuncCaseConditions;
 import org.apache.ibatis.annotations.Param;
@@ -35,14 +31,6 @@ public interface ExtTestPlanTestCaseMapper {
 
     int updateTestCaseStates(@Param("ids") List<String> ids, @Param("reportStatus") String reportStatus);
 
-    /**
-     * 根据项目 ids 查询 TestPlanCaseDTO 列表
-     *
-     * @param ids project id list
-     * @return List<TestPlanCaseDTO>
-     */
-    List<TestPlanCaseDTO> listTestCaseByProjectIds(@Param("ids") List<String> ids);
-
     TestPlanCaseDTO get(String testPlanTestCaseId);
 
     void deleteByTestCaseID(String id);
@@ -61,7 +49,7 @@ public interface ExtTestPlanTestCaseMapper {
 
     List<PlanReportCaseDTO> selectForPlanReport(String planId);
 
-    List<TestPlanCaseDTO> getCases(@Param("planId") String planId, @Param("status") String status);
+    List<TestPlanCaseDTO> getCasesByStatusList(@Param("planId") String planId, @Param("statusList") List<String> statusList);
 
     List<String> selectPlanIds();
 
@@ -71,5 +59,13 @@ public interface ExtTestPlanTestCaseMapper {
 
     Long getLastOrder(@Param("planId") String planId, @Param("baseOrder") Long baseOrder);
 
-    List<TestCase> getTestCaseWithNodeInfo(@Param("planId") String planId);
+    List<TestCaseNodeDTO> getTestPlanCountNodes(@Param("request") QueryTestPlanCaseRequest request);
+
+    List<String> projectIdsByPlanId(@Param("planId") String planId);
+
+    List<CountMapDTO> getExecResultMapByPlanId(@Param("planId") String planId);
+
+    String selectCaseId(String id);
+
+    List<String> getCaseIdsByIds(@Param("ids") List<String> ids);
 }

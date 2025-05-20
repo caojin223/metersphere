@@ -151,6 +151,7 @@ public class NoticeService {
             messageDetail.setWebhook(m.getWebhook());
             messageDetail.setIdentification(m.getIdentification());
             messageDetail.setType(m.getType());
+            messageDetail.setTestId(m.getTestId());
             messageDetail.setIsSet(m.getIsSet());
             messageDetail.setCreateTime(m.getCreateTime());
             messageDetail.setTemplate(m.getTemplate());
@@ -190,5 +191,26 @@ public class NoticeService {
         OperatingLogDetails details = new OperatingLogDetails(JSON.toJSONString(task.getId()), null,
                 StatusReference.statusMap.containsKey(task.getTaskType()) ? StatusReference.statusMap.get(task.getTaskType()) : task.getTaskType(), null, columns);
         return JSON.toJSONString(details);
+    }
+
+    public List<MessageTask> getMessageByProjectId(String projectId, MessageDetail messageDetail) {
+        MessageTaskExample example = new MessageTaskExample();
+        MessageTaskExample.Criteria criteria = example.createCriteria();
+        if (StringUtils.isNotBlank(projectId)) {
+            criteria.andProjectIdEqualTo(projectId);
+        }
+        if (StringUtils.isNotBlank(messageDetail.getTaskType())) {
+            criteria.andTaskTypeEqualTo(messageDetail.getTaskType());
+        }
+        if (StringUtils.isNotBlank(messageDetail.getEvent())) {
+            criteria.andEventEqualTo(messageDetail.getEvent());
+        }
+        if (StringUtils.isNotBlank(messageDetail.getIdentification())) {
+            criteria.andIdentificationEqualTo(messageDetail.getIdentification());
+        }
+        if (StringUtils.isNotBlank(messageDetail.getType())) {
+            criteria.andTypeEqualTo(messageDetail.getType());
+        }
+        return messageTaskMapper.selectByExample(example);
     }
 }

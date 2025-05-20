@@ -43,6 +43,8 @@ import org.springframework.web.multipart.MultipartFile;
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
 
@@ -64,7 +66,7 @@ public class TestCaseController {
         return PageUtils.setPageInfo(page, testCaseService.listTestCase(request));
     }
 
-    @PostMapping("/publicList/{goPage}/{pageSize}")
+    @PostMapping("/public/list/{goPage}/{pageSize}")
     @RequiresPermissions(PermissionConstants.PROJECT_TRACK_CASE_READ)
     public Pager<List<TestCaseDTO>> publicList(@PathVariable int goPage, @PathVariable int pageSize, @RequestBody QueryTestCaseRequest request) {
         Page<Object> page = PageHelper.startPage(goPage, pageSize, true);
@@ -88,9 +90,16 @@ public class TestCaseController {
     }
 
     @PostMapping("/list/minder")
-    public List<TestCaseDTO> listDetail(@RequestBody QueryTestCaseRequest request) {
+    public List<TestCaseDTO> listForMinder(@RequestBody QueryTestCaseRequest request) {
         checkPermissionService.checkProjectOwner(request.getProjectId());
         return testCaseService.listTestCaseForMinder(request);
+    }
+
+    @PostMapping("/list/minder/{goPage}/{pageSize}")
+    public Pager<List<TestCaseDTO>> listForMinder(@PathVariable int goPage, @PathVariable int pageSize, @RequestBody QueryTestCaseRequest request) {
+        checkPermissionService.checkProjectOwner(request.getProjectId());
+        Page<Object> page = PageHelper.startPage(goPage, pageSize, true);
+        return PageUtils.setPageInfo(page, testCaseService.listTestCaseForMinder(request));
     }
 
     /*jenkins项目下所有接口和性能测试用例*/
@@ -98,12 +107,17 @@ public class TestCaseController {
     public List<TestCaseDTO> listByMethod(@PathVariable String projectId) {
         QueryTestCaseRequest request = new QueryTestCaseRequest();
         request.setProjectId(projectId);
-        return testCaseService.listTestCaseMthod(request);
+        return testCaseService.listTestCaseMethod(request);
     }
 
     @GetMapping("/relationship/case/{id}/{relationshipType}")
     public List<RelationshipEdgeDTO> getRelationshipCase(@PathVariable("id") String id, @PathVariable("relationshipType") String relationshipType) {
         return testCaseService.getRelationshipCase(id, relationshipType);
+    }
+
+    @PostMapping("/relationship/add")
+    public void saveRelationshipBatch(@RequestBody TestCaseRelationshipEdgeRequest request) {
+        testCaseService.saveRelationshipBatch(request);
     }
 
     @GetMapping("/relationship/case/count/{id}")
@@ -203,7 +217,7 @@ public class TestCaseController {
         } else {
             //复制，前端生成 id
         }
-        return testCaseService.save(request, files);
+        return testCaseService.add(request, files);
     }
 
     @PostMapping("/edit/order")
@@ -216,8 +230,8 @@ public class TestCaseController {
     @MsAuditLog(module = OperLogModule.TRACK_TEST_CASE, type = OperLogConstants.UPDATE, beforeEvent = "#msClass.getLogDetails(#request.id)", title = "#request.name", content = "#msClass.getLogDetails(#request.id)", msClass = TestCaseService.class)
     @SendNotice(taskType = NoticeConstants.TaskType.TRACK_TEST_CASE_TASK, target = "#targetClass.getTestCase(#request.id)", targetClass = TestCaseService.class,
             event = NoticeConstants.Event.UPDATE, subject = "测试用例通知")
-    public TestCase editTestCase(@RequestPart("request") EditTestCaseRequest request, @RequestPart(value = "file", required = false) List<MultipartFile> files) {
-        return testCaseService.edit(request, files);
+    public TestCase editTestCase(@RequestPart("request") EditTestCaseRequest request) {
+        return testCaseService.edit(request);
     }
 
     @PostMapping(value = "/edit/testPlan", consumes = {"multipart/form-data"})
@@ -273,7 +287,7 @@ public class TestCaseController {
     @PostMapping("/export/testcase")
     @RequiresPermissions(PermissionConstants.PROJECT_TRACK_CASE_READ_EXPORT)
     @MsAuditLog(module = OperLogModule.TRACK_TEST_CASE, type = OperLogConstants.EXPORT, sourceId = "#request.id", title = "#request.name", project = "#request.projectId")
-    public void testCaseExport(HttpServletResponse response, @RequestBody TestCaseBatchRequest request) {
+    public void testCaseExport(HttpServletResponse response, @RequestBody TestCaseExportRequest request) {
         testCaseService.testCaseExport(response, request);
     }
 
@@ -291,6 +305,12 @@ public class TestCaseController {
             event = NoticeConstants.Event.UPDATE, subject = "测试用例通知")
     public void editTestCaseBath(@RequestBody TestCaseBatchRequest request) {
         testCaseService.editTestCaseBath(request);
+    }
+
+    @PostMapping("/batch/relate/demand")
+    @MsAuditLog(module = OperLogModule.TRACK_TEST_CASE, type = OperLogConstants.BATCH_UPDATE, beforeEvent = "#msClass.getLogDetails(#request.ids)", content = "#msClass.getLogDetails(#request.ids)", msClass = TestCaseService.class)
+    public void batchRelateDemand(@RequestBody TestCaseBatchRequest request) {
+        testCaseService.batchRelateDemand(request);
     }
 
     @PostMapping("/batch/copy")
@@ -323,7 +343,7 @@ public class TestCaseController {
     @SendNotice(taskType = NoticeConstants.TaskType.TRACK_TEST_CASE_TASK, target = "#targetClass.findByBatchRequest(#request)", targetClass = TestCaseService.class,
             event = NoticeConstants.Event.DELETE, subject = "测试用例通知")
     public void deleteToGcBatch(@RequestBody TestCaseBatchRequest request) {
-        testCaseService.deleteToGcBatch(request.getIds());
+        testCaseService.deleteToGcBatch(request);
     }
 
     @PostMapping("/batch/movePublic/deleteToGc")
@@ -352,7 +372,7 @@ public class TestCaseController {
         byte[] bytes = fileService.loadFileAsBytes(fileOperationRequest.getId());
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType("application/octet-stream"))
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + fileOperationRequest.getName() + "\"")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + URLEncoder.encode(fileOperationRequest.getName(), StandardCharsets.UTF_8) + "\"")
                 .body(bytes);
     }
 

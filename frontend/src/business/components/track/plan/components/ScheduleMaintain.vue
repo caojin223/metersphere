@@ -12,7 +12,8 @@
               <div class="el-step__icon-inner">1</div>
             </div>
             <span>{{ $t('schedule.edit_timer_task') }}</span>
-            <el-form :model="form" :rules="rules" ref="from" style="padding-top: 10px;margin-left: 20px;" class="ms-el-form-item__error">
+            <el-form :model="form" :rules="rules" ref="from" style="padding-top: 10px;margin-left: 20px;"
+                     class="ms-el-form-item__error">
               <el-form-item :label="$t('commons.schedule_cron_title')"
                             prop="cronValue" style="height: 50px">
                 <el-row :gutter="20">
@@ -53,26 +54,38 @@
                 <el-radio label="parallel">{{ $t("run_mode.parallel") }}</el-radio>
               </el-radio-group>
             </div>
+            <div style="margin-top: 10px;" v-if="haveUICase">
+              <span class="ms-mode-span">{{ $t("浏览器") }}：</span>
+              <el-select
+                size="mini"
+                v-model="runConfig.browser"
+                style="margin-right: 30px; width: 100px"
+              >
+                <el-option
+                  v-for="b in browsers"
+                  :key="b.value"
+                  :value="b.value"
+                  :label="b.label"
+                ></el-option>
+              </el-select>
+            </div>
             <div class="ms-mode-div" v-if="runConfig.mode === 'serial'">
               <el-row>
                 <el-col :span="3">
                   <span class="ms-mode-span">{{ $t("run_mode.other_config") }}：</span>
                 </el-col>
                 <el-col :span="18">
-                  <div>
-                    <el-checkbox v-model="runConfig.onSampleError">{{ $t("api_test.fail_to_stop") }}</el-checkbox>
-                  </div>
-                  <div v-if="testType === 'API'" style="padding-top: 10px">
+                  <div v-if="testType === 'API'">
                     <el-checkbox v-model="runConfig.runWithinResourcePool" style="padding-right: 10px;">
                       {{ $t('run_mode.run_with_resource_pool') }}
                     </el-checkbox>
                     <el-select :disabled="!runConfig.runWithinResourcePool" v-model="runConfig.resourcePoolId"
                                size="mini">
                       <el-option
-                          v-for="item in resourcePools"
-                          :key="item.id"
-                          :label="item.name"
-                          :value="item.id">
+                        v-for="item in resourcePools"
+                        :key="item.id"
+                        :label="item.name"
+                        :value="item.id">
                       </el-option>
                     </el-select>
                   </div>
@@ -92,17 +105,68 @@
                     <el-select :disabled="!runConfig.runWithinResourcePool" v-model="runConfig.resourcePoolId"
                                size="mini">
                       <el-option
-                          v-for="item in resourcePools"
-                          :key="item.id"
-                          :label="item.name"
-                          :disabled="!item.api"
-                          :value="item.id">
+                        v-for="item in resourcePools"
+                        :key="item.id"
+                        :label="item.name"
+                        :disabled="!item.api"
+                        :value="item.id">
                       </el-option>
                     </el-select>
                   </div>
                 </el-col>
               </el-row>
             </div>
+
+            <!-- 失败重试 -->
+            <div class="ms-mode-div" v-if="isHasLicense">
+              <el-row>
+                <el-col :span="3">
+                  <span class="ms-mode-span">&nbsp;</span>
+                </el-col>
+                <el-col :span="18">
+                  <el-checkbox v-model="runConfig.retryEnable" class="ms-failure-div-right">
+                    {{ $t('run_mode.retry_on_failure') }}
+                  </el-checkbox>
+                  <span v-if="runConfig.retryEnable">
+                  <el-tooltip placement="top">
+                    <div slot="content">{{ $t('run_mode.retry_message') }}</div>
+                    <i class="el-icon-question" style="cursor: pointer"/>
+                  </el-tooltip>
+                  <span>
+                    {{ $t('run_mode.retry') }}
+                    <el-input-number :value="runConfig.retryNum" v-model="runConfig.retryNum" :min="1" :max="10000000"
+                                     size="mini"/>
+                    &nbsp;
+                    {{ $t('run_mode.retry_frequency') }}
+                  </span>
+                  </span>
+                </el-col>
+              </el-row>
+            </div>
+            <div class="ms-failure-div" v-if="runConfig.mode === 'serial'" >
+              <el-row>
+                <el-col :span="18" :offset="3">
+                  <div>
+                    <el-checkbox v-model="runConfig.onSampleError">{{ $t("api_test.fail_to_stop") }}</el-checkbox>
+                  </div>
+                </el-col>
+              </el-row>
+            </div>
+            <div v-if="haveUICase">
+              <el-row>
+                <el-col :span="3">
+                  &nbsp;
+                </el-col>
+                <el-col :span="18">
+                  <div style="margin-top: 10px">
+                    <el-checkbox v-model="runConfig.headlessEnabled">
+                      {{ $t("性能模式") }}
+                    </el-checkbox>
+                  </div>
+                </el-col>
+              </el-row>
+            </div>
+
             <el-dialog width="60%" :title="$t('schedule.generate_expression')" :visible.sync="showCron"
                        :modal="false">
               <crontab @hide="showCron=false" @fill="crontabFill" :expression="schedule.value"
@@ -124,8 +188,9 @@ import {
   getCurrentProjectID,
   getCurrentUser,
   getCurrentWorkspaceId,
-  listenGoBack, objToStrMap,
-  removeGoBackListener, strMapToObj
+  hasLicense,
+  listenGoBack,
+  removeGoBackListener
 } from "@/common/js/utils";
 import Crontab from "@/business/components/common/cron/Crontab";
 import CrontabResult from "@/business/components/common/cron/CrontabResult";
@@ -162,7 +227,12 @@ export default {
       default: false
     },
     planCaseIds: [],
-    type: String
+    type: String,
+    //是否含有ui场景 有 ui 场景就要展示 浏览器选项，性能模式
+    haveUICase: {
+      type: Boolean,
+      default: false
+    }
   },
 
 
@@ -183,19 +253,19 @@ export default {
         callback(new Error(this.$t('commons.input_content')));
       } else if (!cronValidate(cronValue)) {
         callback(new Error(this.$t('schedule.cron_expression_format_error')));
-      }else if(!this.intervalValidate()){
+      } else if (!this.intervalValidate()) {
         callback(new Error(this.$t('schedule.cron_expression_interval_error')));
-      }
-      else if (!customValidate.pass) {
+      } else if (!customValidate.pass) {
         callback(new Error(customValidate.info));
       } else {
-        if (!this.schedule.id){
+        if (!this.schedule.id) {
           this.schedule.enable = true;
         }
         callback();
       }
     };
     return {
+      isHasLicense: hasLicense(),
       result: {},
       scheduleReceiverOptions: [],
       operation: true,
@@ -222,12 +292,25 @@ export default {
         onSampleError: false,
         runWithinResourcePool: false,
         resourcePoolId: null,
-        environmentType: ENV_TYPE.JSON
+        retryEnable: false,
+        retryNum: 1,
+        browser: "CHROME",
+        headlessEnabled: true
       },
       projectList: [],
       testType: 'API',
       planId: String,
       projectIds: new Set(),
+      browsers: [
+        {
+          label: this.$t("chrome"),
+          value: "CHROME",
+        },
+        {
+          label: this.$t("firefox"),
+          value: "FIREFOX",
+        }
+      ],
     };
   },
   methods: {
@@ -239,31 +322,6 @@ export default {
         return false;
       }
       return true;
-    },
-    scheduleChange() {
-      let flag = this.schedule.enable;
-      let param = {};
-      param.taskID = this.schedule.id;
-      param.enable = flag;
-      let that = this;
-      if (flag === false) {
-        this.$confirm(this.$t('api_test.home_page.running_task_list.confirm.close_title'), this.$t('commons.prompt'), {
-          confirmButtonText: this.$t('commons.confirm'),
-          cancelButtonText: this.$t('commons.cancel'),
-          type: 'warning',
-          beforeClose(action, instance, done) {
-            if (action === 'cancel') {  //  否则在 messageBox 点击取消后，switch 按钮仍然会被关闭
-              that.schedule.enable = param.enable = true;
-            }
-            done(); //  done 是关闭 messageBox 的行为
-          },
-        }).then(() => {
-          this.updateTask(param);
-        }).catch(() => {
-        });
-      } else {
-        this.updateTask(param);
-      }
     },
     updateTask(param) {
       this.result = this.$post('/test/plan/schedule/updateEnableByPrimyKey', param, response => {
@@ -281,7 +339,7 @@ export default {
       });
     },
     initUserList() {
-      this.result = this.$post('/user/project/member/list', {projectId: getCurrentProjectID()}, response => {
+      this.result = this.$get('/user/project/member/list', response => {
         this.scheduleReceiverOptions = response.data;
       });
     },
@@ -312,6 +370,8 @@ export default {
       this.activeName = 'first';
       this.getResourcePools();
       this.runConfig.environmentType = ENV_TYPE.JSON;
+      this.runConfig.retryEnable = false;
+      this.runConfig.retryNum = 1;
     },
     findSchedule() {
       let scheduleResourceID = this.testId;
@@ -321,6 +381,9 @@ export default {
           this.schedule = response.data;
           if (response.data.config) {
             this.runConfig = JSON.parse(response.data.config);
+            if (this.runConfig.environmentType) {
+              delete this.runConfig.environmentType;
+            }
           }
         } else {
           this.schedule = {
@@ -334,7 +397,7 @@ export default {
       //确定后回传的值
       this.form.cronValue = value;
       // 如果是第一次设置定时任务规则，则默认开启定时任务
-      if (!this.schedule.id){
+      if (!this.schedule.id) {
         this.schedule.enable = true;
       }
       this.$refs.crontabResult.resultList = resultList;
@@ -383,9 +446,9 @@ export default {
       if (this.scheduleTaskType === "TEST_PLAN_TEST") {
         param.scheduleFrom = "testPlan";
         //测试计划页面跳转的创建
-        url = '/schedule/create';
+        url = '/test/plan/schedule/create';
         if (param.id) {
-          url = '/schedule/update';
+          url = '/test/plan/schedule/update';
         }
       } else {
         param.scheduleFrom = "scenario";
@@ -485,8 +548,8 @@ export default {
 }
 
 .head {
-  border-bottom: 1px solid #7C3985;
-  color: #7C3985;
+  border-bottom: 1px solid var(--primary_color);
+  color: var(--primary_color);
   font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", Arial, sans-serif;
   font-size: 13px;
   cursor: pointer;
@@ -497,9 +560,16 @@ export default {
   /* display: inline-flex; */
 }
 
-.ms-el-form-item__error >>> .el-form-item__error{
+.ms-el-form-item__error >>> .el-form-item__error {
   left: -42px;
   padding-top: 0px;
 }
 
+.ms-failure-div-right {
+  padding-right: 10px;
+}
+
+.ms-failure-div {
+  margin-top: 10px;
+}
 </style>

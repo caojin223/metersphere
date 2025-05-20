@@ -36,25 +36,28 @@
             </el-tab-pane>
 
             <!-- 脚本步骤/断言步骤 -->
-            <el-tab-pane :label="$t('api_test.definition.request.pre_operation')" name="preOperate">
+            <el-tab-pane :label="$t('api_test.definition.request.pre_operation')" name="preOperate" v-if="showOther">
               <span class="item-tabs" effect="dark" placement="top-start" slot="label">
                 {{ $t('api_test.definition.request.pre_operation') }}
                 <div class="el-step__icon is-text ms-api-col ms-header" v-if="request.preSize > 0">
                   <div class="el-step__icon-inner">{{ request.preSize }}</div>
                 </div>
               </span>
-              <ms-jmx-step :request="request" :apiId="request.id" :scenario-id="currentScenario.id" :response="response" :tab-type="'pre'" ref="preStep"/>
+              <ms-jmx-step :request="request" :apiId="request.id" :scenario-id="currentScenario.id" :response="response"
+                           :tab-type="'pre'" ref="preStep"/>
             </el-tab-pane>
-            <el-tab-pane :label="$t('api_test.definition.request.post_operation')" name="postOperate">
+            <el-tab-pane :label="$t('api_test.definition.request.post_operation')" name="postOperate" v-if="showOther">
                 <span class="item-tabs" effect="dark" placement="top-start" slot="label">
                 {{ $t('api_test.definition.request.post_operation') }}
                 <div class="el-step__icon is-text ms-api-col ms-header" v-if="request.postSize > 0">
                   <div class="el-step__icon-inner">{{ request.postSize }}</div>
                 </div>
               </span>
-              <ms-jmx-step :request="request" :apiId="request.id" :scenario-id="currentScenario.id" :response="response" :tab-type="'post'" ref="postStep"/>
+              <ms-jmx-step :request="request" :apiId="request.id" :scenario-id="currentScenario.id" :response="response"
+                           :tab-type="'post'" ref="postStep"/>
             </el-tab-pane>
-            <el-tab-pane :label="$t('api_test.definition.request.assertions_rule')" name="assertionsRule">
+            <el-tab-pane :label="$t('api_test.definition.request.assertions_rule')" name="assertionsRule"
+                         v-if="showOther">
                 <span class="item-tabs" effect="dark" placement="top-start" slot="label">
                 {{ $t('api_test.definition.request.assertions_rule') }}
                 <div class="el-step__icon is-text ms-api-col ms-header" v-if="request.ruleSize > 0">
@@ -62,7 +65,8 @@
                 </div>
               </span>
               <div style="margin-right: 20px">
-                <ms-jmx-step :request="request" :apiId="request.id" :scenario-id="currentScenario.id" :response="response" @reload="reload" :tab-type="'assertionsRule'" ref="assertionsRule"/>
+                <ms-jmx-step :request="request" :apiId="request.id" :scenario-id="currentScenario.id"
+                             :response="response" @reload="reload" :tab-type="'assertionsRule'" ref="assertionsRule"/>
               </div>
             </el-tab-pane>
 
@@ -158,7 +162,6 @@ export default {
       default: false,
     },
     message: String,
-    response: {},
     isReadOnly: {
       type: Boolean,
       default:
@@ -201,6 +204,8 @@ export default {
         '{"form":{"labelPosition":"right","size":"mini","labelWidth":"120px","hideRequiredAsterisk":false,"showMessage":false,"inlineMessage":false}}'
       ),
       pluginName: "",
+      response: {},
+      showOther: true
     }
   },
   computed: {
@@ -236,6 +241,9 @@ export default {
     }
     this.data = this.request;
     this.pluginName = this.request.stepName ? this.request.stepName : this.request.type;
+    if (this.request.type === 'GenericController') {
+      this.showOther = false;
+    }
     if (this.request.hashTree) {
       this.initStepSize(this.request.hashTree);
       this.historicalDataProcessing(this.request.hashTree);
@@ -243,6 +251,7 @@ export default {
   },
   watch: {
     message() {
+      this.forStatus();
       this.reload();
     },
     'request.hashTree'() {
@@ -400,6 +409,30 @@ export default {
         });
       }
     },
+    forStatus() {
+      this.reqSuccess = true;
+      if (this.request.result && this.request.result.length > 0) {
+        this.request.result.forEach(item => {
+          item.requestResult.forEach(req => {
+            if (!req.success) {
+              this.reqSuccess = req.success;
+            }
+          })
+        })
+      } else if (this.request.requestResult && this.request.requestResult.length > 1) {
+        this.request.requestResult.forEach(item => {
+          if (!item.success) {
+            this.reqSuccess = item.success;
+            if (this.node && this.node.parent && this.node.parent.data) {
+              this.node.parent.data.code = 'error';
+            }
+          }
+        })
+      }
+      if (this.request.requestResult && this.request.requestResult.length > 0) {
+        this.response = this.request.requestResult[0];
+      }
+    },
     reload() {
       this.loading = true
       this.$nextTick(() => {
@@ -484,7 +517,7 @@ export default {
 }
 
 .ms-test-running {
-  color: #6D317C;
+  color: #783887;
 }
 
 .ms-form {

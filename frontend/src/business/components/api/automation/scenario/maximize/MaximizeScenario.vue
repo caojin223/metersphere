@@ -20,7 +20,7 @@
             <el-row>
               <el-col :span="8">
                 <el-tooltip placement="top" :content="currentScenario.name">
-                  <span style="margin-left: 10px">{{ currentScenario.name }}</span>
+                  <span class="ms-max-scenario-name-width">{{ currentScenario.name }}</span>
                 </el-tooltip>
               </el-col>
               <el-col :span="8">
@@ -38,7 +38,7 @@
           <el-checkbox v-model="cookieShare" @change="setCookieShare">共享cookie</el-checkbox>
           <el-checkbox v-model="sampleError" @change="setOnSampleError" style="margin-right: 10px">{{ $t('commons.failure_continues') }}</el-checkbox>
           <env-popover :disabled="scenarioDefinition.length < 1" :isReadOnly="scenarioDefinition.length < 1"
-                       :env-map="projectEnvMap" :project-ids="projectIds" @setProjectEnvMap="setProjectEnvMap"
+                       :env-map="projectEnvMap" :project-ids="projectIds" @setProjectEnvMap="setProjectEnvMap"  @setEnvGroup="setEnvGroup"
                        :environment-type.sync="envType" :group-id="envGroupId"
                        @showPopover="showPopover" :project-list="projectList" ref="envPopover" class="ms-right" :has-option-group="true"
                        :result="envResult"/>
@@ -58,7 +58,7 @@
 
     <!-- 场景步骤-->
     <ms-container :class="{'maximize-container': !asideHidden}">
-      <ms-aside-container @setAsideHidden="setAsideHidden" style="padding-top: 0px;overflow: hidden">
+      <ms-aside-container @setAsideHidden="setAsideHidden" style="padding: 0px;overflow: hidden">
         <div class="ms-debug-result" v-if="reqTotal > 0">
           <span style="float: right">
              <span class="ms-message-right"> {{ reqTotalTime }} ms </span>
@@ -75,11 +75,12 @@
                    :data="scenarioDefinition"
                    :default-expanded-keys="expandedNode"
                    :expand-on-click-node="false"
+                   draggable
                    highlight-current
                    :show-checkbox="isBatchProcess"
                    @node-expand="nodeExpand"
                    @node-collapse="nodeCollapse"
-                   :allow-drop="allowDrop" @node-drag-end="allowDrag" @node-click="nodeClick" class="ms-tree" ref="maxStepTree">
+                   :allow-drop="allowDrop" @node-drag-end="allowDrag" @node-click="nodeClick" class="ms-max-tree" ref="maxStepTree">
             <el-row class="custom-tree-node" :gutter="18" type="flex" align="middle" slot-scope="{node, data}" style="width: 98%">
               <el-col class="custom-tree-node-col" style="padding-left:0px;padding-right:0px" v-show="node && data.hashTree && data.hashTree.length > 0 && !data.isLeaf">
                 <span v-show="!node.expanded" class="el-icon-circle-plus-outline custom-node_e" @click="openOrClose(node)"/>
@@ -247,6 +248,8 @@ export default {
     groupId: String,
     projectIds: Set,
     projectList: Array,
+    enableCookie: Boolean,
+    onSampleError: Boolean
   },
   components: {
     MsAsideContainer,
@@ -365,6 +368,8 @@ export default {
     this.initPlugins();
     this.buttonData = buttons(this);
     this.projectEnvMap = this.envMap;
+    this.cookieShare = this.enableCookie;
+    this.sampleError = this.onSampleError;
   },
   mounted() {
     this.$refs.refFab.openMenu();
@@ -716,17 +721,30 @@ export default {
       this.getEnvironments();
     },
     allowDrop(draggingNode, dropNode, dropType) {
+      if (draggingNode.data.type === 'Assertions' || dropNode.data.type === 'Assertions') {
+        return false;
+      }
+      // 增加插件权限控制
       if (dropType != "inner") {
-        return true;
+        if (draggingNode.data.disabled && draggingNode.parent && draggingNode.parent.data && draggingNode.parent.data.disabled) {
+          return false;
+        }
+        if (draggingNode && dropNode && draggingNode.level >= dropNode.level) {
+          return true;
+        }
+        return false;
       } else if (dropType === "inner" && dropNode.data.referenced !== 'REF' && dropNode.data.referenced !== 'Deleted'
-        && this.stepFilter.get(dropNode.data.type).indexOf(draggingNode.data.type) != -1) {
+        && (this.stepFilter.get(dropNode.data.type) && this.stepFilter.get(dropNode.data.type).indexOf(draggingNode.data.type) !== -1)) {
         return true;
       }
       return false;
     },
     allowDrag(draggingNode, dropNode, dropType) {
       if (dropNode && draggingNode && dropType) {
-        this.sort();
+        this.$emit("sort");
+        this.forceRerender();
+        this.cancelBatchProcessing();
+
       }
     },
     nodeExpand(data) {
@@ -879,6 +897,11 @@ export default {
     },
     setProjectEnvMap(projectEnvMap) {
       this.projectEnvMap = projectEnvMap;
+      this.$emit("setProjectEnvMap",projectEnvMap);
+    },
+    setEnvGroup(id) {
+      this.envGroupId = id;
+      this.$emit("setEnvGroup",id);
     },
     refReload(data, node) {
       this.selectedTreeNode = data;
@@ -1196,27 +1219,26 @@ export default {
   z-index: 9;
 }
 
-
-.ms-tree >>> .el-tree-node__expand-icon.expanded {
+.ms-max-tree >>> .el-tree-node__expand-icon.expanded {
   -webkit-transform: rotate(0deg);
   transform: rotate(0deg);
 }
 
-.ms-tree >>> .el-icon-caret-right:before {
+.ms-max-tree >>> .el-icon-caret-right:before {
   /*content: '\e723';*/
   padding: 0;
   content: "";
 }
 
-.ms-tree >>> .el-tree-node__expand-icon.is-leaf {
+.ms-max-tree >>> .el-tree-node__expand-icon.is-leaf {
   color: transparent;
 }
 
-.ms-tree >>> .el-tree-node__expand-icon {
+.ms-max-tree >>> .el-tree-node__expand-icon {
   color: #7C3985;
 }
 
-.ms-tree >>> .el-tree-node__expand-icon.expanded.el-icon-caret-right:before {
+.ms-max-tree >>> .el-tree-node__expand-icon.expanded.el-icon-caret-right:before {
   color: #7C3985;
   /* content: "\e722";*/
   padding: 0;
@@ -1304,6 +1326,17 @@ export default {
 
 .ms-batch-btn:hover {
   cursor: pointer;
-  color: #6D317C;
+  color: #783887;
+}
+.ms-max-scenario-name-width {
+  font-size: 12px;
+  display: inline-block;
+  margin: 0 0px;
+  overflow-x: hidden;
+  padding-bottom: 0;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: nowrap;
+  width: 120px;
 }
 </style>

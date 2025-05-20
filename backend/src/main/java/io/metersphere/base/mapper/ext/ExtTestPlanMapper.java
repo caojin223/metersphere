@@ -15,8 +15,6 @@ import java.util.Set;
 public interface ExtTestPlanMapper {
     List<TestPlanDTOWithMetric> list(@Param("request") QueryTestPlanRequest params);
 
-    List<TestPlanDTOWithMetric> listRelate(@Param("request") QueryTestPlanRequest params);
-
     List<TestPlanDTO> planList(@Param("request") QueryTestPlanRequest params);
 
     List<TestPlanDTO> selectByIds(@Param("list") List<String> ids);
@@ -32,8 +30,6 @@ public interface ExtTestPlanMapper {
     int checkIsHave(@Param("planId") String planId, @Param("projectIds") Set<String> projectIds);
 
     String findTestProjectNameByTestPlanID(String testPlanId);
-
-    String findScheduleCreateUserById(String testPlanId);
 
     List<String> findIdByPerformanceReportId(String reportId);
 
@@ -52,4 +48,7 @@ public interface ExtTestPlanMapper {
 
     @MapKey("id")
     Map<String, ParamsDTO> testPlanLoadCaseCount(@Param("planIds")Set<String> planIds);
+
+    @MapKey("id")
+    Map<String, ParamsDTO> testPlanUiScenarioCount(@Param("planIds")Set<String> planIds);
 }

@@ -24,9 +24,10 @@
             :title="$t('test_track.switch_project')"
             @dataChange="changeProject"/>
           <node-tree class="node-tree"
-                     :is-display="openType"
                      :all-label="$t('commons.all_label.review')"
                      v-loading="result.loading"
+                     local-suffix="test_case"
+                     default-label="未规划用例"
                      @nodeSelectEvent="nodeChange"
                      :tree-nodes="treeNodes"
                      ref="nodeTree"/>
@@ -83,17 +84,6 @@
               </el-table-column>
 
               <el-table-column
-                prop="type"
-                :filters="typeFilters"
-                column-key="type"
-                :label="$t('test_track.case.type')"
-                show-overflow-tooltip>
-                <template v-slot:default="scope">
-                  <type-table-item :value="scope.row.type"/>
-                </template>
-              </el-table-column>
-
-              <el-table-column
                 :filters="statusFilters"
                 column-key="reviewStatus"
                 :label="$t('test_track.case.status')"
@@ -139,6 +129,7 @@ import MsTablePagination from "@/business/components/common/pagination/TablePagi
 import MsDialogHeader from "@/business/components/common/components/MsDialogHeader";
 import MsTable from "@/business/components/common/components/table/MsTable";
 import TableSelectCountBar from "@/business/components/api/automation/scenario/api/TableSelectCountBar";
+import {getVersionFilters} from "@/network/project";
 
 const requireComponent = require.context('@/business/components/xpack/', true, /\.vue$/);
 const VersionSelect = requireComponent.keys().length > 0 ? requireComponent("./version/VersionSelect.vue") : {};
@@ -196,11 +187,6 @@ export default {
         {text: 'P2', value: 'P2'},
         {text: 'P3', value: 'P3'}
       ],
-      typeFilters: [
-        {text: this.$t('commons.functional'), value: 'functional'},
-        {text: this.$t('commons.performance'), value: 'performance'},
-        {text: this.$t('commons.api'), value: 'api'}
-      ],
       statusFilters: [
         {text: this.$t('test_track.review.prepare'), value: 'Prepare'},
         {text: this.$t('test_track.review.pass'), value: 'Pass'},
@@ -224,11 +210,13 @@ export default {
     },
     selectNodeIds() {
       if (this.dialogFormVisible) {
-        this.search();
+        this.getReviews();
       }
     },
     projectId() {
       this.condition.projectId = this.projectId;
+      this.condition.versionId = null;
+      this.getVersionOptions();
       this.getProjectNode();
     }
   },
@@ -269,7 +257,7 @@ export default {
     buildPagePath(path) {
       return path + "/" + this.currentPage + "/" + this.pageSize;
     },
-    getReviews(flag) {
+    getReviews() {
       if (this.reviewId) {
         this.condition.reviewId = this.reviewId;
       }
@@ -299,23 +287,13 @@ export default {
     refresh() {
       this.close();
     },
-    getAllNodeTreeByPlanId() {
-      if (this.reviewId) {
-        let param = {
-          reviewId: this.reviewId,
-          projectId: this.projectId
-        };
-        this.result = this.$post("/case/node/list/all/review", param, response => {
-          this.treeNodes = response.data;
-        });
-      }
-    },
     close() {
       this.lineStatus = false;
       this.selectIds.clear();
       this.selectNodeIds = [];
       this.selectNodeNames = [];
       this.dialogFormVisible = false;
+      this.condition.filters = {}
     },
     filter(filters) {
       _filter(filters, this.condition);
@@ -357,13 +335,13 @@ export default {
     search() {
       this.currentPage = 1;
       this.testReviews = [];
-      this.getReviews(true);
+      this.getReviews();
+      this.getProjectNode(this.projectId, this.condition);
     },
     changeProject(project) {
       this.projectId = project.id;
     },
-
-    getProjectNode(projectId) {
+    getProjectNode(projectId, condition) {
       const index = this.projects.findIndex(project => project.id === projectId);
       if (index !== -1) {
         this.projectName = this.projects[index].name;
@@ -372,20 +350,16 @@ export default {
       if (projectId) {
         this.projectId = projectId;
       }
-      this.result = this.$post("/case/node/list/all/review",
-        {reviewId: this.reviewId, projectId: this.projectId}, response => {
+      this.result = this.$post("/case/node/list/review/relate",
+        {reviewId: this.reviewId, projectId: this.projectId, ...condition}, response => {
           this.treeNodes = response.data;
         });
       this.selectNodeIds = [];
     },
     getVersionOptions() {
-      if (hasLicense()) {
-        this.$get('/project/version/get-project-versions/' + getCurrentProjectID(), response => {
-          this.versionFilters = response.data.map(u => {
-            return {text: u.name, value: u.id};
-          });
-        });
-      }
+      getVersionFilters(this.projectId, (data) => {
+        this.versionFilters = data;
+      });
     },
     changeVersion(version) {
       this.condition.versionId = version || null;

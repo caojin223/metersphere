@@ -5,7 +5,7 @@
       <el-col :span="14">
         <el-menu class="header-menu" :unique-opened="true" mode="horizontal" router :default-active='currentPath'>
 
-          <el-menu-item :index="'/api/home'">
+          <el-menu-item :index="'/api/home'" v-permission="['PROJECT_API_HOME:READ']">
             {{ $t("i18n.home") }}
           </el-menu-item>
           <el-menu-item :index="'/api/definition'" v-permission="['PROJECT_API_DEFINITION:READ']">
@@ -21,6 +21,10 @@
           </el-menu-item>
         </el-menu>
       </el-col>
+
+      <el-col :span="10">
+        <ms-header-right-menus/>
+      </el-col>
     </el-row>
   </div>
 
@@ -32,11 +36,11 @@ import MsRecentList from "../../common/head/RecentList";
 import MsShowAll from "../../common/head/ShowAll";
 import MsCreateButton from "../../common/head/CreateButton";
 import ProjectChange from "@/business/components/common/head/ProjectSwitch";
-import {mapGetters} from "vuex";
+import MsHeaderRightMenus from "@/business/components/layout/HeaderRightMenus";
 
 export default {
   name: "MsApiHeaderMenus",
-  components: {MsCreateButton, MsShowAll, MsRecentList, ProjectChange},
+  components: {MsCreateButton, MsShowAll, MsRecentList, ProjectChange, MsHeaderRightMenus},
   data() {
     return {
       currentPath: '',
@@ -97,4 +101,7 @@ export default {
   padding: 0 10px;
 }
 
+.align-right {
+  float: right;
+}
 </style>

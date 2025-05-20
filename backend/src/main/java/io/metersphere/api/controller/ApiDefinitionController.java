@@ -4,8 +4,10 @@ import com.github.pagehelper.Page;
 import com.github.pagehelper.PageHelper;
 import io.metersphere.api.dto.APIReportResult;
 import io.metersphere.api.dto.ApiTestImportRequest;
+import io.metersphere.api.dto.ParseTreeDataDTO;
 import io.metersphere.api.dto.automation.ApiScenarioRequest;
 import io.metersphere.api.dto.automation.ReferenceDTO;
+import io.metersphere.api.dto.automation.TcpTreeTableDataStruct;
 import io.metersphere.api.dto.definition.*;
 import io.metersphere.api.dto.definition.parse.ApiDefinitionImport;
 import io.metersphere.api.dto.definition.request.assertions.document.DocumentElement;
@@ -13,11 +15,7 @@ import io.metersphere.api.dto.scenario.Body;
 import io.metersphere.api.dto.swaggerurl.SwaggerTaskResult;
 import io.metersphere.api.dto.swaggerurl.SwaggerUrlRequest;
 import io.metersphere.api.exec.queue.ExecThreadPoolExecutor;
-import io.metersphere.api.service.ApiDefinitionService;
-import io.metersphere.api.service.ApiTestEnvironmentService;
-import io.metersphere.api.service.EsbApiParamService;
-import io.metersphere.api.service.EsbImportService;
-import io.metersphere.base.domain.ApiDefinitionWithBLOBs;
+import io.metersphere.api.service.*;
 import io.metersphere.base.domain.ApiTestEnvironmentWithBLOBs;
 import io.metersphere.base.domain.Schedule;
 import io.metersphere.commons.constants.NoticeConstants;
@@ -52,6 +50,8 @@ public class ApiDefinitionController {
     @Resource
     private ApiDefinitionService apiDefinitionService;
     @Resource
+    private ApiTestCaseService apiTestCaseService;
+    @Resource
     private CheckPermissionService checkPermissionService;
     @Resource
     private EsbApiParamService esbApiParamService;
@@ -65,6 +65,13 @@ public class ApiDefinitionController {
     @PostMapping("/list/{goPage}/{pageSize}")
     @RequiresPermissions("PROJECT_API_DEFINITION:READ")
     public Pager<List<ApiDefinitionResult>> list(@PathVariable int goPage, @PathVariable int pageSize, @RequestBody ApiDefinitionRequest request) {
+        if (request.getToBeUpdated() != null && request.getToBeUpdated()) {
+            Long toBeUpdatedTime = apiTestCaseService.getToBeUpdatedTime(request.getProjectId());
+            if (toBeUpdatedTime != null) {
+                request.setToBeUpdateTime(toBeUpdatedTime);
+            }
+        }
+        apiDefinitionService.checkFilterHasCoverage(request);
         Page<Object> page = PageHelper.startPage(goPage, pageSize, true);
         return PageUtils.setPageInfo(page, apiDefinitionService.list(request));
     }
@@ -111,7 +118,7 @@ public class ApiDefinitionController {
     @PostMapping(value = "/update", consumes = {"multipart/form-data"})
     @RequiresPermissions(PermissionConstants.PROJECT_API_DEFINITION_READ_EDIT_API)
     @MsAuditLog(module = OperLogModule.API_DEFINITION, type = OperLogConstants.UPDATE, beforeEvent = "#msClass.getLogDetails(#request.id)", title = "#request.name", content = "#msClass.getLogDetails(#request.id)", msClass = ApiDefinitionService.class)
-    @SendNotice(taskType = NoticeConstants.TaskType.API_DEFINITION_TASK, event = NoticeConstants.Event.UPDATE, subject = "接口定义通知")
+    // @SendNotice(taskType = NoticeConstants.TaskType.API_DEFINITION_TASK, event = NoticeConstants.Event.UPDATE, subject = "接口定义通知")
     public ApiDefinitionResult update(@RequestPart("request") SaveApiDefinitionRequest request, @RequestPart(value = "files", required = false) List<MultipartFile> bodyFiles) {
         checkPermissionService.checkProjectOwner(request.getProjectId());
         return apiDefinitionService.update(request, bodyFiles);
@@ -274,7 +281,7 @@ public class ApiDefinitionController {
     @RequiresPermissions(PermissionConstants.PROJECT_API_DEFINITION_READ_EDIT_API)
     @MsAuditLog(module = OperLogModule.API_DEFINITION, type = OperLogConstants.BATCH_UPDATE, beforeEvent = "#msClass.getLogDetails(#request)", content = "#msClass.getLogDetails(#request)", msClass = ApiDefinitionService.class)
     @SendNotice(taskType = NoticeConstants.TaskType.API_DEFINITION_TASK, event = NoticeConstants.Event.UPDATE, target = "#targetClass.getBLOBs(#request.ids)", targetClass = ApiDefinitionService.class,
-           subject = "接口定义通知")
+            subject = "接口定义通知")
     public void editByParams(@RequestBody ApiBatchRequest request) {
         apiDefinitionService.editApiByParam(request);
     }
@@ -333,6 +340,11 @@ public class ApiDefinitionController {
         return apiDefinitionService.getRelationshipRelateList(request, goPage, pageSize);
     }
 
+    @PostMapping("/relationship/add")
+    public void saveRelationshipBatch(@RequestBody ApiDefinitionRelationshipEdgeRequest request) {
+        apiDefinitionService.saveRelationshipBatch(request);
+    }
+
     @GetMapping("/follow/{definitionId}")
     public List<String> getFollows(@PathVariable String definitionId) {
         return apiDefinitionService.getFollows(definitionId);
@@ -351,6 +363,12 @@ public class ApiDefinitionController {
     @PostMapping("/update/follows/{definitionId}")
     public void saveFollows(@PathVariable String definitionId, @RequestBody List<String> follows) {
         apiDefinitionService.saveFollows(definitionId, follows);
+    }
+
+
+    @PostMapping("/delete/follows/batch")
+    public void deleteFollows(@RequestBody List<String> definitionIds) {
+        apiDefinitionService.deleteFollows(definitionIds);
     }
 
     @GetMapping("/getWorkerQueue")
@@ -373,4 +391,13 @@ public class ApiDefinitionController {
         apiDefinitionService.deleteApiDefinitionByVersion(refId, version);
     }
 
+    @GetMapping("/be/cited/scenario/{definitionId}")
+    public Integer getCitedScenarioCount(@PathVariable String definitionId) {
+        return apiDefinitionService.getCitedScenarioCount(definitionId);
+    }
+
+    @PostMapping("/raw-to-xml")
+    public List<TcpTreeTableDataStruct> rawToXml(@RequestBody ParseTreeDataDTO parseTreeDataDTO) {
+        return apiDefinitionService.rawToXml(parseTreeDataDTO.getStringData());
+    }
 }

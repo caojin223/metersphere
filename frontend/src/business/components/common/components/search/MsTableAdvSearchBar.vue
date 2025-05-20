@@ -11,12 +11,13 @@
                          @updateKey="changeSearchItemKey" :custom="condition.custom"/>
             </el-col>
             <el-col :span="2">
-              <i class="el-icon-close delete-icon" @click="remove(component)"></i>
+              <i class="el-icon-close delete-icon" @click="remove(component)"
+                 v-if="optional.components.length !==1"></i>
             </el-col>
           </el-row>
         </div>
         <el-link type="primary" icon="el-icon-plus" v-if="showAddFilterLink"
-                 class="add-filter-link" @click="addFilter">添加筛选条件</el-link>
+                 class="add-filter-link" @click="addFilter">{{ $t('commons.adv_search.add_filter_link') }}</el-link>
       </div>
       <template v-slot:footer>
         <div class="dialog-footer">
@@ -30,7 +31,7 @@
 
 <script>
 import components from "./search-components";
-import {cloneDeep, slice, concat} from "lodash";
+import {cloneDeep, concat, slice} from "lodash";
 import {_findByKey, _findIndexByKey} from "@/business/components/common/components/search/custom-component";
 
 export default {
@@ -75,11 +76,11 @@ export default {
       }
       if (this.condition.custom) {
         let components = [];
-        this.systemFiled = config.components.filter(co => co.custom === undefined || false);
+        this.systemFiled = config.components.filter(co => co.custom === undefined || co.custom === false);
         this.customFiled = config.components.filter(co => co.custom === true);
         // 选项分组
-        this.$set(components, 0, {label: "系统字段", child: this.systemFiled});
-        this.$set(components, 1, {label: "自定义字段", child: this.customFiled});
+        this.$set(components, 0, {label: this.$t('custom_field.system_field'), child: this.systemFiled});
+        this.$set(components, 1, {label: this.$t('custom_field.name'), child: this.customFiled});
         this.$set(config, "components", components);
       }
       return config;
@@ -108,22 +109,38 @@ export default {
       this.visible = false;
     },
     setCondition(condition, component) {
-      if (!component.custom) {
-        condition[component.key] = {
-          operator: component.operator.value,
-          value: component.value
-        };
-      } else {
-        if (!condition.customs) {
-          condition['customs'] = [];
-        }
-        condition['customs'].push({
-          id: component.key,
-          operator: component.operator.value,
-          value: component.value
-        });
+      // 某些字段储存在自定义表但是其 custom 的值是 false
+      // 因为需求要把这些字段在有选项分类时归为 系统字段 ？
+      if (component.custom || ['严重程度', '处理人', '状态', '用例状态', '责任人', '用例等级'].indexOf(component.label) > -1) {
+        this.handleCustomField(condition, component);
+        return;
       }
-
+      condition[component.key] = {
+        operator: component.operator.value,
+        value: component.value
+      };
+    },
+    handleCustomField(condition, component) {
+      if (!condition.customs) {
+        condition['customs'] = [];
+      }
+      let value = component.value;
+      if (component.label === '用例状态' && value.length === 1 && value.indexOf('Trash') > -1) {
+        return;
+      }
+      if (component.type === "multipleMember" || component.type === "checkbox" || component.type === "multipleSelect") {
+        try {
+          value = JSON.stringify(component.value);
+        } catch (e) {
+          // nothing
+        }
+      }
+      condition['customs'].push({
+        id: component.key,
+        operator: component.operator.value,
+        value: value,
+        type: component.type
+      });
     },
     reset() {
       let source = this.condition.components;
@@ -134,6 +151,9 @@ export default {
         }
         if (component.value !== undefined) {
           component.value = source[index].value;
+        }
+        if (component.reset && component.reset instanceof Function) {
+          component.reset();
         }
       })
       this.condition.combine = undefined;
@@ -148,8 +168,8 @@ export default {
       }
       // 默认显示几个搜索条件
       this.optional.components = slice(this.optional.components, 0, this.showItemSize);
-      const all = concat(this.config.components[0].child, this.config.components[1].child);
-      let allComponent = this.condition.custom ? all : this.config.components;
+      let allComponent = this.condition.custom ?
+        concat(this.config.components[0].child, this.config.components[1].child) : this.config.components;
       for (let component of allComponent) {
         let co = _findByKey(this.optional.components, component.key);
         co ? this.$set(co, 'disable', true) : this.$set(component, 'disable', false);
@@ -160,12 +180,19 @@ export default {
       if (!this.isInit) {
         this.isInit = true;
         this.init();
+      } else {
+        this.refreshComponentOption();
       }
+    },
+    refreshComponentOption() {
+      // 当前已存在的搜索子组件中是否有需要进行刷新数据选项的
+      let comps = this.optional.components.filter(cp => cp.init && cp.init instanceof Function);
+      comps.forEach(comp => comp.init());
     },
     addFilter() {
       const index = _findIndexByKey(this.optional.components, this.nullFilterKey);
       if (index > -1) {
-        this.$warning("有为空的查询条件，请先选择！")
+        this.$warning(this.$t('commons.adv_search.add_filter_link_tip'));
         return;
       }
       let data = {

@@ -11,6 +11,7 @@
         @nodeSelectEvent="nodeChange"
         @refreshTable="refresh"
         @setModuleOptions="setModuleOptions"
+        :show-case-num="false"
         :relevance-project-id="projectId"
         :is-read-only="true"
         ref="nodeTree"/>
@@ -33,7 +34,7 @@
 
 import TestCaseRelevanceBase from "../base/TestCaseRelevanceBase";
 import MsApiModule from "../../../../../api/definition/components/module/ApiModule";
-import {strMapToObj} from "../../../../../../../common/js/utils";
+import {getCurrentProjectID, hasLicense, strMapToObj} from "../../../../../../../common/js/utils";
 import ApiCaseSimpleList from "../../../../../api/definition/components/list/ApiCaseSimpleList";
 import MsApiScenarioList from "../../../../../api/automation/scenario/ApiScenarioList";
 import MsApiScenarioModule from "../../../../../api/automation/scenario/ApiScenarioModule";
@@ -58,9 +59,9 @@ export default {
       selectNodeIds: [],
       moduleOptions: {},
       trashEnable: false,
-      condition: {},
       currentRow: {},
-      projectId: ""
+      projectId: "",
+      versionFilters: [],
     };
   },
   props: {
@@ -71,11 +72,6 @@ export default {
       type: Boolean,
       default: false
     }
-  },
-  watch: {
-    planId() {
-      this.condition.planId = this.planId;
-    },
   },
   methods: {
     open() {
@@ -104,7 +100,7 @@ export default {
     },
 
     postRelevance() {
-      let url = '/api/automation/relevance';
+      let url = '/test/plan/scenario/case/relevance';
       const envMap = this.$refs.apiScenarioList.projectEnvMap;
       let envType = this.$refs.apiScenarioList.environmentType;
       let map = this.$refs.apiScenarioList.map;
@@ -137,12 +133,17 @@ export default {
       if (!sign) {
         return false;
       }
-      let url = '/api/automation/relevance';
+      let selectIds = [];
+      let url = '/test/plan/scenario/case/relevance';
+      let selectRows = this.$refs.apiScenarioList.selectRows;
       const envMap = this.$refs.apiScenarioList.projectEnvMap;
       let envType = this.$refs.apiScenarioList.environmentType;
       let map = this.$refs.apiScenarioList.map;
       let envGroupId = this.$refs.apiScenarioList.envGroupId;
 
+      selectRows.forEach(row => {
+        selectIds.push(row.id);
+      })
       if (envType === ENV_TYPE.JSON && (!envMap || envMap.size < 1)) {
         this.$warning(this.$t("api_test.environment.select_environment"));
         return false;
@@ -156,6 +157,8 @@ export default {
       param.envMap = strMapToObj(envMap);
       param.environmentType = envType;
       param.envGroupId = envGroupId;
+      param.ids = selectIds;
+      param.condition = this.$refs.apiScenarioList.condition;
 
       this.result = this.$post(url, param, () => {
         this.$success(this.$t('commons.save_success'));
@@ -174,7 +177,16 @@ export default {
     },
     setSelectCounts(data) {
       this.$refs.baseRelevance.selectCounts = data;
-    }
+    },
+    getVersionOptions() {
+      if (hasLicense()) {
+        this.$get('/project/version/get-project-versions/' + getCurrentProjectID(), response => {
+          this.versionFilters = response.data.map(u => {
+            return {text: u.name, value: u.id};
+          });
+        });
+      }
+    },
   }
 };
 </script>

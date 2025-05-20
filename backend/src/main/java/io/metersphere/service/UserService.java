@@ -5,17 +5,11 @@ import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import io.metersphere.base.domain.*;
 import io.metersphere.base.mapper.*;
-import io.metersphere.base.mapper.ext.ExtProjectMapper;
-import io.metersphere.base.mapper.ext.ExtUserGroupMapper;
-import io.metersphere.base.mapper.ext.ExtUserMapper;
-import io.metersphere.base.mapper.ext.ExtWorkspaceMapper;
+import io.metersphere.base.mapper.ext.*;
 import io.metersphere.commons.constants.*;
 import io.metersphere.commons.exception.MSException;
 import io.metersphere.commons.user.SessionUser;
-import io.metersphere.commons.utils.CodingUtil;
-import io.metersphere.commons.utils.CommonBeanFactory;
-import io.metersphere.commons.utils.LogUtil;
-import io.metersphere.commons.utils.SessionUtils;
+import io.metersphere.commons.utils.*;
 import io.metersphere.controller.ResultHolder;
 import io.metersphere.controller.request.LoginRequest;
 import io.metersphere.controller.request.WorkspaceRequest;
@@ -94,7 +88,7 @@ public class UserService {
     @Resource
     private ExtWorkspaceMapper extWorkspaceMapper;
     @Resource
-    private OperatingLogMapper operatingLogMapper;
+    private ExtOperatingLogMapper extOperatingLogMapper;
 
     public List<UserDetail> queryTypeByIds(List<String> userIds) {
         return extUserMapper.queryTypeByIds(userIds);
@@ -105,10 +99,6 @@ public class UserService {
             return new HashMap<>(0);
         }
         return extUserMapper.queryNameByIds(userIds);
-    }
-
-    public Map<String, User> queryName() {
-        return extUserMapper.queryName();
     }
 
     public UserDTO insert(UserRequest userRequest) {
@@ -146,7 +136,7 @@ public class UserService {
             } else {
                 List<String> ids = (List<String>) map.get("ids");
                 Group group = groupMapper.selectByPrimaryKey(groupId);
-                checkQuota(quotaService, group.getType(), ids, 1);
+                checkQuota(quotaService, group.getType(), ids, Collections.singletonList(userId));
                 SqlSession sqlSession = sqlSessionFactory.openSession(ExecutorType.BATCH);
                 UserGroupMapper mapper = sqlSession.getMapper(UserGroupMapper.class);
                 for (String id : ids) {
@@ -165,13 +155,6 @@ public class UserService {
                 }
             }
 
-        }
-    }
-
-    private void checkQuota(QuotaService quotaService, String type, List<String> sourceIds, int size) {
-        if (quotaService != null) {
-            Map<String, Integer> addMemberMap = sourceIds.stream().collect(Collectors.toMap(id -> id, id -> size));
-            quotaService.checkMemberCount(addMemberMap, type);
         }
     }
 
@@ -331,6 +314,7 @@ public class UserService {
     }
 
     public List<User> getUserListWithRequest(io.metersphere.controller.request.UserRequest request) {
+        request.setOrders(ServiceUtils.getDefaultOrder(request.getOrders(), "create_time"));
         return extUserMapper.getUserList(request);
     }
 
@@ -391,21 +375,37 @@ public class UserService {
         }
         user.setPassword(null);
         user.setUpdateTime(System.currentTimeMillis());
+        // 变更前
+        User userFromDB = userMapper.selectByPrimaryKey(user.getId());
+        // last workspace id 变了
+        if (user.getLastWorkspaceId() != null && !StringUtils.equals(user.getLastWorkspaceId(), userFromDB.getLastWorkspaceId())) {
+            List<Project> projects = getProjectListByWsAndUserId(user.getId(), user.getLastWorkspaceId());
+            if (projects.size() > 0) {
+                // 如果传入的 last_project_id 是 last_workspace_id 下面的
+                boolean present = projects.stream().anyMatch(p -> StringUtils.equals(p.getId(), user.getLastProjectId()));
+                if (!present) {
+                    user.setLastProjectId(projects.get(0).getId());
+                }
+            } else {
+                user.setLastProjectId("");
+            }
+        }
+        // 执行变更
         userMapper.updateByPrimaryKeySelective(user);
         if (StringUtils.equals(user.getStatus(), UserStatus.DISABLED)) {
             SessionUtils.kickOutUser(user.getId());
         }
     }
 
-    public void switchUserResource(String sign, String sourceId) {
-        SessionUser sessionUser = SessionUtils.getUser();
+    public void switchUserResource(String sign, String sourceId, UserDTO sessionUser) {
         // 获取最新UserDTO
         UserDTO user = getUserDTO(sessionUser.getId());
         User newUser = new User();
 
         if (StringUtils.equals("workspace", sign)) {
             user.setLastWorkspaceId(sourceId);
-            List<Project> projects = getProjectListByWsAndUserId(sourceId);
+            sessionUser.setLastWorkspaceId(sourceId);
+            List<Project> projects = getProjectListByWsAndUserId(sessionUser.getId(), sourceId);
             if (projects.size() > 0) {
                 user.setLastProjectId(projects.get(0).getId());
             } else {
@@ -418,14 +418,13 @@ public class UserService {
         userMapper.updateByPrimaryKeySelective(newUser);
     }
 
-    private List<Project> getProjectListByWsAndUserId(String workspaceId) {
-        String useId = SessionUtils.getUser().getId();
+    private List<Project> getProjectListByWsAndUserId(String userId, String workspaceId) {
         ProjectExample projectExample = new ProjectExample();
         projectExample.createCriteria().andWorkspaceIdEqualTo(workspaceId);
         List<Project> projects = projectMapper.selectByExample(projectExample);
 
         UserGroupExample userGroupExample = new UserGroupExample();
-        userGroupExample.createCriteria().andUserIdEqualTo(useId);
+        userGroupExample.createCriteria().andUserIdEqualTo(userId);
         List<UserGroup> userGroups = userGroupMapper.selectByExample(userGroupExample);
         List<Project> projectList = new ArrayList<>();
         userGroups.forEach(userGroup -> projects.forEach(project -> {
@@ -446,32 +445,8 @@ public class UserService {
         return extUserGroupMapper.getMemberList(request);
     }
 
-    public void addMember(AddMemberRequest request) {
-        if (!CollectionUtils.isEmpty(request.getUserIds())) {
-            QuotaService quotaService = CommonBeanFactory.getBean(QuotaService.class);
-            if (CollectionUtils.isNotEmpty(request.getUserIds())) {
-                checkQuota(quotaService, "WORKSPACE", Collections.singletonList(request.getWorkspaceId()), request.getUserIds().size());
-            }
-            for (String userId : request.getUserIds()) {
-                UserGroupExample userGroupExample = new UserGroupExample();
-                userGroupExample.createCriteria().andUserIdEqualTo(userId).andSourceIdEqualTo(request.getWorkspaceId());
-                List<UserGroup> userGroups = userGroupMapper.selectByExample(userGroupExample);
-                if (userGroups.size() > 0) {
-                    MSException.throwException(Translator.get("user_already_exists"));
-                } else {
-                    for (String groupId : request.getGroupIds()) {
-                        UserGroup userGroup = new UserGroup();
-                        userGroup.setGroupId(groupId);
-                        userGroup.setSourceId(request.getWorkspaceId());
-                        userGroup.setUserId(userId);
-                        userGroup.setId(UUID.randomUUID().toString());
-                        userGroup.setUpdateTime(System.currentTimeMillis());
-                        userGroup.setCreateTime(System.currentTimeMillis());
-                        userGroupMapper.insertSelective(userGroup);
-                    }
-                }
-            }
-        }
+    public void addWorkspaceMember(AddMemberRequest request) {
+        this.addGroupMember("WORKSPACE", request.getWorkspaceId(), request.getUserIds(), request.getGroupIds());
     }
 
     public void deleteMember(String workspaceId, String userId) {
@@ -600,7 +575,10 @@ public class UserService {
             if (subject.isAuthenticated()) {
                 UserDTO user = (UserDTO) subject.getSession().getAttribute(ATTR_USER);
                 autoSwitch(user);
-                return ResultHolder.success(subject.getSession().getAttribute("user"));
+                // 放入session中
+                SessionUser sessionUser = SessionUser.fromUser(user);
+                SessionUtils.putUser(sessionUser);
+                return ResultHolder.success(sessionUser);
             } else {
                 return ResultHolder.error(Translator.get("login_fail"));
             }
@@ -619,15 +597,20 @@ public class UserService {
         }
     }
 
-    private void autoSwitch(UserDTO user) {
-        if (StringUtils.isNotBlank(user.getLastProjectId())) {
-            List<UserGroup> projectUserGroups = user.getUserGroups().stream()
-                    .filter(ug -> StringUtils.equals(user.getLastProjectId(), ug.getSourceId()))
-                    .collect(Collectors.toList());
-            if (CollectionUtils.isNotEmpty(projectUserGroups)) {
-                return;
-            }
+    public void autoSwitch(UserDTO user) {
+        // 用户有 last_project_id 权限
+        if (hasLastProjectPermission(user)) {
+            return;
         }
+        // 用户有 last_workspace_id 权限
+        if (hasLastWorkspacePermission(user)) {
+            return;
+        }
+        // 判断其他权限
+        checkNewWorkspaceAndProject(user);
+    }
+
+    private void checkNewWorkspaceAndProject(UserDTO user) {
         List<UserGroup> userGroups = user.getUserGroups();
         List<String> projectGroupIds = user.getGroups()
                 .stream().filter(ug -> StringUtils.equals(ug.getType(), UserGroupType.PROJECT))
@@ -645,7 +628,12 @@ public class UserService {
                     .collect(Collectors.toList());
             if (workspaces.size() > 0) {
                 String wsId = workspaces.get(0).getSourceId();
-                switchUserResource("workspace", wsId);
+                switchUserResource("workspace", wsId, user);
+            } else {
+                // 用户登录之后没有项目和工作空间的权限就把值清空
+                user.setLastWorkspaceId("");
+                user.setLastProjectId("");
+                updateUser(user);
             }
         } else {
             UserGroup userGroup = project.stream().filter(p -> StringUtils.isNotBlank(p.getSourceId()))
@@ -657,8 +645,72 @@ public class UserService {
             user.setLastProjectId(projectId);
             user.setLastWorkspaceId(wsId);
             updateUser(user);
-            SessionUtils.putUser(SessionUser.fromUser(user));
         }
+    }
+
+    private boolean hasLastProjectPermission(UserDTO user) {
+        if (StringUtils.isNotBlank(user.getLastProjectId())) {
+            List<UserGroup> projectUserGroups = user.getUserGroups().stream()
+                    .filter(ug -> StringUtils.equals(user.getLastProjectId(), ug.getSourceId()))
+                    .collect(Collectors.toList());
+            if (CollectionUtils.isNotEmpty(projectUserGroups)) {
+                Project project = projectMapper.selectByPrimaryKey(user.getLastProjectId());
+                if (StringUtils.equals(project.getWorkspaceId(), user.getLastWorkspaceId())) {
+                    return true;
+                }
+                // last_project_id 和 last_workspace_id 对应不上了
+                user.setLastWorkspaceId(project.getWorkspaceId());
+                updateUser(user);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasLastWorkspacePermission(UserDTO user) {
+        if (StringUtils.isNotBlank(user.getLastWorkspaceId())) {
+            List<UserGroup> workspaceUserGroups = user.getUserGroups().stream()
+                    .filter(ug -> StringUtils.equals(user.getLastWorkspaceId(), ug.getSourceId()))
+                    .collect(Collectors.toList());
+            if (CollectionUtils.isNotEmpty(workspaceUserGroups)) {
+                ProjectExample example = new ProjectExample();
+                example.createCriteria().andWorkspaceIdEqualTo(user.getLastWorkspaceId());
+                List<Project> projects = projectMapper.selectByExample(example);
+                // 工作空间下没有项目
+                if (CollectionUtils.isEmpty(projects)) {
+                    return true;
+                }
+                // 工作空间下有项目，选中有权限的项目
+                List<String> projectIds = projects.stream()
+                        .map(Project::getId)
+                        .collect(Collectors.toList());
+
+                List<UserGroup> userGroups = user.getUserGroups();
+                List<String> projectGroupIds = user.getGroups()
+                        .stream().filter(ug -> StringUtils.equals(ug.getType(), UserGroupType.PROJECT))
+                        .map(Group::getId)
+                        .collect(Collectors.toList());
+                List<String> projectIdsWithPermission = userGroups.stream().filter(ug -> projectGroupIds.contains(ug.getGroupId()))
+                        .filter(p -> StringUtils.isNotBlank(p.getSourceId()))
+                        .map(UserGroup::getSourceId)
+                        .filter(projectIds::contains)
+                        .collect(Collectors.toList());
+
+                List<String> intersection = projectIds.stream().filter(projectIdsWithPermission::contains).collect(Collectors.toList());
+                // 当前工作空间下的所有项目都没有权限
+                if (CollectionUtils.isEmpty(intersection)) {
+                    return true;
+                }
+                Project project = projects.stream().filter(p -> StringUtils.equals(intersection.get(0), p.getId())).findFirst().get();
+                String wsId = project.getWorkspaceId();
+                user.setId(user.getId());
+                user.setLastProjectId(project.getId());
+                user.setLastWorkspaceId(wsId);
+                updateUser(user);
+                return true;
+            }
+        }
+        return false;
     }
 
     public List<User> searchUser(String condition) {
@@ -792,7 +844,7 @@ public class UserService {
         QuotaService quotaService = CommonBeanFactory.getBean(QuotaService.class);
         List<String> worksapceIds = request.getBatchProcessValue();
         if (CollectionUtils.isNotEmpty(userIds)) {
-            checkQuota(quotaService, "WORKSPACE", worksapceIds, userIds.size());
+            checkQuota(quotaService, "WORKSPACE", worksapceIds, userIds);
         }
         for (String userId : userIds) {
             UserGroupExample userGroupExample = new UserGroupExample();
@@ -864,7 +916,7 @@ public class UserService {
                         List<String> sourceIds = userGroups.stream().map(UserGroup::getSourceId).collect(Collectors.toList());
                         List<String> list = sourceMap.get(group);
                         list.removeAll(sourceIds);
-                        checkQuota(quotaService, gp.getType(), list, 1);
+                        checkQuota(quotaService, gp.getType(), list, Collections.singletonList(userId));
                         SqlSession sqlSession = sqlSessionFactory.openSession(ExecutorType.BATCH);
                         UserGroupMapper mapper = sqlSession.getMapper(UserGroupMapper.class);
                         for (String sourceId : list) {
@@ -908,7 +960,7 @@ public class UserService {
         QuotaService quotaService = CommonBeanFactory.getBean(QuotaService.class);
         List<String> projectIds = request.getBatchProcessValue();
         if (CollectionUtils.isNotEmpty(userIds)) {
-            checkQuota(quotaService, "PROJECT", projectIds, userIds.size());
+            checkQuota(quotaService, "PROJECT", projectIds, userIds);
         }
         for (String userId : userIds) {
             UserGroupExample userGroupExample = new UserGroupExample();
@@ -1109,32 +1161,78 @@ public class UserService {
     }
 
     public void addProjectMember(AddMemberRequest request) {
-        if (CollectionUtils.isEmpty(request.getUserIds())) {
-            LogUtil.info("add project member warning, request param user id list empty!");
+        this.addGroupMember("PROJECT", request.getProjectId(), request.getUserIds(), request.getGroupIds());
+    }
+
+    /**
+     * 添加项目｜工作空间成员
+     *
+     * @param type     项目｜工作空间
+     * @param sourceId project_id | workspace_id
+     * @param userIds  成员ID列表
+     * @param groupIds 用户组ID列表
+     */
+    private void addGroupMember(String type, String sourceId, List<String> userIds, List<String> groupIds) {
+        if (!StringUtils.equalsAny(type, "PROJECT", "WORKSPACE") || StringUtils.isBlank(sourceId)
+                || CollectionUtils.isEmpty(userIds) || CollectionUtils.isEmpty(groupIds)) {
+            LogUtil.info("add member warning, please check param!");
             return;
         }
-        QuotaService quotaService = CommonBeanFactory.getBean(QuotaService.class);
-        if (CollectionUtils.isNotEmpty(request.getUserIds())) {
-            checkQuota(quotaService, "PROJECT", Collections.singletonList(request.getProjectId()), request.getUserIds().size());
-        }
-        for (String userId : request.getUserIds()) {
-            UserGroupExample userGroupExample = new UserGroupExample();
-            userGroupExample.createCriteria().andUserIdEqualTo(userId).andSourceIdEqualTo(request.getProjectId());
-            List<UserGroup> userGroups = userGroupMapper.selectByExample(userGroupExample);
-            if (userGroups.size() > 0) {
-                MSException.throwException(Translator.get("user_already_exists"));
-            } else {
-                for (String groupId : request.getGroupIds()) {
-                    UserGroup userGroup = new UserGroup();
-                    userGroup.setGroupId(groupId);
-                    userGroup.setSourceId(request.getProjectId());
-                    userGroup.setUserId(userId);
-                    userGroup.setId(UUID.randomUUID().toString());
-                    userGroup.setUpdateTime(System.currentTimeMillis());
-                    userGroup.setCreateTime(System.currentTimeMillis());
-                    userGroupMapper.insertSelective(userGroup);
-                }
+        this.checkQuotaOfMemberSize(type, sourceId, userIds);
+        List<String> dbOptionalGroupIds = this.getGroupIdsByType(type, sourceId);
+        for (String userId : userIds) {
+            User user = userMapper.selectByPrimaryKey(userId);
+            if (user == null) {
+                LogUtil.info("add member warning, invalid user id: " + userId);
+                continue;
             }
+            List<String> toAddGroupIds = new ArrayList<>(groupIds);
+            List<String> existGroupIds = this.getUserExistSourceGroup(userId, sourceId);
+            toAddGroupIds.removeAll(existGroupIds);
+            toAddGroupIds.retainAll(dbOptionalGroupIds);
+            for (String groupId : toAddGroupIds) {
+                UserGroup userGroup = new UserGroup(UUID.randomUUID().toString(), userId, groupId,
+                        sourceId, System.currentTimeMillis(), System.currentTimeMillis());
+                userGroupMapper.insertSelective(userGroup);
+            }
+        }
+    }
+
+    private List<String> getUserExistSourceGroup(String userId, String sourceId) {
+        UserGroupExample userGroupExample = new UserGroupExample();
+        userGroupExample.createCriteria().andUserIdEqualTo(userId).andSourceIdEqualTo(sourceId);
+        List<UserGroup> userGroups = userGroupMapper.selectByExample(userGroupExample);
+        return userGroups.stream().map(UserGroup::getGroupId).collect(Collectors.toList());
+    }
+
+    private List<String> getGroupIdsByType(String type, String sourceId) {
+        // 某项目/工作空间下能查看到的用户组
+        List<String> scopeList = Arrays.asList("global", sourceId);
+        GroupExample groupExample = new GroupExample();
+        groupExample.createCriteria().andScopeIdIn(scopeList)
+                .andTypeEqualTo(type);
+        List<Group> groups = groupMapper.selectByExample(groupExample);
+        return groups.stream().map(Group::getId).collect(Collectors.toList());
+    }
+
+    /**
+     * 向单个工作空间或单个项目中添加成员时检查成员数量配额
+     *
+     * @param type     PROJECT ｜ WORKSPACE
+     * @param sourceId project_id | workspace_id
+     * @param userIds  添加的用户id
+     */
+    private void checkQuotaOfMemberSize(String type, String sourceId, List<String> userIds) {
+        QuotaService quotaService = CommonBeanFactory.getBean(QuotaService.class);
+        if (CollectionUtils.isNotEmpty(userIds)) {
+            checkQuota(quotaService, type, Collections.singletonList(sourceId), userIds);
+        }
+    }
+
+    private void checkQuota(QuotaService quotaService, String type, List<String> sourceIds, List<String> userIds) {
+        if (quotaService != null) {
+            Map<String, List<String>> addMemberMap = sourceIds.stream().collect(Collectors.toMap(id -> id, id -> userIds));
+            quotaService.checkMemberCount(addMemberMap, type);
         }
     }
 
@@ -1158,14 +1256,6 @@ public class UserService {
         }
 
         userGroupMapper.deleteByExample(userGroupExample);
-    }
-
-    public List<User> getProjectMember(QueryMemberRequest request) {
-        String projectId = request.getProjectId();
-        if (StringUtils.isBlank(projectId)) {
-            return new ArrayList<>();
-        }
-        return extUserGroupMapper.getProjectMemberList(request);
     }
 
     public List<User> getWsAllMember(String workspaceId) {
@@ -1252,7 +1342,7 @@ public class UserService {
                 } else {
                     List<String> ids = (List<String>) map.get("ids");
                     Group group = groupMapper.selectByPrimaryKey(groupId);
-                    checkQuota(quotaService, group.getType(), ids, 1);
+                    checkQuota(quotaService, group.getType(), ids, Collections.singletonList(userId));
                     SqlSession sqlSession = sqlSessionFactory.openSession(ExecutorType.BATCH);
                     UserGroupMapper mapper = sqlSession.getMapper(UserGroupMapper.class);
                     for (String id : ids) {
@@ -1287,6 +1377,9 @@ public class UserService {
 
     public UserDTO.PlatformInfo getCurrentPlatformInfo(String workspaceId) {
         User user = userMapper.selectByPrimaryKey(SessionUtils.getUserId());
+        if (user == null) {
+            return null;
+        }
         String platformInfoStr = user.getPlatformInfo();
         if (StringUtils.isBlank(workspaceId) || StringUtils.isBlank(platformInfoStr) || platformInfoStr.equals("null")) {
             return null;
@@ -1330,11 +1423,7 @@ public class UserService {
     }
 
     public boolean checkWhetherChangePasswordOrNot(LoginRequest request) {
-        // 首次登录需要提示
-        if (operatingLogMapper.countByExample(new OperatingLogExample()) == 0) {
-            return true;
-        }
-
+        // 只验证admin
         // 升级之后 admin 还使用弱密码也提示修改
         if (StringUtils.equals("admin", request.getUsername())) {
             UserExample example = new UserExample();
@@ -1408,5 +1497,13 @@ public class UserService {
 
     public List<User> getProjectMemberOption(String projectId) {
         return extUserGroupMapper.getProjectMemberOption(projectId);
+    }
+
+    public Map<String, User> getUserIdMapByIds(List<String> userIdList) {
+        return extUserMapper.queryNameByIds(userIdList);
+    }
+
+    public User selectById(String id) {
+        return userMapper.selectByPrimaryKey(id);
     }
 }

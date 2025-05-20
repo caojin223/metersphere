@@ -43,7 +43,7 @@
 <script>
 import ElUploadList from "element-ui/packages/upload/src/upload-list";
 import MsTableButton from '../../../../components/common/components/MsTableButton';
-import {getCurrentProjectID, getCurrentWorkspaceId, listenGoBack, removeGoBackListener} from "@/common/js/utils";
+import {getCurrentWorkspaceId, listenGoBack, removeGoBackListener} from "@/common/js/utils";
 import MsDialogFooter from "@/business/components/common/components/MsDialogFooter";
 import {GROUP_PROJECT} from "@/common/js/constants";
 
@@ -151,7 +151,7 @@ export default {
       });
     },
     getWorkspace(resolve) {
-      this.$get("workspace/list/", res => {
+      this.$get("workspace/list", res => {
         let data = res.data ? res.data : [];
         if (data.length > 0) {
           data.forEach(d => d.leaf = false);
@@ -171,7 +171,7 @@ export default {
     getProjectUserGroup() {
       // 系统菜单显示所有项目类型用户组
       if (this.cascaderLevel === 2) {
-        this.$post("/user/group/get", {type: GROUP_PROJECT}, (res) => {
+        this.$post("/user/group/get", {type: GROUP_PROJECT, onlyQueryGlobal: true}, (res) => {
           this.projectUserGroups = res.data ? res.data : [];
         });
       } else if (this.cascaderLevel === 1) {

@@ -69,6 +69,12 @@ body {
   --color_shallow: '';
   --count_number: '';
   --count_number_shallow: '';
+  --asideWidth: 44px;
+  --asideOpenWidth: 150px;
+  --asideOpenMargin: 114px;
+  --aside_color: '';
+  --font_color: '';
+  --font_light_color: '';
 }
 
 /* 解决 document.body.clientHeight 为0 */
@@ -309,4 +315,18 @@ textarea {
 
 .ace-chrome .ace_print-margin {
   width: 0px !important;
+}
+
+.el-form-item__error {
+  position: relative;
+}
+
+/* 消息提示框上移一点 */
+.el-message-box {
+  margin-bottom: 20%;
+}
+
+.el-message.is-closable .el-message__content {
+  max-width: 800px;
+  word-wrap: break-word;
 }

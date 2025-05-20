@@ -11,16 +11,11 @@
         {{ comment.createTime | timestampFormatDate }}
       </span>
       <span>
-        <el-button v-if="comment.status === 'UnPass'" type="danger" size="mini" round>
-         {{ $t('test_track.review.un_pass') }}
-         </el-button>
-         <el-button v-if="comment.status === 'Pass'" type="success" size="mini">
-                        {{ $t('test_track.review.pass') }}
-         </el-button>
+         <status-table-item v-if="comment.status" :value="comment.status"/>
       </span>
       <span class="comment-delete">
         <el-link icon="el-icon-edit" style="font-size: 9px;margin-right: 6px;" @click="openEdit" :disabled="readOnly"/>
-        <el-link icon="el-icon-close" @click="deleteComment" :disabled="readOnly"/>
+        <el-link icon="el-icon-close" v-prevent-link-re-click="1300" @click="deleteComment" :disabled="readOnly"/>
       </span>
       <br/>
 
@@ -48,7 +43,7 @@
       <div>
         <div class="editors_div_style">
           <div id="editorsDiv">
-            <ms-mark-down-text prop="description" :data="comment" :toolbars="toolbars"/>
+            <ms-mark-down-text default-open="edit" prop="description" :data="comment" :toolbars="toolbars" :custom-min-height="200"/>
           </div>
         </div>
         <div>
@@ -66,17 +61,17 @@
 import MsDialogFooter from "@/business/components/common/components/MsDialogFooter";
 import {getCurrentUser} from "@/common/js/utils";
 import MsMarkDownText from "@/business/components/track/case/components/MsMarkDownText";
+import StatusTableItem from "@/business/components/track/common/tableItems/planview/StatusTableItem";
 
 export default {
   name: "ReviewCommentItem",
-  components: {MsDialogFooter, MsMarkDownText},
+  components: {StatusTableItem, MsDialogFooter, MsMarkDownText},
   props: {
     comment: Object,
     readOnly: {
       type: Boolean,
       default: false
     },
-    reviewStatus: String,
     apiUrl: String
   },
   data() {
@@ -187,6 +182,14 @@ export default {
                 this.src = imgUrl;
                 if (this.srcList.indexOf(itemStrArr) < 0) {
                   this.srcList.push(imgUrl);
+                }
+                if (endUrlIndex !== itemStr.length - 1) {
+                  let inputStr = itemStr.substr(endUrlIndex + 1, itemStr.length - 1);
+                  if (this.imgDescription === "") {
+                    this.imgDescription = inputStr;
+                  } else {
+                    this.imgDescription = "\n" + inputStr;
+                  }
                 }
               }
             } else {

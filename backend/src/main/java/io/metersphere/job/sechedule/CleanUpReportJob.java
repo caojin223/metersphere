@@ -12,6 +12,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.quartz.JobExecutionContext;
 import org.quartz.JobKey;
 import org.quartz.TriggerKey;
+
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.function.BiConsumer;
@@ -51,6 +52,10 @@ public class CleanUpReportJob extends MsScheduleJob {
             }
             if (BooleanUtils.isTrue(config.getCleanLoadReport())) {
                 this.doCleanUp(projectService::cleanUpLoadReport, config.getCleanLoadReportExpr());
+            }
+            if (BooleanUtils.isTrue(config.getCleanUiReport())) {
+                // 定时删除 UI 调试模式生成的截图
+                this.doCleanUp(projectService::cleanUpUiReportImg, config.getCleanUiReportExpr());
             }
         } catch (Exception e) {
             LogUtil.error("clean up report error.");

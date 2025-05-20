@@ -12,11 +12,11 @@
                  ref="envPopover" class="env-popover"/>
 
 
-    <el-input :placeholder="$t('api_test.definition.request.select_case')" @blur="search"
-              @keyup.enter.native="search" class="search-input" size="small" v-model="condition.name"/>
+    <el-input :placeholder="$t('api_test.definition.request.select_case')" @blur="filterSearch"
+              @keyup.enter.native="filterSearch" class="search-input" size="small" v-model="condition.name"/>
     <ms-table-adv-search-bar :condition.sync="condition" class="adv-search-bar"
                              v-if="condition.components !== undefined && condition.components.length > 0"
-                             @search="search"/>
+                             @search="filterSearch"/>
     <version-select v-xpack :project-id="projectId" @changeVersion="changeVersion" style="float: left;"
                     class="search-input"/>
 
@@ -29,51 +29,51 @@
               :remember-order="true"
               row-key="id"
               :row-order-group-id="projectId"
-              @refresh="search"
+              @order="search"
+              @filter="filterSearch"
               :disable-header-config="true"
-              :show-select-all="false"
               @selectCountChange="selectCountChange">
 
-      <el-table-column v-if="!customNum" prop="num" label="ID"
+      <el-table-column v-if="!customNum" prop="num" label="ID" sortable="custom"
                        show-overflow-tooltip>
       </el-table-column>
-      <el-table-column v-if="customNum" prop="customNum" label="ID"
+      <el-table-column v-if="customNum" prop="customNum" label="ID" sortable="custom"
                        show-overflow-tooltip>
       </el-table-column>
-      <el-table-column prop="name" :label="$t('api_test.automation.scenario_name')"
+      <el-table-column prop="name" :label="$t('api_test.automation.scenario_name')" sortable="custom" min-width="100px"
                        show-overflow-tooltip/>
       <el-table-column
         v-if="versionEnable"
         column-key="version_id"
         :filters="versionFilters"
         :label="$t('commons.version')"
-        min-width="120px">
+        min-width="100px">
         <template v-slot:default="scope">
           <span>{{ scope.row.versionName }}</span>
         </template>
       </el-table-column>
 
-      <el-table-column prop="level" :label="$t('api_test.automation.case_level')"
+      <el-table-column prop="level" :label="$t('api_test.automation.case_level')" sortable="custom" min-width="100px"
                        show-overflow-tooltip>
         <template v-slot:default="scope">
           <priority-table-item :value="scope.row.level" ref="level"/>
         </template>
 
       </el-table-column>
-      <el-table-column prop="tagNames" :label="$t('api_test.automation.tag')" min-width="120">
+      <el-table-column prop="tagNames" :label="$t('api_test.automation.tag')" min-width="100">
         <template v-slot:default="scope">
           <ms-tag v-for="itemName in scope.row.tags" :key="itemName" type="success" effect="plain" :content="itemName"
                   style="margin-left: 0px; margin-right: 2px"/>
         </template>
       </el-table-column>
-      <el-table-column prop="userId" :label="$t('api_test.automation.creator')" show-overflow-tooltip/>
-      <el-table-column prop="updateTime" :label="$t('api_test.automation.update_time')" width="180">
+      <el-table-column prop="userId" :label="$t('api_test.automation.creator')" show-overflow-tooltip sortable="custom" min-width="100px"/>
+      <el-table-column prop="updateTime" :label="$t('api_test.automation.update_time')" width="180" sortable="custom">
         <template v-slot:default="scope">
           <span>{{ scope.row.updateTime | timestampFormatDate }}</span>
         </template>
       </el-table-column>
       <el-table-column prop="stepTotal" :label="$t('api_test.automation.step')" show-overflow-tooltip/>
-      <el-table-column prop="lastResult" :label="$t('api_test.automation.last_result')">
+      <el-table-column prop="lastResult" :label="$t('api_test.automation.last_result')" sortable="custom">
         <template v-slot:default="{row}">
           <el-link type="success" @click="showReport(row)" v-if="row.lastResult === 'Success'">
             {{ $t('api_test.automation.success') }}
@@ -107,8 +107,8 @@ import {
   TEST_PLAN_RELEVANCE_API_SCENARIO_CONFIGS
 } from "@/business/components/common/components/search/search-components";
 import {ENV_TYPE} from "@/common/js/constants";
-import {getCurrentProjectID, hasLicense} from "@/common/js/utils";
 import MsTable from "@/business/components/common/components/table/MsTable";
+import {getVersionFilters} from "@/network/project";
 
 const requireComponent = require.context('@/business/components/xpack/', true, /\.vue$/);
 const VersionSelect = requireComponent.keys().length > 0 ? requireComponent("./version/VersionSelect.vue") : {};
@@ -149,7 +149,6 @@ export default {
       },
       currentScenario: {},
       schedule: {},
-      selectAll: false,
       tableData: [],
       currentPage: 1,
       pageSize: 10,
@@ -177,7 +176,12 @@ export default {
       this.search();
     },
     projectId() {
+      this.condition = {
+        components: TEST_PLAN_RELEVANCE_API_SCENARIO_CONFIGS
+      };
+      this.selectNodeIds.length = 0;
       this.search();
+      this.getVersionOptions();
     },
   },
   created() {
@@ -185,6 +189,10 @@ export default {
     this.getVersionOptions();
   },
   methods: {
+    filterSearch() {
+      this.currentPage = 1;
+      this.search();
+    },
     search() {
       this.projectEnvMap.clear();
       this.projectIds.clear();
@@ -267,13 +275,9 @@ export default {
       this.search();
     },
     getVersionOptions() {
-      if (hasLicense()) {
-        this.$get('/project/version/get-project-versions/' + getCurrentProjectID(), response => {
-          this.versionFilters = response.data.map(u => {
-            return {text: u.name, value: u.id};
-          });
-        });
-      }
+      getVersionFilters(this.projectId, (data) => {
+        this.versionFilters = data;
+      });
     },
     filter(field) {
       this.condition.filters = field || null;

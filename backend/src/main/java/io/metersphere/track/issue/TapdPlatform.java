@@ -1,20 +1,25 @@
 package io.metersphere.track.issue;
 
+import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import io.metersphere.base.domain.IssuesDao;
 import io.metersphere.base.domain.IssuesWithBLOBs;
 import io.metersphere.base.domain.Project;
+import io.metersphere.base.domain.ext.CustomFieldResource;
+import io.metersphere.commons.constants.AttachmentSyncType;
 import io.metersphere.commons.constants.IssuesManagePlatform;
 import io.metersphere.commons.constants.IssuesStatus;
 import io.metersphere.commons.exception.MSException;
 import io.metersphere.commons.utils.BeanUtils;
 import io.metersphere.commons.utils.CommonBeanFactory;
 import io.metersphere.commons.utils.SessionUtils;
+import io.metersphere.dto.CustomFieldItemDTO;
 import io.metersphere.dto.UserDTO;
 import io.metersphere.i18n.Translator;
 import io.metersphere.service.SystemParameterService;
 import io.metersphere.track.dto.DemandDTO;
+import io.metersphere.track.dto.PlatformStatusDTO;
 import io.metersphere.track.issue.client.TapdClient;
 import io.metersphere.track.issue.domain.PlatformUser;
 import io.metersphere.track.issue.domain.tapd.TapdBug;
@@ -27,10 +32,8 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.io.File;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class TapdPlatform extends AbstractIssuePlatform {
@@ -97,6 +100,7 @@ public class TapdPlatform extends AbstractIssuePlatform {
         issuesRequest.setPlatformStatus(statusMap.get(bug.getStatus()));
 
         issuesRequest.setPlatformId(bug.getId());
+        issuesRequest.setPlatformStatus(bug.getStatus());
         issuesRequest.setId(UUID.randomUUID().toString());
 
         // 插入缺陷表
@@ -141,6 +145,9 @@ public class TapdPlatform extends AbstractIssuePlatform {
         paramMap.add("workspace_id", tapdId);
         paramMap.add("description", msDescription2Tapd(issuesRequest.getDescription()));
         paramMap.add("current_owner", usersStr);
+        if (issuesRequest.getTransitions() != null) {
+            paramMap.add("status", issuesRequest.getTransitions().getValue());
+        }
 
         addCustomFields(issuesRequest, paramMap);
 
@@ -196,6 +203,7 @@ public class TapdPlatform extends AbstractIssuePlatform {
                 .collect(Collectors.toList());
 
         if (CollectionUtils.isEmpty(ids)) return;
+        HashMap<String, List<CustomFieldResource>> customFieldMap = new HashMap<>();
 
         Map<String, String> statusMap = tapdClient.getStatusMap(project.getTapdId());
 
@@ -213,7 +221,7 @@ public class TapdPlatform extends AbstractIssuePlatform {
                 IssuesWithBLOBs updateIssue = getUpdateIssue(issuesMapper.selectByPrimaryKey(id), bug, statusMap);
                 updateIssue.setId(id);
                 updateIssue.setCustomFields(syncIssueCustomField(updateIssue.getCustomFields(), bug));
-                customFieldIssuesService.addFields(id, customFieldService.getCustomFieldResource(updateIssue.getCustomFields()));
+                customFieldMap.put(id, customFieldService.getCustomFieldResource(updateIssue.getCustomFields()));
                 issuesMapper.updateByPrimaryKeySelective(updateIssue);
                 ids.remove(platformId);
             });
@@ -228,6 +236,7 @@ public class TapdPlatform extends AbstractIssuePlatform {
                 issuesMapper.updateByPrimaryKeySelective(issuesDao);
             }
         });
+        customFieldIssuesService.batchEditFields(customFieldMap);
     }
 
     protected IssuesWithBLOBs getUpdateIssue(IssuesWithBLOBs issue, JSONObject bug, Map<String, String> statusMap) {
@@ -239,7 +248,26 @@ public class TapdPlatform extends AbstractIssuePlatform {
         }
         TapdBug bugObj = JSONObject.parseObject(bug.toJSONString(), TapdBug.class);
         BeanUtils.copyBean(issue, bugObj);
-        issue.setPlatformStatus(statusMap.get(bugObj.getStatus()));
+        issue.setPlatformStatus(bugObj.getStatus());
+        issue.setDescription(htmlDesc2MsDesc(issue.getDescription()));
+        issue.setCustomFields(syncIssueCustomField(issue.getCustomFields(), bug));
+        issue.setPlatform(key);
+        issue.setCreateTime(bug.getLong("created"));
+        issue.setUpdateTime(bug.getLong("modified"));
+        return issue;
+    }
+
+    protected IssuesWithBLOBs getUpdateIssue(IssuesWithBLOBs issue, JSONObject bug, List<CustomFieldItemDTO> customField) {
+        if (issue == null) {
+            issue = new IssuesWithBLOBs();
+            issue.setCustomFields(defaultCustomFields);
+        } else {
+            issue.setCustomFields(JSON.toJSONString(customField));
+            mergeIfIssueWithCustomField(issue, defaultCustomFields);
+        }
+        TapdBug bugObj = JSONObject.parseObject(bug.toJSONString(), TapdBug.class);
+        BeanUtils.copyBean(issue, bugObj);
+        issue.setPlatformStatus(bugObj.getStatus());
         issue.setDescription(htmlDesc2MsDesc(issue.getDescription()));
         issue.setCustomFields(syncIssueCustomField(issue.getCustomFields(), bug));
         issue.setPlatform(key);
@@ -278,5 +306,27 @@ public class TapdPlatform extends AbstractIssuePlatform {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    @Override
+    public void syncIssuesAttachment(IssuesUpdateRequest issuesRequest, File file, AttachmentSyncType syncType) {
+        // TODO: 同步缺陷MS附件到TAPD
+    }
+
+    @Override
+    public List<PlatformStatusDTO> getTransitions(String issueKey) {
+        List<PlatformStatusDTO> platformStatusDTOS = new ArrayList<>();
+        Project project = projectService.getProjectById(this.projectId);
+
+        // 获取缺陷状态数据
+        Map<String, String> statusMap = tapdClient.getStatusMap(project.getTapdId());
+        for (String key : statusMap.keySet()) {
+            PlatformStatusDTO platformStatusDTO = new PlatformStatusDTO();
+            platformStatusDTO.setValue(key);
+            platformStatusDTO.setLable(statusMap.get(key));
+            platformStatusDTOS.add(platformStatusDTO);
+        }
+
+        return platformStatusDTOS;
     }
 }

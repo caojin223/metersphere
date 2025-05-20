@@ -17,7 +17,7 @@
 
     <about-us ref="aboutUs"/>
     <el-dialog :close-on-click-modal="false" width="80%"
-               :visible.sync="resVisible" class="api-import" destroy-on-close @close="closeDialog">
+               :visible.sync="resVisible" class="api-import" destroy-on-close @close="closeDialog" append-to-body>
       <ms-person-router @closeDialog="closeDialog"/>
     </el-dialog>
   </el-dropdown>
@@ -49,7 +49,7 @@ export default {
   mounted() {
     this.$EventBus.$on('showPersonInfo', this.handleCommand)
   },
-  beforeDestroy(){
+  beforeDestroy() {
     this.$EventBus.$off("showPersonInfo")
   },
   methods: {
@@ -94,7 +94,8 @@ export default {
       return !hasPermissions('PERSONAL_INFORMATION:READ+EDIT',
         'PERSONAL_INFORMATION:READ+API_KEYS',
         'PERSONAL_INFORMATION:READ+EDIT_PASSWORD',
-        'PERSONAL_INFORMATION:READ+THIRD_ACCOUNT'
+        'PERSONAL_INFORMATION:READ+THIRD_ACCOUNT',
+        'PERSONAL_INFORMATION:READ+UI_SETTING'
       );
     }
   }
@@ -105,14 +106,13 @@ export default {
 .dropdown-link {
   cursor: pointer;
   font-size: 12px;
-  color: rgb(245, 245, 245);
   line-height: 40px;
 }
 
 .align-right {
   float: right;
+  margin-right: 20px;
 }
-
 </style>
 
 

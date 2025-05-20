@@ -13,15 +13,15 @@
         @exportJmx="exportJmx"
         @refreshAll="refreshAll"
         page-source="scenario"
+        :is-trash-data="trashEnable"
         :type="'edit'"
         :total='total'
         ref="nodeTree"/>
     </ms-aside-container>
-
     <ms-main-container style="overflow: hidden">
       <el-tabs v-model="activeName" @tab-click="addTab" @tab-remove="closeConfirm">
         <el-tab-pane
-          name="trash"
+          name="trash" :closable="true"
           :label="$t('commons.trash')" v-if="trashEnable">
           <ms-api-scenario-list
             @getTrashCase="getTrashCase"
@@ -47,6 +47,7 @@
         </el-tab-pane>
         <el-tab-pane name="default" :label="$t('api_test.automation.scenario_list')">
           <ms-api-scenario-list
+            v-if="!trashEnable"
             @getTrashCase="getTrashCase"
             @refreshTree="refreshTree"
             :module-tree="nodeTree"
@@ -76,6 +77,10 @@
           :label="item.label"
           :name="item.name"
           closable>
+          <el-tooltip slot="label" effect="dark" :content="item.label" placement="bottom-start"
+                      class="ms-tab-name-width">
+            <span>{{ item.label }}</span>
+          </el-tooltip>
           <div class="ms-api-scenario-div">
             <ms-edit-api-scenario @refresh="refresh" @openScenario="editScenario" @closePage="closePage"
                                   :currentScenario="item.currentScenario"
@@ -107,6 +112,7 @@
 
 import {getCurrentProjectID, getCurrentUser, getCurrentWorkspaceId, getUUID, hasPermission} from "@/common/js/utils";
 import {PROJECT_ID, WORKSPACE_ID} from "@/common/js/constants";
+import {buildTree} from "@/business/components/api/definition/model/NodeTree";
 
 const requireComponent = require.context('@/business/components/xpack/', true, /\.vue$/);
 const VersionSelect = requireComponent.keys().length > 0 ? requireComponent("./version/VersionSelect.vue") : {};
@@ -175,12 +181,18 @@ export default {
       sessionStorage.setItem(PROJECT_ID, projectId);
     }
   },
+  activated() {
+    this.selectNodeIds = [];
+  },
   mounted() {
     this.getProject();
     this.getTrashCase();
     this.init();
   },
   watch: {
+    trashEnable() {
+      this.selectNodeIds = [];
+    },
     redirectID() {
       this.renderComponent = false;
       this.$nextTick(() => {
@@ -198,10 +210,12 @@ export default {
       }
     },
     selectNodeIds() {
-      this.activeName = "default";
+      if (!this.trashEnable) {
+        this.activeName = "default";
+      }
     },
     activeName() {
-      this.isAsideHidden = this.activeName === 'default';
+      this.isAsideHidden = (this.activeName === 'default' || this.activeName === 'trash');
     }
   },
   methods: {
@@ -212,34 +226,48 @@ export default {
     exportJmx() {
       this.$refs.apiScenarioList.exportJmx();
     },
-    checkRedirectEditPage(redirectParam) {
-      if (redirectParam != null) {
-        let selectParamArr = redirectParam.split("edit:");
-        if (selectParamArr.length == 2) {
-          let scenarioId = selectParamArr[1];
-          //查找单条数据，跳转修改页面
-          let url = "/api/automation/list/" + 1 + "/" + 1;
-          this.$post(url, {id: scenarioId}, response => {
-            let data = response.data;
-            if (data != null) {
-              //如果树未加载
-              if (this.moduleOptions && JSON.stringify(this.moduleOptions) === '{}') {
-                this.$refs.nodeTree.list();
-              }
-              if (data.listObject && data.listObject.length > 0) {
-                let row = data.listObject[0];
-                if (row != null && row.tags != 'null' && row.tags != '' && row.tags != undefined) {
-                  if (Object.prototype.toString.call(row.tags).match(/\[object (\w+)\]/)[1].toLowerCase() !== 'object'
-                    && Object.prototype.toString.call(row.tags).match(/\[object (\w+)\]/)[1].toLowerCase() !== 'array') {
-                    row.tags = JSON.parse(row.tags);
-                  }
-                }
-                this.editScenario(row);
-              }
-            }
-          });
-        }
+    checkRedirectEditPage(params) {
+      if (!params) {
+        return;
       }
+      if (typeof params === "string") {
+        let paramArr = params.split("edit:");
+        if (paramArr.length !== 2) {
+          return;
+        }
+        let scenarioId = paramArr[1];
+        //查找单条数据，跳转修改页面
+        this.$post("/api/automation/list/1/1", {id: scenarioId}, response => {
+          let data = response.data;
+          if (data && data.listObject && data.listObject.length > 0) {
+            let row = data.listObject[0];
+            let checks = ["array", "object"];
+            if (row && row.tags && (checks.indexOf(Object.prototype.toString.call(row.tags)
+              .match(/\[object (\w+)\]/)[1].toLowerCase()) !== -1)) {
+              row.tags = JSON.parse(row.tags);
+            }
+            //如果树未加载
+            if (this.moduleOptions && this.moduleOptions.length === 0) {
+              let projectId = data.projectId ? data.projectId : this.projectId;
+              this.initModules(row, projectId);
+            } else {
+              this.editScenario(row);
+            }
+          }
+        });
+      }
+    },
+    initModules(row, projectId) {
+      this.$get("/api/automation/module/list/" + projectId, response => {
+        if (response.data) {
+          response.data.forEach(node => {
+            node.name = node.name === '未规划场景' ? this.$t('api_test.automation.unplanned_scenario') : node.name
+            buildTree(node, {path: ''});
+          });
+          this.moduleOptions = response.data;
+        }
+        this.editScenario(row);
+      });
     },
     changeRedirectParam(redirectIDParam) {
       this.redirectID = redirectIDParam;
@@ -269,6 +297,7 @@ export default {
       }
     },
     addTab(tab) {
+      this.trashEnable = tab.name === 'trash';
       if (tab.name === 'default') {
         this.$refs.apiScenarioList.search();
       } else if (tab.name === 'trash') {
@@ -343,6 +372,7 @@ export default {
           callback: (action) => {
             if (action === 'confirm') {
               this.tabs = [];
+              this.trashEnable = false;
               this.activeName = "default";
               this.isSave = false;
               // 清除vuex中缓存的环境
@@ -354,6 +384,7 @@ export default {
         });
       } else {
         this.tabs = [];
+        this.trashEnable = false;
         this.activeName = "default";
         this.refresh();
         this.isSave = false;
@@ -503,34 +534,39 @@ export default {
       }
     },
     closeConfirm(targetName) {
-      let message = "";
-      this.tabs.forEach(tab => {
-        if (tab.name === targetName) {
-          this.diff(tab);
-          if (tab && this.isSave) {
-            message += tab.currentScenario.name + "，";
-          }
-        }
-      })
-      if (message !== "") {
-        this.$alert(this.$t('commons.scenario') + " [ " + message.substr(0, message.length - 1) + " ] " + this.$t('commons.confirm_info'), '', {
-          confirmButtonText: this.$t('commons.confirm'),
-          cancelButtonText: this.$t('commons.cancel'),
-          callback: (action) => {
-            if (action === 'confirm') {
-              this.removeTab(targetName);
-              this.isSave = false;
-            } else {
-              this.isSave = false;
+      if (targetName === 'trash') {
+        this.selectNodeIds = [];
+        this.trashEnable = false;
+      } else {
+        let message = "";
+        this.tabs.forEach(tab => {
+          if (tab.name === targetName) {
+            this.diff(tab);
+            if (tab && this.isSave) {
+              message += tab.currentScenario.name ? tab.currentScenario.name : this.$t('api_test.automation.add_scenario');
             }
           }
-        });
-      } else {
-        this.isSave = false;
-        this.removeTab(targetName);
-      }
-      if (this.tabs && this.tabs.length === 0) {
-        this.refreshAll();
+        })
+        if (message !== "") {
+          this.$alert(this.$t('commons.scenario') + " [ " + message + " ] " + this.$t('commons.confirm_info'), '', {
+            confirmButtonText: this.$t('commons.confirm'),
+            cancelButtonText: this.$t('commons.cancel'),
+            callback: (action) => {
+              if (action === 'confirm') {
+                this.removeTab(targetName);
+                this.isSave = false;
+              } else {
+                this.isSave = false;
+              }
+            }
+          });
+        } else {
+          this.isSave = false;
+          this.removeTab(targetName);
+        }
+        if (this.tabs && this.tabs.length === 0) {
+          this.refreshAll();
+        }
       }
     },
     removeTab(targetName) {
@@ -588,7 +624,9 @@ export default {
     },
     refreshAll() {
       this.$refs.nodeTree.list();
-      this.$refs.apiScenarioList.search();
+      if (this.$refs.apiScenarioList) {
+        this.$refs.apiScenarioList.search();
+      }
       if (this.$refs.apiTrashScenarioList) {
         this.$refs.apiTrashScenarioList.search();
       }
@@ -609,6 +647,11 @@ export default {
       }
     },
     editScenario(row) {
+      if (!row) {
+        this.activeName = 'default';
+        this.$error(this.$t('api_test.scenario_jump_message'));
+        return;
+      }
       const index = this.tabs.find(p => p.currentScenario.id === row.id && p.currentScenario.copy === row.copy);
       if (!index) {
         this.addTab({name: 'edit', currentScenario: row});
@@ -616,7 +659,6 @@ export default {
         this.activeName = index.name;
       }
     },
-
     nodeChange(node, nodeIds, pNodes) {
       this.initApiTableOpretion = "nodeChange";
       this.selectNodeIds = nodeIds;
@@ -689,7 +731,13 @@ export default {
     gotoTurn(resource, workspaceId, isTurnSpace) {
       let automationData = this.$router.resolve({
         name: 'ApiAutomation',
-        params: {redirectID: getUUID(), dataType: "scenario", dataSelectRange: 'edit:' + resource.id, projectId: resource.projectId, workspaceId: workspaceId}
+        params: {
+          redirectID: getUUID(),
+          dataType: "scenario",
+          dataSelectRange: 'edit:' + resource.id,
+          projectId: resource.projectId,
+          workspaceId: workspaceId
+        }
       });
       if (isTurnSpace) {
         window.open(automationData.href, '_blank');
@@ -720,4 +768,14 @@ export default {
   max-width: 100%;
   padding-right: 100%;
 }
+
+.ms-tab-name-width {
+  display: inline-block;
+  overflow-x: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
 </style>

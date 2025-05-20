@@ -3,10 +3,7 @@ package io.metersphere.listener;
 import io.metersphere.api.exec.queue.ExecThreadPoolExecutor;
 import io.metersphere.api.jmeter.JMeterService;
 import io.metersphere.api.jmeter.NewDriverManager;
-import io.metersphere.api.service.ApiAutomationService;
-import io.metersphere.api.service.ApiDefinitionService;
-import io.metersphere.api.service.ApiTestCaseService;
-import io.metersphere.api.service.MockConfigService;
+import io.metersphere.api.service.*;
 import io.metersphere.base.domain.JarConfig;
 import io.metersphere.commons.utils.CommonBeanFactory;
 import io.metersphere.commons.utils.LogUtil;
@@ -67,6 +64,8 @@ public class AppStartListener implements ApplicationListener<ApplicationReadyEve
     private MockConfigService mockConfigService;
     @Resource
     private CustomFieldResourceService customFieldResourceService;
+    @Resource
+    private ApiExecutionQueueService apiExecutionQueueService;
 
     @Value("${jmeter.home}")
     private String jmeterHome;
@@ -86,23 +85,21 @@ public class AppStartListener implements ApplicationListener<ApplicationReadyEve
 
         System.setProperty("jmeter.home", jmeterHome);
 
+        pluginService.loadPlugins();
+        // 处理重启导致未执行完成的报告
+        apiExecutionQueueService.exceptionHandling();
         // 设置并发队列核心数
         BaseSystemConfigDTO dto = CommonBeanFactory.getBean(SystemParameterService.class).getBaseInfo();
         if (StringUtils.isNotEmpty(dto.getConcurrency())) {
             int size = Integer.parseInt(dto.getConcurrency());
             CommonBeanFactory.getBean(ExecThreadPoolExecutor.class).setCorePoolSize(size);
         }
-
-        loadJars();
-
         initPythonEnv();
 
         //检查状态为开启的TCP-Mock服务端口
         projectService.initMockTcpService();
 
         initOnceOperate();
-
-        pluginService.loadPlugins();
 
         try {
             Thread.sleep(1 * 60 * 1000);
@@ -158,6 +155,7 @@ public class AppStartListener implements ApplicationListener<ApplicationReadyEve
         initOnceOperate(mockConfigService::initExpectNum, "init.mock.expectNum");
         initOnceOperate(customFieldResourceService::compatibleData, "init.custom.field.resource");
         initOnceOperate(jarConfigService::initJarPath, "init.jar.path");
+        initOnceOperate(testCaseService::initAttachment, "init.test.case.attachment");
     }
 
     /**
@@ -177,22 +175,5 @@ public class AppStartListener implements ApplicationListener<ApplicationReadyEve
             e.printStackTrace();
             LogUtil.error(e.getMessage(), e);
         }
-    }
-
-    /**
-     * 加载jar包
-     */
-    private void loadJars() {
-        List<JarConfig> jars = jarConfigService.list();
-
-        jars.forEach(jarConfig -> {
-            try {
-                NewDriverManager.loadJar(jarConfig.getPath());
-            } catch (Exception e) {
-                e.printStackTrace();
-                LogUtil.error(e.getMessage(), e);
-            }
-        });
-
     }
 }

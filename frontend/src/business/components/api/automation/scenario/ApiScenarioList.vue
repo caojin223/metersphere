@@ -98,10 +98,10 @@
 
           <ms-table-column prop="status"
                            :label="$t('test_track.plan.plan_status')"
-                           sortable
+                           :sortable="trashEnable ? false : true"
                            :field="item"
                            :fields-width="fieldsWidth"
-                           :filters="!trashEnable ? apiscenariofilters.STATUS_FILTERS : apiscenariofilters.TRASH_FILTERS"
+                           :filters="!trashEnable ? apiscenariofilters.STATUS_FILTERS : null"
                            min-width="120px">
             <template v-slot:default="scope">
               <plan-status-table-item :value="scope.row.status"/>
@@ -224,6 +224,10 @@
                        v-else-if="row.lastResult === 'errorReportResult'">
                 {{ $t('error_report_library.option.name') }}
               </el-link>
+              <el-link type="danger" style="color: #7F7F7F" :disabled="true"
+                       v-else-if="row.lastResult === 'unexecute' || row.lastResult === ''">
+                {{ $t('api_test.home_page.detail_card.unexecute') }}
+              </el-link>
             </template>
           </ms-table-column>
 
@@ -264,13 +268,13 @@
                            :total="total"/>
       <div>
         <!-- 执行结果 -->
-        <el-drawer :visible.sync="runVisible" :destroy-on-close="true" direction="ltr" :withHeader="true" :modal="false"
+        <el-drawer :visible.sync="runVisible" :destroy-on-close="true" direction="rtl" :withHeader="true" :modal="false"
                    size="90%">
           <sysn-api-report-detail @refresh="search" :debug="true" :scenario="currentScenario" :scenarioId="scenarioId"
                                   :infoDb="infoDb" :report-id="reportId" :currentProjectId="projectId"/>
         </el-drawer>
         <!-- 执行结果 -->
-        <el-drawer :visible.sync="showReportVisible" :destroy-on-close="true" direction="ltr" :withHeader="true"
+        <el-drawer :visible.sync="showReportVisible" :destroy-on-close="true" direction="rtl" :withHeader="true"
                    :modal="false"
                    size="90%">
           <ms-api-report-detail @invisible="showReportVisible = false" @refresh="search" :infoDb="infoDb"
@@ -278,7 +282,7 @@
                                 :report-id="showReportId" :currentProjectId="projectId"/>
         </el-drawer>
         <!--测试计划-->
-        <el-drawer :visible.sync="planVisible" :destroy-on-close="true" direction="ltr" :withHeader="false"
+        <el-drawer :visible.sync="planVisible" :destroy-on-close="true" direction="rtl" :withHeader="false"
                    :title="$t('test_track.plan_view.test_result')" :modal="false" size="90%">
           <ms-test-plan-list @addTestPlan="addTestPlan(arguments)" @cancel="cancel" ref="testPlanList"
                              :scenario-condition="condition" :row="selectRows"/>
@@ -303,22 +307,35 @@
             @runRefresh="runRefresh"
             ref="runTest"/>
     <ms-task-center ref="taskCenter" :show-menu="false"/>
-    <relationship-graph-drawer :graph-data="graphData" ref="relationshipGraph"/>
+    <relationship-graph-drawer v-xpack :graph-data="graphData" ref="relationshipGraph"/>
     <!--  删除接口提示  -->
     <list-item-delete-confirm ref="apiDeleteConfirm" @handleDelete="_handleDelete"/>
   </div>
 </template>
 
 <script>
-import {downloadFile, getCurrentProjectID, getUUID, hasLicense, hasPermission, objToStrMap, strMapToObj} from "@/common/js/utils";
-import {API_SCENARIO_CONFIGS} from "@/business/components/common/components/search/search-components";
+import {
+  downloadFile,
+  getCurrentProjectID,
+  getCurrentUserId,
+  getUUID,
+  hasLicense,
+  hasPermission,
+  objToStrMap,
+  strMapToObj
+} from "@/common/js/utils";
+import {
+  API_SCENARIO_CONFIGS,
+  API_SCENARIO_CONFIGS_TRASH
+} from "@/business/components/common/components/search/search-components";
 import {API_SCENARIO_LIST} from "../../../../../common/js/constants";
 
 import {
   buildBatchParam,
   getCustomTableHeader,
   getCustomTableWidth,
-  getLastTableSortField
+  getLastTableSortField,
+  getSelectDataCounts
 } from "@/common/js/tableUtils";
 import {API_SCENARIO_FILTERS} from "@/common/js/table-constants";
 import MsTable from "@/business/components/common/components/table/MsTable";
@@ -333,6 +350,7 @@ import MsTableAdvSearchBar from "@/business/components/common/components/search/
 import ListItemDeleteConfirm from "@/business/components/common/components/ListItemDeleteConfirm";
 import {Message} from "element-ui";
 import MsSearch from "@/business/components/common/components/search/MsSearch";
+import {buildNodePath} from "@/business/components/api/definition/model/NodeTree";
 
 const requireComponent = require.context('@/business/components/xpack/', true, /\.vue$/);
 const relationshipGraphDrawer = requireComponent.keys().length > 0 ? requireComponent("./graph/RelationshipGraphDrawer.vue") : {};
@@ -419,9 +437,9 @@ export default {
       type: API_SCENARIO_LIST,
       fields: getCustomTableHeader('API_SCENARIO'),
       fieldsWidth: getCustomTableWidth('API_SCENARIO'),
-      screenHeight: 'calc(100vh - 220px)',//屏幕高度,
+      screenHeight: 'calc(100vh - 180px)',//屏幕高度,
       condition: {
-        components: API_SCENARIO_CONFIGS
+        components: this.trashEnable ? API_SCENARIO_CONFIGS_TRASH : API_SCENARIO_CONFIGS
       },
       scenarioId: "",
       isMoveBatch: true,
@@ -429,6 +447,7 @@ export default {
       schedule: {},
       tableData: [],
       selectDataRange: 'all',
+      selectDataType: 'all',
       currentPage: 1,
       pageSize: 10,
       total: 0,
@@ -556,6 +575,7 @@ export default {
         },
         // {id: 'environmentId', name: this.$t('api_test.definition.request.run_env'), optionMethod: this.getEnvsOptions},
         {id: 'projectEnv', name: this.$t('api_test.definition.request.run_env')},
+        {id: 'tags', name: this.$t('commons.tag')},
       ],
       valueArr: {
         level: [
@@ -666,10 +686,21 @@ export default {
     },
     editApiScenarioCaseOrder() {
       return editApiScenarioCaseOrder;
-    }
+    },
+    moduleOptionsNew() {
+      let moduleOptions = [];
+      this.moduleOptions.forEach(node => {
+        buildNodePath(node, {path: ''}, moduleOptions);
+      });
+      return moduleOptions;
+    },
   },
   methods: {
     generateGraph() {
+      if (getSelectDataCounts(this.condition, this.total, this.selectRows) > 100) {
+        this.$warning(this.$t('test_track.case.generate_dependencies_warning'));
+        return;
+      }
       getGraphByCondition('API_SCENARIO', buildBatchParam(this, this.$refs.scenarioTable.selectIds), (data) => {
         this.graphData = data;
         this.$refs.relationshipGraph.open();
@@ -696,9 +727,17 @@ export default {
       }
       this.selectRows = new Set();
       this.condition.moduleIds = this.selectNodeIds;
+
       if (this.trashEnable) {
-        this.condition.filters = {status: ["Trash"]};
-        this.condition.moduleIds = [];
+        this.condition.filters = {...this.condition.filters, status: ["Trash"]}
+      }
+
+      if (!this.condition.filters.status) {
+        this.condition.filters = {status: ["Prepare", "Underway", "Completed"]};
+      }
+
+      if (this.condition.filters.last_result && this.condition.filters.last_result.indexOf('unexecute') !== -1) {
+        this.condition.filters.last_result.push('');
       }
 
       // todo
@@ -713,19 +752,26 @@ export default {
       //检查是否只查询本周数据
       this.condition.selectThisWeedData = false;
       this.condition.executeStatus = null;
-      this.isSelectThissWeekData();
+      this.isRedirectFilter();
+      this.condition.selectDataType = this.selectDataType;
       switch (this.selectDataRange) {
         case 'thisWeekCount':
           this.condition.selectThisWeedData = true;
           break;
-        case 'unExecute':
+        case 'unexecuteCount':
           this.condition.executeStatus = 'unExecute';
           break;
-        case 'executeFailed':
+        case 'executionFailedCount':
           this.condition.executeStatus = 'executeFailed';
           break;
-        case 'executePass':
+        case 'fakeErrorCount':
+          this.condition.executeStatus = 'fakeError';
+          break;
+        case 'executionPassCount':
           this.condition.executeStatus = 'executePass';
+          break;
+        case 'notSuccessCount':
+          this.condition.executeStatus = 'notSuccess';
           break;
       }
       if (this.selectDataRange != null) {
@@ -749,6 +795,9 @@ export default {
             }
           });
           this.$emit('getTrashCase');
+          if (this.$refs.scenarioTable) {
+            this.$refs.scenarioTable.clearSelection();
+          }
         });
       }
     },
@@ -787,11 +836,11 @@ export default {
     },
     handleBatchMove() {
       this.isMoveBatch = true;
-      this.$refs.testBatchMove.open(this.moduleTree, [], this.moduleOptions);
+      this.$refs.testBatchMove.open(this.moduleTree, [], this.moduleOptionsNew);
     },
     handleBatchCopy() {
       this.isMoveBatch = false;
-      this.$refs.testBatchMove.open(this.moduleTree, this.$refs.scenarioTable.selectIds, this.moduleOptions);
+      this.$refs.testBatchMove.open(this.moduleTree, this.$refs.scenarioTable.selectIds, this.moduleOptionsNew);
     },
     moveSave(param) {
       this.buildBatchParam(param);
@@ -821,18 +870,22 @@ export default {
       } else {
         // 批量修改其它
         let param = {};
-        param[form.type] = form.value;
+        if (form.type === 'tags') {
+          param.type = form.type;
+          param.appendTag = form.appendTag;
+          param.tagList = form.tags;
+        } else {
+          param[form.type] = form.value;
+        }
         this.buildBatchParam(param);
         this.$post('/api/automation/batch/edit', param, () => {
           this.$success(this.$t('commons.save_success'));
           this.search();
         });
       }
-
-
     },
     getPrincipalOptions(option) {
-      this.$post('/user/project/member/tester/list', {projectId: getCurrentProjectID()}, response => {
+      this.$get('/user/project/member/list', response => {
         option.push(...response.data);
         this.userFilters = response.data.map(u => {
           return {text: u.name, value: u.id};
@@ -1127,11 +1180,15 @@ export default {
         }
       });
     },
+
     copy(row) {
       let rowParam = JSON.parse(JSON.stringify(row));
       rowParam.copy = true;
       rowParam.name = 'copy_' + rowParam.name;
       rowParam.customNum = '';
+      rowParam.principal = getCurrentUserId();
+      rowParam.createUser = getCurrentUserId();
+      rowParam.userId = getCurrentUserId();
       this.$emit('edit', rowParam);
     },
     showReport(row) {
@@ -1140,9 +1197,16 @@ export default {
       this.showReportId = row.reportId;
     },
     //判断是否只显示本周的数据。  从首页跳转过来的请求会带有相关参数
-    isSelectThissWeekData() {
-      let dataRange = this.$route.params.dataSelectRange;
-      this.selectDataRange = dataRange;
+    isRedirectFilter() {
+      this.selectDataRange = "all";
+      this.selectDataType = "all";
+      let routeParamObj = this.$route.params;
+      if (routeParamObj) {
+        let dataRange = routeParamObj.dataSelectRange;
+        let dataType = routeParamObj.dataType;
+        this.selectDataRange = dataRange;
+        this.selectDataType = dataType;
+      }
     },
     changeSelectDataRangeAll() {
       this.$emit("changeSelectDataRangeAll");
@@ -1160,14 +1224,14 @@ export default {
         param.ids = [row.id];
         this.$post('/api/automation/checkBeforeDelete/', param, response => {
           let checkResult = response.data;
-          let alertMsg = this.$t('load_test.delete_threadgroup_confirm') + " " + row.name + " ?";
+          let alertMsg = this.$t('load_test.delete_threadgroup_confirm');
           if (!checkResult.deleteFlag) {
             alertMsg = "";
             checkResult.checkMsg.forEach(item => {
               alertMsg += item;
             });
             if (alertMsg === "") {
-              alertMsg = this.$t('load_test.delete_threadgroup_confirm') + " " + row.name + " ?";
+              alertMsg = this.$t('load_test.delete_threadgroup_confirm');
             } else {
               alertMsg += this.$t('api_test.is_continue');
             }
@@ -1297,7 +1361,10 @@ export default {
             let param = {};
             this.buildBatchParam(param);
             this.$post('/api/automation/batchGenPerformanceTestJmx/', param, response => {
-              let returnDataList = response.data;
+
+              let returnDTO = response.data;
+              let projectEnvMap = returnDTO.projectEnvMap;
+              let returnDataList = returnDTO.jmxInfoDTOList;
               let jmxObjList = [];
               returnDataList.forEach(item => {
                 let jmxObj = {};
@@ -1311,7 +1378,8 @@ export default {
               });
               this.$store.commit('setScenarioJmxs', {
                 name: 'Scenarios',
-                jmxs: jmxObjList
+                jmxs: jmxObjList,
+                projectEnvMap: projectEnvMap,
               });
               this.$router.push({
                 path: "/performance/test/create"

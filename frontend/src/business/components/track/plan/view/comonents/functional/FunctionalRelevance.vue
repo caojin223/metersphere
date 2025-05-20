@@ -10,14 +10,15 @@
 
     <template v-slot:aside>
       <node-tree class="node-tree"
-                 :is-display="openType"
-                 v-loading="result.loading"
+                 v-loading="nodeResult.loading"
+                 local-suffix="test_case"
+                 default-label="未规划用例"
                  @nodeSelectEvent="nodeChange"
                  :tree-nodes="treeNodes"
                  ref="nodeTree"/>
     </template>
 
-    <ms-table-header :condition.sync="page.condition" @search="getTestCases" title="" :show-create="false">
+    <ms-table-header :condition.sync="page.condition" @search="search" title="" :show-create="false">
       <template v-slot:searchBarBefore>
         <version-select v-xpack :project-id="projectId" @changeVersion="changeVersion" margin-right="20"/>
       </template>
@@ -32,7 +33,8 @@
       :screen-height="screenHeight"
       @handlePageChange="getTestCases"
       @selectCountChange="setSelectCounts"
-      @refresh="getTestCases"
+      @order="getTestCases"
+      @filter="search"
       ref="table">
 
       <ms-table-column
@@ -72,6 +74,12 @@
         </template>
       </ms-table-column>
 
+      <test-plan-case-status-table-item
+        sortable
+        prop="lastExecuteResult"/>
+
+      <test-case-review-status-table-item sortable/>
+
       <ms-table-column prop="tags" :label="$t('commons.tag')" width="90px">
         <template v-slot:default="scope">
           <ms-tag v-for="(itemName, index)  in scope.row.tags" :key="index" type="success" effect="plain"
@@ -80,23 +88,8 @@
         </template>
       </ms-table-column>
 
-      <ms-table-column
-        sortable
-        :label="$t('commons.create_time')"
-        prop="createTime">
-        <template v-slot="scope">
-          <span>{{ scope.row.createTime | timestampFormatDate }}</span>
-        </template>
-      </ms-table-column>
-
-      <ms-table-column
-        sortable
-        :label="$t('commons.update_time')"
-        prop="updateTime">
-        <template v-slot="scope">
-          <span>{{ scope.row.updateTime | timestampFormatDate }}</span>
-        </template>
-      </ms-table-column>
+      <ms-update-time-column/>
+      <ms-create-time-column/>
 
     </ms-table>
 
@@ -119,7 +112,14 @@ import MsTableColumn from "@/business/components/common/components/table/MsTable
 import MsTable from "@/business/components/common/components/table/MsTable";
 import MsTablePagination from "@/business/components/common/pagination/TablePagination";
 import MsTag from "@/business/components/common/components/MsTag";
-import {getCurrentProjectID, hasLicense} from "@/common/js/utils";
+import MsCreateTimeColumn from "@/business/components/common/components/table/MsCreateTimeColumn";
+import MsUpdateTimeColumn from "@/business/components/common/components/table/MsUpdateTimeColumn";
+import {getVersionFilters} from "@/network/project";
+import StatusTableItem from "@/business/components/track/common/tableItems/planview/StatusTableItem";
+import ReviewStatus from "@/business/components/track/case/components/ReviewStatus";
+import TestCaseReviewStatusTableItem from "@/business/components/track/common/tableItems/TestCaseReviewStatusTableItem";
+import TestPlanCaseStatusTableItem from "@/business/components/track/common/tableItems/TestPlanCaseStatusTableItem";
+import {TEST_CASE_CONFIGS} from "@/business/components/common/components/search/search-components";
 
 const requireComponent = require.context('@/business/components/xpack/', true, /\.vue$/);
 const VersionSelect = requireComponent.keys().length > 0 ? requireComponent("./version/VersionSelect.vue") : {};
@@ -127,6 +127,12 @@ const VersionSelect = requireComponent.keys().length > 0 ? requireComponent("./v
 export default {
   name: "FunctionalRelevance",
   components: {
+    TestPlanCaseStatusTableItem,
+    TestCaseReviewStatusTableItem,
+    ReviewStatus,
+    StatusTableItem,
+    MsUpdateTimeColumn,
+    MsCreateTimeColumn,
     MsTag,
     MsTablePagination,
     MsTable,
@@ -145,8 +151,8 @@ export default {
   },
   data() {
     return {
-      openType: 'relevance',
       result: {},
+      nodeResult: {},
       isSaving: false,
       treeNodes: [],
       selectNodeIds: [],
@@ -196,13 +202,16 @@ export default {
     },
     projectId() {
       this.page.condition.projectId = this.projectId;
+      this.page.condition.versionId = null;
       this.getProjectNode();
       this.getTestCases();
       this.getCustomNum();
+      this.getVersionOptions();
     }
   },
   methods: {
     open() {
+      this.page.condition = {components: TEST_CASE_CONFIGS};
       this.isSaving = false;
       this.$refs.baseRelevance.open();
       if (this.$refs.table) {
@@ -222,6 +231,12 @@ export default {
           this.customNum = data.caseCustomNum;
         }
       });
+    },
+    search() {
+      // 添加搜索条件时，当前页设置成第一页
+      this.page.currentPage = 1;
+      this.getTestCases();
+      this.getProjectNode(this.projectId, this.page.condition);
     },
     getTestCases() {
       let condition = this.page.condition;
@@ -244,6 +259,8 @@ export default {
       this.save(param, this);
     },
     nodeChange(node, nodeIds, nodeNames) {
+      this.page.condition.selectAll = false;
+      this.$refs.table.condition.selectAll = false;
       this.selectNodeIds = nodeIds;
       this.selectNodeNames = nodeNames;
     },
@@ -252,7 +269,7 @@ export default {
       this.selectNodeNames = [];
       this.$refs.table.clear();
     },
-    getProjectNode(projectId) {
+    getProjectNode(projectId, condition) {
       const index = this.projects.findIndex(project => project.id === projectId);
       if (index !== -1) {
         this.projectName = this.projects[index].name;
@@ -260,21 +277,17 @@ export default {
       if (projectId) {
         this.projectId = projectId;
       }
-      this.getNodeTree(this);
+      this.getNodeTree(this, condition);
     },
     getVersionOptions() {
-      if (hasLicense()) {
-        this.$get('/project/version/get-project-versions/' + getCurrentProjectID(), response => {
-          this.versionOptions = response.data;
-          this.versionFilters = response.data.map(u => {
-            return {text: u.name, value: u.id};
-          });
-        });
-      }
+      getVersionFilters(this.projectId, (data) => {
+        this.versionFilters = data;
+      });
     },
     changeVersion(currentVersion) {
       this.page.condition.versionId = currentVersion || null;
       this.getTestCases();
+      this.getProjectNode(this.projectId, this.page.condition);
     },
     setSelectCounts(data) {
       this.$refs.baseRelevance.selectCounts = data;

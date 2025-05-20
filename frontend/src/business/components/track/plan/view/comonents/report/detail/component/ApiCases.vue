@@ -47,7 +47,7 @@ export default {
     isAll: Boolean,
     isErrorReport: Boolean,
     isUnExecute:Boolean,
-    isDb: Boolean
+    isDb: Boolean,
   },
   data() {
     return {

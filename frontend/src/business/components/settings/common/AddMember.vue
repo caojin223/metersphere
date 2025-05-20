@@ -9,6 +9,7 @@
           v-model="form.userIds"
           multiple
           filterable
+          @visible-change="visibleChange"
           :filter-method="userFilter"
           :popper-append-to-body="false"
           class="member_select"
@@ -47,6 +48,8 @@
 <script>
 
 import UserOptionItem from "@/business/components/settings/common/UserOptionItem";
+import {GROUP_PROJECT} from "@/common/js/constants";
+import {getCurrentProjectID} from "@/common/js/utils";
 
 export default {
   name: "AddMember",
@@ -81,6 +84,12 @@ export default {
         return '';
       }
     },
+    projectId: {
+      type: String,
+      default() {
+        return '';
+      }
+    },
     userResourceUrl: {
       type: String,
       default() {
@@ -89,6 +98,11 @@ export default {
     }
   },
   methods: {
+    visibleChange(val) {
+      if (!val) {
+        this.userFilter(null);
+      }
+    },
     submitForm() {
       this.$refs['form'].validate((valid) => {
         if (valid) {
@@ -106,9 +120,13 @@ export default {
         this.userList = response.data;
         this.copyUserList = response.data;
       })
-      this.result = this.$post('/user/group/list', {type: this.groupType, resourceId: this.groupScopeId}, response => {
+      let param = {type: this.groupType, resourceId: this.groupScopeId};
+      if (this.groupType === GROUP_PROJECT) {
+        param.projectId = this.projectId || getCurrentProjectID();
+      }
+      this.result = this.$post('/user/group/list', param, response => {
         this.$set(this.form, "groups", response.data);
-      })
+      });
     },
     close() {
       this.dialogVisible = false;

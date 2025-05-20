@@ -1,12 +1,12 @@
 package io.metersphere.service;
 
-
 import io.metersphere.base.domain.CustomField;
 import io.metersphere.base.domain.CustomFieldTemplate;
 import io.metersphere.base.domain.CustomFieldTemplateExample;
 import io.metersphere.base.mapper.CustomFieldMapper;
 import io.metersphere.base.mapper.CustomFieldTemplateMapper;
 import io.metersphere.base.mapper.ext.ExtCustomFieldTemplateMapper;
+import io.metersphere.commons.utils.ServiceUtils;
 import io.metersphere.dto.CustomFieldDao;
 import io.metersphere.dto.CustomFieldTemplateDao;
 import org.apache.commons.collections.CollectionUtils;
@@ -21,7 +21,6 @@ import org.springframework.transaction.annotation.Transactional;
 import javax.annotation.Resource;
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Service
 @Transactional(rollbackFor = Exception.class)
@@ -45,7 +44,8 @@ public class CustomFieldTemplateService {
     public List<CustomFieldTemplate> getCustomFields(String templateId) {
         CustomFieldTemplateExample example = new CustomFieldTemplateExample();
         example.createCriteria().andTemplateIdEqualTo(templateId);
-        return customFieldTemplateMapper.selectByExample(example);
+        example.setOrderByClause("`order` asc");
+        return customFieldTemplateMapper.selectByExampleWithBLOBs(example);
     }
 
     public List<CustomFieldTemplateDao> list(CustomFieldTemplate request) {
@@ -72,20 +72,22 @@ public class CustomFieldTemplateService {
         }
     }
 
-    public  List<CustomFieldTemplate> getSystemFieldCreateTemplate(CustomField customField, String scene) {
-        List<CustomField> globalField = customFieldService.getGlobalField(scene);
-        for (int i = 0; i < globalField.size(); i++) {
-            // 替换全局的字段
-            if (StringUtils.equals(globalField.get(i).getName(), customField.getName())) {
-                globalField.set(i, customField);
+    public List<CustomFieldTemplate> getSystemFieldCreateTemplate(CustomFieldDao customField, String templateId) {
+        CustomFieldTemplateExample example = new CustomFieldTemplateExample();
+        example.createCriteria().andTemplateIdEqualTo(templateId);
+        // 获取全局模板的关联关系
+        List<CustomFieldTemplate> fieldTemplates = customFieldTemplateMapper.selectByExample(example);
+        for (int i = 0; i < fieldTemplates.size(); i++) {
+            // 将全局字段替换成项目下的字段
+            if (StringUtils.equals(fieldTemplates.get(i).getFieldId(), customField.getOriginGlobalId())) {
+                fieldTemplates.get(i).setFieldId(customField.getId());
                 break;
             }
         }
-        List<String> fieldIds = globalField.stream().map(CustomField::getId).collect(Collectors.toList());
-        return getFieldTemplateByFieldIds(fieldIds);
+        return fieldTemplates;
     }
 
-    public  void updateFieldIdByTemplate(String templateId, String originId , String fieldId) {
+    public void updateFieldIdByTemplate(String templateId, String originId, String fieldId) {
         CustomFieldTemplateExample example = new CustomFieldTemplateExample();
         example.createCriteria()
                 .andTemplateIdEqualTo(templateId)
@@ -95,7 +97,7 @@ public class CustomFieldTemplateService {
         customFieldTemplateMapper.updateByExampleSelective(customFieldTemplate, example);
     }
 
-    public  List<CustomFieldTemplate> getFieldTemplateByFieldIds(List<String> fieldIds) {
+    public List<CustomFieldTemplate> getFieldTemplateByFieldIds(List<String> fieldIds) {
         if (CollectionUtils.isNotEmpty(fieldIds)) {
             CustomFieldTemplateExample example = new CustomFieldTemplateExample();
             example.createCriteria().andFieldIdIn(fieldIds);
@@ -109,15 +111,18 @@ public class CustomFieldTemplateService {
         CustomFieldTemplateMapper customFieldTemplateMapper =
                 sqlSession.getMapper(CustomFieldTemplateMapper.class);
         if (CollectionUtils.isNotEmpty(customFields)) {
-            customFields.forEach(item -> {
+            Long nextOrder = ServiceUtils.getNextOrder(templateId, extCustomFieldTemplateMapper::getLastOrder);
+            for (CustomFieldTemplate item : customFields) {
                 item.setId(UUID.randomUUID().toString());
                 item.setTemplateId(templateId);
                 item.setScene(scene);
                 if (item.getRequired() == null) {
                     item.setRequired(false);
                 }
+                nextOrder += ServiceUtils.ORDER_STEP;
+                item.setOrder((int) nextOrder.longValue());
                 customFieldTemplateMapper.insert(item);
-            });
+            }
         }
         sqlSession.flushStatements();
         if (sqlSession != null && sqlSessionFactory != null) {
@@ -134,5 +139,30 @@ public class CustomFieldTemplateService {
         CustomFieldTemplate customFieldTemplate = customFieldTemplateMapper.selectByPrimaryKey(id);
         String fieldId = customFieldTemplate.getFieldId();
         return customFieldMapper.selectByPrimaryKey(fieldId);
+    }
+
+    /**
+     * 将原来全局字段与模板的关联
+     * 改为项目下字段与模板的关联
+     *
+     * @param customField
+     * @param templateIds
+     * @return
+     */
+    public int updateProjectTemplateGlobalField(CustomFieldDao customField, List<String> templateIds) {
+        if (CollectionUtils.isEmpty(templateIds)) {
+            return 0;
+        }
+        CustomFieldTemplateExample example = new CustomFieldTemplateExample();
+        example.createCriteria()
+                .andFieldIdEqualTo(customField.getOriginGlobalId())
+                .andTemplateIdIn(templateIds);
+        CustomFieldTemplate customFieldTemplate = new CustomFieldTemplate();
+        customFieldTemplate.setFieldId(customField.getId());
+        return customFieldTemplateMapper.updateByExampleSelective(customFieldTemplate, example);
+    }
+
+    public List<String> getSystemCustomField(String templateId, String fieldName) {
+        return extCustomFieldTemplateMapper.getSystemCustomField(templateId, fieldName);
     }
 }

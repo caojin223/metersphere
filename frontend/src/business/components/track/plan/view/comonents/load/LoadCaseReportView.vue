@@ -5,20 +5,35 @@
 
         <el-row v-if="isShare">
           <el-col :span="24">
-            <div>
-              <span class="ms-report-time-desc-share">{{ $t('commons.name') }}：{{ report.name }}</span>
-              <span class="ms-report-time-desc-share">{{ $t('commons.executor') }}：{{ report.userName }}</span>
-            </div>
-            <div>
-              <span class="ms-report-time-desc-share">{{ $t('report.test_duration', [minutes, seconds]) }}</span>
-              <span class="ms-report-time-desc-share" v-if="startTime !== '0'">
+            <div style="float:left;">
+              <div>
+                <span class="ms-report-time-desc-share">{{ $t('commons.name') }}：{{ report.name }}</span>
+                <span class="ms-report-time-desc-share">{{ $t('commons.executor') }}：{{ report.userName }}</span>
+              </div>
+              <div>
+                <span class="ms-report-time-desc-share">{{ $t('report.test_duration', [minutes, seconds]) }}</span>
+                <span class="ms-report-time-desc-share" v-if="startTime !== '0'">
                   {{ $t('report.test_start_time') }}：{{ startTime | timestampFormatDate }}
               </span>
-              <span class="ms-report-time-desc-share" v-else>{{ $t('report.test_start_time') }}：-</span>
-              <span class="ms-report-time-desc-share" v-if="report.status === 'Completed' && endTime !== '0'">
+                <span class="ms-report-time-desc-share" v-else>{{ $t('report.test_start_time') }}：-</span>
+                <span class="ms-report-time-desc-share" v-if="report.status === 'Completed' && endTime !== '0'">
                   {{ $t('report.test_end_time') }}：{{ endTime | timestampFormatDate }}
               </span>
-              <span class="ms-report-time-desc-share" v-else>{{ $t('report.test_end_time') }}：- </span>
+                <span class="ms-report-time-desc-share" v-else>{{ $t('report.test_end_time') }}：- </span>
+              </div>
+            </div>
+            <div style="float: right;margin-right: 10px;">
+              <div v-if="showProjectEnv" type="flex">
+                <span> {{ $t('commons.environment') + ':' }} </span>
+                <div v-for="(values,key) in projectEnvMap" :key="key" style="margin-right: 10px">
+                  {{ key + ":" }}
+                  <ms-tag v-for="(item,index) in values" :key="index" type="success" :content="item"
+                          style="margin-left: 2px"/>
+                </div>
+                <div v-show="showMoreProjectEnvMap">
+                  <el-link icon="el-icon-more" @click="showAllProjectInfo"></el-link>
+                </div>
+              </div>
             </div>
           </el-col>
         </el-row>
@@ -48,28 +63,45 @@
             </el-row>
           </el-col>
           <el-col :span="8">
-            <span class="ms-report-time-desc">
-              {{ $t('report.test_duration', [ templateMinutes ? templateMinutes : minutes,
-                                              templateSeconds ? templateSeconds : seconds]) }}
+            <div v-if="isPlanReport" style="float: right;margin-right: 10px;">
+              <div v-if="showProjectEnv" type="flex">
+                <span> {{ $t('commons.environment') + ':' }} </span>
+                <div v-for="(values,key) in projectEnvMap" :key="key" style="margin-right: 10px">
+                  {{ key + ":" }}
+                  <ms-tag v-for="(item,index) in values" :key="index" type="success" :content="item"
+                          style="margin-left: 2px"/>
+                </div>
+                <div v-show="showMoreProjectEnvMap">
+                  <el-link icon="el-icon-more" @click="showAllProjectInfo"></el-link>
+                </div>
+              </div>
+            </div>
+            <div style="float: left">
+              <span class="ms-report-time-desc">
+              {{
+                  $t('report.test_duration', [templateMinutes ? templateMinutes : minutes,
+                    templateSeconds ? templateSeconds : seconds])
+                }}
             </span>
-            <span class="ms-report-time-desc" v-if="startTime !== '0'">
+              <span class="ms-report-time-desc" v-if="startTime !== '0'">
               {{ $t('report.test_start_time') }}：{{ startTime | timestampFormatDate }}
             </span>
-            <span class="ms-report-time-desc" v-else-if="planReportTemplate && planReportTemplate.startTime">
+              <span class="ms-report-time-desc" v-else-if="planReportTemplate && planReportTemplate.startTime">
               {{ $t('report.test_start_time') }}：{{ planReportTemplate.startTime | timestampFormatDate }}
             </span>
-            <span class="ms-report-time-desc" v-else>
+              <span class="ms-report-time-desc" v-else>
               {{ $t('report.test_start_time') }}：-
             </span>
-            <span class="ms-report-time-desc" v-if="report.status === 'Completed' && endTime !== '0'">
+              <span class="ms-report-time-desc" v-if="report.status === 'Completed' && endTime !== '0'">
               {{ $t('report.test_end_time') }}：{{ endTime | timestampFormatDate }}
             </span>
-            <span class="ms-report-time-desc" v-else-if="planReportTemplate && planReportTemplate.endTime">
+              <span class="ms-report-time-desc" v-else-if="planReportTemplate && planReportTemplate.endTime">
               {{ $t('report.test_end_time') }}：{{ planReportTemplate.endTime | timestampFormatDate }}
             </span>
-            <span class="ms-report-time-desc" v-else>
+              <span class="ms-report-time-desc" v-else>
               {{ $t('report.test_end_time') }}：-
             </span>
+            </div>
           </el-col>
         </el-row>
 
@@ -102,7 +134,9 @@
                             :share-id="shareId"/>
             </el-tab-pane>
             <el-tab-pane :label="$t('report.test_config')">
-              <ms-test-configuration :report-id="reportId" :report="report" :is-share="isShare" :share-id="shareId"/>
+              <ms-test-configuration :report-id="reportId" :report="report"
+                                     :plan-report-template="planReportTemplate"
+                                     :is-share="isShare" :share-id="shareId"/>
             </el-tab-pane>
           </el-tabs>
         </div>
@@ -123,6 +157,7 @@
           </el-button>
         </div>
       </el-dialog>
+      <project-environment-dialog ref="projectEnvDialog"></project-environment-dialog>
     </el-main>
   </ms-container>
 </template>
@@ -141,6 +176,8 @@ import MsContainer from "@/business/components/common/components/MsContainer";
 import MsMainContainer from "@/business/components/common/components/MsMainContainer";
 import MonitorCard from "@/business/components/performance/report/components/MonitorCard";
 import MsReportTestDetails from '@/business/components/performance/report/components/TestDetails';
+import ProjectEnvironmentDialog from "@/business/components/common/dialog/ProjectEnvironmentDialog";
+import MsTag from "@/business/components/common/components/MsTag";
 import {
   getPerformanceReport,
   getPerformanceReportTime,
@@ -163,6 +200,8 @@ export default {
     MsReportTestDetails,
     MsContainer,
     MsMainContainer,
+    ProjectEnvironmentDialog,
+    MsTag,
   },
   data() {
     return {
@@ -179,6 +218,9 @@ export default {
       minutes: '0',
       seconds: '0',
       title: 'Logging',
+      projectEnvMap: null,
+      showMoreProjectEnvMap: false,
+      allProjectEnvMap: null,
       report: {},
       websocket: null,
       dialogFormVisible: false,
@@ -205,6 +247,9 @@ export default {
     }
   },
   computed: {
+    showProjectEnv() {
+      return this.projectEnvMap && JSON.stringify(this.projectEnvMap) !== '{}';
+    },
     templateMinutes() {
       if (this.planReportTemplate && this.planReportTemplate.duration) {
         let duration = this.planReportTemplate.duration;
@@ -221,6 +266,26 @@ export default {
     }
   },
   methods: {
+    showAllProjectInfo() {
+      this.$refs.projectEnvDialog.open(this.allProjectEnvMap);
+    },
+    isProjectEnvShowMore(projectEnvMap) {
+      this.showMoreProjectEnvMap = false;
+      this.projectEnvMap = {};
+      if (projectEnvMap) {
+        let keySize = 0;
+        for (let key in projectEnvMap) {
+          keySize++;
+          if (keySize > 1) {
+            this.showMoreProjectEnvMap = true;
+            return;
+          } else {
+            this.projectEnvMap = {};
+            this.$set(this.projectEnvMap, key, projectEnvMap[key]);
+          }
+        }
+      }
+    },
     initBreadcrumb(callback) {
       if (this.isPlanReport) {
         return;
@@ -328,26 +393,9 @@ export default {
       });
       this.dialogFormVisible = false;
     },
-    rerun(testId) {
-      this.$confirm(this.$t('report.test_rerun_confirm'), '', {
-        confirmButtonText: this.$t('commons.confirm'),
-        cancelButtonText: this.$t('commons.cancel'),
-        type: 'warning'
-      }).then(() => {
-        // this.result = this.$post('/performance/run', {id: testId, triggerMode: 'MANUAL'}, (response) => {
-        //   this.reportId = response.data;
-        //   this.$router.push({path: '/performance/report/view/' + this.reportId});
-        //   // 注册 socket
-        //   this.initWebSocket();
-        // })
-      }).catch(() => {
-      });
-    },
     onOpen() {
-      // window.console.log("socket opening.");
     },
     onError(e) {
-      // window.console.error(e)
     },
     onMessage(e) {
       this.$set(this.report, "refresh", e.data); // 触发刷新
@@ -359,7 +407,6 @@ export default {
       this.$set(this.report, "status", 'Running');
       this.status = 'Running';
       this.initReportTimeInfo();
-      // window.console.log('receive a message:', e.data);
     },
     onClose(e) {
       if (e.code === 1005) {
@@ -369,7 +416,6 @@ export default {
       this.$set(this.report, "refresh", Math.random()); // 触发刷新
       this.$set(this.report, "status", 'Completed');
       this.initReportTimeInfo();
-      // window.console.log("socket closed.");
     },
     handleExport(name) {
       this.result.loading = true;
@@ -439,6 +485,8 @@ export default {
     },
     handleInit(data) {
       if (data) {
+        this.allProjectEnvMap = data.projectEnvMap;
+        this.isProjectEnvShowMore(data.projectEnvMap);
         this.status = data.status;
         this.$set(this, "report", data);
         this.$set(this.test, "testResourcePoolId", data.testResourcePoolId);

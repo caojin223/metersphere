@@ -8,7 +8,6 @@ import io.github.ningyu.jmeter.plugin.util.Constants;
 import io.metersphere.api.dto.ApiTestImportRequest;
 import io.metersphere.api.dto.automation.ImportPoolsDTO;
 import io.metersphere.api.dto.definition.request.MsScenario;
-import io.metersphere.plugin.core.MsTestElement;
 import io.metersphere.api.dto.definition.request.assertions.*;
 import io.metersphere.api.dto.definition.request.controller.MsLoopController;
 import io.metersphere.api.dto.definition.request.controller.MsTransactionController;
@@ -39,7 +38,6 @@ import io.metersphere.api.dto.scenario.request.BodyFile;
 import io.metersphere.api.dto.scenario.request.RequestType;
 import io.metersphere.api.parse.ApiImportAbstractParser;
 import io.metersphere.api.service.ApiTestEnvironmentService;
-import io.metersphere.base.domain.ApiScenarioModule;
 import io.metersphere.base.domain.ApiScenarioWithBLOBs;
 import io.metersphere.base.domain.ApiTestEnvironmentExample;
 import io.metersphere.base.domain.ApiTestEnvironmentWithBLOBs;
@@ -48,7 +46,9 @@ import io.metersphere.commons.exception.MSException;
 import io.metersphere.commons.utils.BeanUtils;
 import io.metersphere.commons.utils.CommonBeanFactory;
 import io.metersphere.commons.utils.LogUtil;
+import io.metersphere.plugin.core.MsTestElement;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.jmeter.assertions.*;
 import org.apache.jmeter.config.ConfigTestElement;
@@ -63,6 +63,7 @@ import org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor;
 import org.apache.jmeter.modifiers.JSR223PreProcessor;
 import org.apache.jmeter.protocol.http.control.HeaderManager;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
+import org.apache.jmeter.protocol.http.util.HTTPArgument;
 import org.apache.jmeter.protocol.http.util.HTTPFileArg;
 import org.apache.jmeter.protocol.java.sampler.JSR223Sampler;
 import org.apache.jmeter.protocol.jdbc.config.DataSourceElement;
@@ -71,6 +72,7 @@ import org.apache.jmeter.protocol.tcp.sampler.TCPSampler;
 import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
+import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.timers.ConstantTimer;
 import org.apache.jorphan.collections.HashTree;
 
@@ -88,6 +90,7 @@ public class MsJmeterParser extends ApiImportAbstractParser<ScenarioImport> {
      * todo 存放单个请求下的Header 为了和平台对应
      */
     private Map<Integer, List<Object>> headerMap = new HashMap<>();
+    private static final String ALWAYS_ENCODE = "HTTPArgument.always_encode";
 
     @Override
     public ScenarioImport parse(InputStream inputSource, ApiTestImportRequest request) {
@@ -115,27 +118,11 @@ public class MsJmeterParser extends ApiImportAbstractParser<ScenarioImport> {
     private List<ApiScenarioWithBLOBs> parseObj(MsScenario msScenario, ApiTestImportRequest request) {
         List<ApiScenarioWithBLOBs> scenarioWithBLOBsList = new ArrayList<>();
         ApiScenarioWithBLOBs scenarioWithBLOBs = new ApiScenarioWithBLOBs();
-        ApiScenarioModule selectModule = null;
-        String selectModulePath = null;
-        if (StringUtils.isNotBlank(request.getModuleId())) {
-            selectModule = ApiScenarioImportUtil.getSelectModule(request.getModuleId());
-            if (selectModule != null) {
-                selectModulePath = ApiScenarioImportUtil.getSelectModulePath(selectModule.getName(), selectModule.getParentId());
-            }
-        }
-        ApiScenarioModule module = ApiScenarioImportUtil.buildModule(selectModule, msScenario.getName(), this.projectId);
         scenarioWithBLOBs.setName(request.getFileName());
         scenarioWithBLOBs.setProjectId(request.getProjectId());
         if (msScenario != null && CollectionUtils.isNotEmpty(msScenario.getHashTree())) {
             scenarioWithBLOBs.setStepTotal(msScenario.getHashTree().size());
-        }
-        if (module != null) {
-            scenarioWithBLOBs.setApiScenarioModuleId(module.getId());
-            if (StringUtils.isNotBlank(selectModulePath)) {
-                scenarioWithBLOBs.setModulePath(selectModulePath + "/" + module.getName());
-            } else {
-                scenarioWithBLOBs.setModulePath("/" + module.getName());
-            }
+            scenarioWithBLOBs.setModulePath("/" + msScenario.getName());
         }
         scenarioWithBLOBs.setId(UUID.randomUUID().toString());
         scenarioWithBLOBs.setScenarioDefinition(JSON.toJSONString(msScenario));
@@ -305,10 +292,20 @@ public class MsJmeterParser extends ApiImportAbstractParser<ScenarioImport> {
                         samplerProxy.getBody().setRaw(v);
                     });
                     samplerProxy.getBody().initKvs();
-                } else if (StringUtils.isNotEmpty(bodyType) || (source.getMethod().equalsIgnoreCase("POST") && source.getArguments().getArgumentsAsMap().size() > 0)) {
+                } else if (source.getDoMultipart()) {
+                    samplerProxy.getBody().setType(Body.FORM_DATA);
+                    source.getArguments().getArguments().forEach(params -> {
+                        KeyValue keyValue = new KeyValue();
+                        parseParams(params, keyValue);
+                        samplerProxy.getBody().getKvs().add(keyValue);
+                    });
+                } else if (StringUtils.isNotEmpty(bodyType) ||
+                        (source.getMethod().equalsIgnoreCase("POST") &&
+                                MapUtils.isNotEmpty(source.getArguments().getArgumentsAsMap()))) {
                     samplerProxy.getBody().setType(Body.WWW_FROM);
-                    source.getArguments().getArgumentsAsMap().forEach((k, v) -> {
-                        KeyValue keyValue = new KeyValue(k, v);
+                    source.getArguments().getArguments().forEach(params -> {
+                        KeyValue keyValue = new KeyValue();
+                        parseParams(params, keyValue);
                         samplerProxy.getBody().getKvs().add(keyValue);
                     });
                 } else if (samplerProxy.getBody() != null && samplerProxy.getBody().getType().equals(Body.FORM_DATA)) {
@@ -318,8 +315,9 @@ public class MsJmeterParser extends ApiImportAbstractParser<ScenarioImport> {
                     });
                 } else {
                     List<KeyValue> keyValues = new LinkedList<>();
-                    source.getArguments().getArgumentsAsMap().forEach((k, v) -> {
-                        KeyValue keyValue = new KeyValue(k, v);
+                    source.getArguments().getArguments().forEach(params -> {
+                        KeyValue keyValue = new KeyValue();
+                        parseParams(params, keyValue);
                         keyValues.add(keyValue);
                     });
                     if (CollectionUtils.isNotEmpty(keyValues)) {
@@ -342,6 +340,20 @@ public class MsJmeterParser extends ApiImportAbstractParser<ScenarioImport> {
 
         } catch (Exception e) {
             LogUtil.error(e);
+        }
+    }
+
+    private void parseParams(JMeterProperty params, KeyValue keyValue) {
+        if (params == null || keyValue == null) {
+            return;
+        }
+        Object objValue = params.getObjectValue();
+        if (objValue instanceof HTTPArgument) {
+            HTTPArgument argument = (HTTPArgument) objValue;
+            boolean propertyAsBoolean = argument.getPropertyAsBoolean(ALWAYS_ENCODE);
+            keyValue.setUrlEncode(propertyAsBoolean);
+            keyValue.setName(argument.getName());
+            keyValue.setValue(argument.getValue());
         }
     }
 
@@ -779,12 +791,6 @@ public class MsJmeterParser extends ApiImportAbstractParser<ScenarioImport> {
                 BeanUtils.copyBean(elementNode, key);
                 elementNode.setType("ConstantTimer");
             }
-            // IF条件控制器，这里平台方式和jmeter 不同，暂时不处理
-//            else if (key instanceof IfController) {
-//                elementNode = new MsIfController();
-//                BeanUtils.copyBean(elementNode, key);
-//                elementNode.setType("IfController");
-//            }
             // 次数循环控制器
             else if (key instanceof LoopController) {
                 elementNode = new MsLoopController();
@@ -793,7 +799,7 @@ public class MsJmeterParser extends ApiImportAbstractParser<ScenarioImport> {
                 ((MsLoopController) elementNode).setLoopType(LoopConstants.LOOP_COUNT.name());
                 LoopController loopController = (LoopController) key;
                 CountController countController = new CountController();
-                countController.setLoops(loopController.getLoops());
+                countController.setLoops(String.valueOf(loopController.getLoops()));
                 countController.setProceed(true);
                 ((MsLoopController) elementNode).setCountController(countController);
             }

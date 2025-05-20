@@ -40,20 +40,21 @@
                p.issue_template_id,
                p.case_template_id,
                p.create_time,
-               w.id               AS workspaceId,
-               w.name             AS workspaceName,
-               p.tapd_id,
-               p.jira_key,
-               p.zentao_id,
-               p.azure_devops_id,
-               p.azure_filter_id,
-               user.name          AS createUserName,
-               p.platform,
-               p.third_part_template,
-               p.issue_config
+        w.id AS workspaceId,
+        w.name AS workspaceName,
+        p.tapd_id,
+        p.jira_key,
+        p.zentao_id,
+        p.azure_devops_id,
+        p.azure_filter_id,
+        user.name AS createUserName,
+        p.platform,
+        p.third_part_template,
+        p.issue_config,
+        p.api_template_id
         FROM project p
-                     JOIN workspace w ON p.workspace_id = w.id
-                     LEFT JOIN user ON user.id = p.create_user
+        JOIN workspace w ON p.workspace_id = w.id
+        LEFT JOIN user ON user.id = p.create_user
         <where>
             <if test="proRequest.combine != null">
                 <include refid="combine">
@@ -79,6 +80,34 @@
                             </when>
                             <when test="key == 'workspace_id'">
                                 AND p.workspace_id IN
+                                <foreach collection="values" item="value" separator="," open="(" close=")">
+                                    #{value}
+                                </foreach>
+                            </when>
+                            <when test="key == 'tapd_id'">
+                                AND p.platform  = 'Tapd'
+                                AND p.tapd_id IN
+                                <foreach collection="values" item="value" separator="," open="(" close=")">
+                                    #{value}
+                                </foreach>
+                            </when>
+                            <when test="key == 'jira_key'">
+                                AND p.platform  = 'Jira'
+                                AND p.jira_key IN
+                                <foreach collection="values" item="value" separator="," open="(" close=")">
+                                    #{value}
+                                </foreach>
+                            </when>
+                            <when test="key == 'zentao_id'">
+                                AND p.platform  = 'Zentao'
+                                AND p.zentao_id IN
+                                <foreach collection="values" item="value" separator="," open="(" close=")">
+                                    #{value}
+                                </foreach>
+                            </when>
+                            <when test="key == 'azure_devops_id'">
+                                AND p.platform = 'AzureDevops'
+                                AND p.azure_devops_id IN
                                 <foreach collection="values" item="value" separator="," open="(" close=")">
                                     #{value}
                                 </foreach>
@@ -170,68 +199,74 @@
             </if>
         </set>
         WHERE project.id IN (SELECT id FROM (SELECT id
-                FROM project
-                WHERE workspace_id = #{workspaceId}) AS a)
+        FROM project
+        WHERE workspace_id = #{workspaceId}) AS a)
     </update>
     <update id="updateUseDefaultCaseTemplateProject">
-        update project set case_template_id = #{templateId}
+        update project
+        set case_template_id = #{templateId}
         where (case_template_id = #{originId} or case_template_id is null or case_template_id = '')
-        and id = #{projectId}
+          and id = #{projectId}
+    </update>
+    <update id="updateUseDefaultApiTemplateProject">
+        update project
+        set api_template_id = #{templateId}
+        where (api_template_id = #{originId} or api_template_id is null or api_template_id = '')
+          and id = #{projectId}
     </update>
 
     <select id="selectProjectByResourceId" resultType="io.metersphere.base.domain.Project">
         SELECT *
         FROM project
         WHERE id IN (
-                SELECT project_id
-                FROM test_plan
-                WHERE id = #{resourceId}
-                UNION
-                SELECT project_id
-                FROM test_case_review
-                WHERE id = #{resourceId}
-                UNION
-                SELECT project_id
-                FROM issues
-                WHERE id = #{resourceId}
-                UNION
-                SELECT project_id
-                FROM test_plan_report
-                             JOIN test_plan tp ON tp.id = test_plan_report.test_plan_id
-                WHERE test_plan_report.id = #{resourceId}
-                UNION
-                SELECT project_id
-                FROM test_case
-                WHERE id = #{resourceId}
-                UNION
-                SELECT project_id
-                FROM swagger_url_project
-                WHERE id = #{resourceId}
-                UNION
-                SELECT project_id
-                FROM api_scenario
-                WHERE id = #{resourceId}
-                UNION
-                SELECT project_id
-                FROM api_definition
-                WHERE id = #{resourceId}
-                UNION
-                SELECT project_id
-                FROM api_test_case
-                WHERE id = #{resourceId}
-                UNION
-                SELECT project_id
-                FROM api_scenario_report
-                WHERE id = #{resourceId}
-                UNION
-                SELECT project_id
-                FROM load_test
-                WHERE id = #{resourceId}
-                UNION
-                SELECT project_id
-                FROM load_test_report
-                WHERE id = #{resourceId})
-        LIMIT 1
+            SELECT project_id
+            FROM test_plan
+            WHERE id = #{resourceId}
+            UNION
+            SELECT project_id
+            FROM test_case_review
+            WHERE id = #{resourceId}
+            UNION
+            SELECT project_id
+            FROM issues
+            WHERE id = #{resourceId}
+            UNION
+            SELECT project_id
+            FROM test_plan_report
+                     JOIN test_plan tp ON tp.id = test_plan_report.test_plan_id
+            WHERE test_plan_report.id = #{resourceId}
+            UNION
+            SELECT project_id
+            FROM test_case
+            WHERE id = #{resourceId}
+            UNION
+            SELECT project_id
+            FROM swagger_url_project
+            WHERE id = #{resourceId}
+            UNION
+            SELECT project_id
+            FROM api_scenario
+            WHERE id = #{resourceId}
+            UNION
+            SELECT project_id
+            FROM api_definition
+            WHERE id = #{resourceId}
+            UNION
+            SELECT project_id
+            FROM api_test_case
+            WHERE id = #{resourceId}
+            UNION
+            SELECT project_id
+            FROM api_scenario_report
+            WHERE id = #{resourceId}
+            UNION
+            SELECT project_id
+            FROM load_test
+            WHERE id = #{resourceId}
+            UNION
+            SELECT project_id
+            FROM load_test_report
+            WHERE id = #{resourceId}) LIMIT 1
     </select>
     <select id="getProjectMemberSize" resultType="java.lang.Long">
         SELECT count(distinct (`user`.id)) FROM user_group JOIN `user` ON user_group.user_id = `user`.id
@@ -279,8 +314,9 @@
             #{id}
         </foreach>
     </select>
-
-
+    <select id="getThirdPartProjectIds" resultType="java.lang.String">
+        select id from project where platform != 'Local';
+    </select>
     <insert id="setDefaultMessageTask">
         INSERT INTO message_task (id, type, event, user_id, task_type, webhook, identification, is_set, project_id,
         test_id, create_time, template)
@@ -395,5 +431,14 @@
 
     <select id="getProjectForCustomField" resultType="io.metersphere.base.domain.Project">
         select id, platform, third_part_template from project where workspace_id = #{workspaceId}
+    </select>
+    <select id="queryWorkNameByProjectIds" resultType="io.metersphere.base.domain.Workspace">
+        SELECT project.id, workspace.name
+        FROM project inner join workspace on project.workspace_id = workspace.id
+        WHERE project.id IN
+        <foreach collection="ids" item="id" index="index"
+                 open="(" close=")" separator=",">
+            #{id}
+        </foreach>
     </select>
 </mapper>

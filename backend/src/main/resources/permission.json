@@ -186,6 +186,21 @@
       "resourceId": "WORKSPACE_PROJECT_MANAGER"
     },
     {
+      "id": "WORKSPACE_PROJECT_MANAGER:READ+ADD_USER",
+      "name": "permission.workspace_user.create",
+      "resourceId": "WORKSPACE_PROJECT_MANAGER"
+    },
+    {
+      "id": "WORKSPACE_PROJECT_MANAGER:READ+EDIT_USER",
+      "name": "permission.workspace_user.edit",
+      "resourceId": "WORKSPACE_PROJECT_MANAGER"
+    },
+    {
+      "id": "WORKSPACE_PROJECT_MANAGER:READ+DELETE_USER",
+      "name": "permission.workspace_user.delete",
+      "resourceId": "WORKSPACE_PROJECT_MANAGER"
+    },
+    {
       "id": "WORKSPACE_PROJECT_ENVIRONMENT:READ",
       "name": "permission.workspace_project_environment.read",
       "resourceId": "WORKSPACE_PROJECT_ENVIRONMENT"
@@ -358,7 +373,7 @@
       "resourceId": "PROJECT_OPERATING_LOG"
     },
     {
-      "id": "PROJECT_FILE:READ+JAR",
+      "id": "PROJECT_FILE:READ",
       "name": "permission.project_file.jar",
       "resourceId": "PROJECT_FILE"
     },
@@ -368,23 +383,28 @@
       "resourceId": "PROJECT_FILE"
     },
     {
+      "id": "PROJECT_FILE:READ+DOWNLOAD+JAR",
+      "name": "permission.project_file.file_download",
+      "resourceId": "PROJECT_FILE"
+    },
+    {
       "id": "PROJECT_FILE:READ+DELETE+JAR",
       "name": "permission.project_file.delete_jar",
       "resourceId": "PROJECT_FILE"
     },
     {
-      "id": "PROJECT_FILE:READ+FILE",
-      "name": "permission.project_file.read",
+      "id": "PROJECT_FILE:READ+BATCH+DELETE",
+      "name": "permission.project_file.batch_delete",
       "resourceId": "PROJECT_FILE"
     },
     {
-      "id": "PROJECT_FILE:READ+UPLOAD+FILE",
-      "name": "permission.project_file.upload_file",
+      "id": "PROJECT_FILE:READ+BATCH+DOWNLOAD",
+      "name": "permission.project_file.batch_download",
       "resourceId": "PROJECT_FILE"
     },
     {
-      "id": "PROJECT_FILE:READ+DELETE+FILE",
-      "name": "permission.project_file.delete_file",
+      "id": "PROJECT_FILE:READ+BATCH+MOVE",
+      "name": "permission.project_file.batch_move",
       "resourceId": "PROJECT_FILE"
     },
     {
@@ -400,6 +420,11 @@
     {
       "id": "PROJECT_TEMPLATE:READ+ISSUE_TEMPLATE",
       "name": "permission.project_template.issue_template",
+      "resourceId": "PROJECT_TEMPLATE"
+    },
+    {
+      "id": "PROJECT_TEMPLATE:READ+API_TEMPLATE",
+      "name": "permission.project_template.api_template",
       "resourceId": "PROJECT_TEMPLATE"
     },
     {
@@ -443,6 +468,11 @@
       "resourceId": "PROJECT_CUSTOM_CODE"
     },
     {
+      "id": "PROJECT_TRACK_HOME:READ",
+      "name": "permission.common.read",
+      "resourceId": "PROJECT_TRACK_HOME"
+    },
+    {
       "id": "PROJECT_TRACK_CASE:READ",
       "name": "permission.project_track_case.read",
       "resourceId": "PROJECT_TRACK_CASE"
@@ -481,6 +511,48 @@
       "id": "PROJECT_TRACK_CASE:READ+RECOVER",
       "name": "permission.project_track_case.recover",
       "resourceId": "PROJECT_TRACK_CASE"
+    },
+    {
+      "id": "PROJECT_TRACK_CASE:READ+BATCH_EDIT",
+      "name": "test_track.case.batch_edit_case",
+      "resourceId": "PROJECT_TRACK_CASE"
+    },
+    {
+      "id": "PROJECT_TRACK_CASE:READ+BATCH_MOVE",
+      "name": "test_track.case.batch_move_case",
+      "resourceId": "PROJECT_TRACK_CASE"
+    },
+    {
+      "id": "PROJECT_TRACK_CASE:READ+BATCH_COPY",
+      "name": "api_test.batch_copy",
+      "resourceId": "PROJECT_TRACK_CASE"
+    },
+    {
+      "id": "PROJECT_TRACK_CASE:READ+BATCH_DELETE",
+      "name": "test_track.case.batch_delete_case",
+      "resourceId": "PROJECT_TRACK_CASE"
+    },
+    {
+      "id": "PROJECT_TRACK_CASE:READ+BATCH_REDUCTION",
+      "name": "commons.batch_restore",
+      "resourceId": "PROJECT_TRACK_CASE"
+    },
+    {
+      "id": "PROJECT_TRACK_CASE:READ+BATCH_LINK_DEMAND",
+      "name": "test_track.case.batch_link_demand",
+      "resourceId": "PROJECT_TRACK_CASE"
+    },
+    {
+      "id": "PROJECT_TRACK_CASE:READ+GENERATE_DEPENDENCIES",
+      "name": "test_track.case.generate_dependencies",
+      "resourceId": "PROJECT_TRACK_CASE",
+      "license": true
+    },
+    {
+      "id": "PROJECT_TRACK_CASE:READ+BATCH_ADD_PUBLIC",
+      "name": "test_track.case.batch_add_public",
+      "resourceId": "PROJECT_TRACK_CASE",
+      "license": true
     },
     {
       "id": "PROJECT_TRACK_REVIEW:READ",
@@ -606,6 +678,11 @@
       "id": "PROJECT_TRACK_REPORT:READ+EXPORT",
       "name": "permission.project_track_report.export",
       "resourceId": "PROJECT_TRACK_REPORT"
+    },
+    {
+      "id": "PROJECT_API_HOME:READ",
+      "name": "permission.common.read",
+      "resourceId": "PROJECT_API_HOME"
     },
     {
       "id": "PROJECT_API_DEFINITION:READ",
@@ -879,6 +956,11 @@
       "name": "permission.project_ui_report.delete",
       "resourceId": "PROJECT_UI_REPORT",
       "license": true
+    },
+    {
+      "id": "PROJECT_PERFORMANCE_HOME:READ",
+      "name": "permission.common.read",
+      "resourceId": "PROJECT_PERFORMANCE_HOME"
     },
     {
       "id": "PROJECT_PERFORMANCE_TEST:READ",
@@ -1200,6 +1282,10 @@
       "name": "permission.project_app_manager.name"
     },
     {
+      "id": "PROJECT_TRACK_HOME",
+      "name": "permission.common.home"
+    },
+    {
       "id": "PROJECT_TRACK_CASE",
       "name": "permission.project_track_case.name"
     },
@@ -1218,6 +1304,10 @@
     {
       "id": "PROJECT_TRACK_REPORT",
       "name": "permission.project_track_report.name"
+    },
+    {
+      "id": "PROJECT_API_HOME",
+      "name": "permission.common.home"
     },
     {
       "id": "PROJECT_API_DEFINITION",
@@ -1245,6 +1335,10 @@
       "id": "PROJECT_UI_REPORT",
       "name": "permission.project_ui_report.name",
       "license": true
+    },
+    {
+      "id": "PROJECT_PERFORMANCE_HOME",
+      "name": "permission.common.home"
     },
     {
       "id": "PROJECT_PERFORMANCE_TEST",

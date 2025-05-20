@@ -31,7 +31,9 @@
       <el-row>
         <div class="chart-style">
           <ms-chart ref="chart1" v-if="!loading" :options="dataOption"
-                    :style="{width: chartWidthNumber+'px', height: (h-70) + 'px'}" class="chart-config" :autoresize="true"
+                    :style="{width: chartWidthNumber+'px', height: (h-70) + 'px'}"
+                    class="chart-config"
+                    :autoresize="true"
                     id="picChart"/>
         </div>
       </el-row>
@@ -40,7 +42,6 @@
 </template>
 
 <script>
-import echarts from "echarts";
 import MsChart from "@/business/components/common/chart/MsChart";
 
 export default {
@@ -75,7 +76,10 @@ export default {
         {id: 'pie', name: this.$t('commons.report_statistics.pie')}
       ],
       order: "",
-      orders: [{id: '', name: this.$t('commons.sort_default')}, {id: 'desc', name: this.$t('commons.report_statistics.desc')}, {
+      orders: [{id: '', name: this.$t('commons.sort_default')}, {
+        id: 'desc',
+        name: this.$t('commons.report_statistics.desc')
+      }, {
         id: 'asc',
         name: this.$t('commons.report_statistics.asc')
       }],
@@ -120,12 +124,14 @@ export default {
       } else {
         this.dataOption = this.loadOption;
       }
-      this.dataOption.series.forEach(item => {
-        item.type = this.chartType;
-      });
+      if (this.dataOption.series) {
+        this.dataOption.series.forEach(item => {
+          item.type = this.chartType;
+        });
+      }
       this.reload();
     },
-    setPieOptionAndBarOption(barOption,pieOption) {
+    setPieOptionAndBarOption(barOption, pieOption) {
       if (barOption) {
         this.loadOption = barOption;
       }
@@ -143,14 +149,19 @@ export default {
       this.originalW = this.w;
       this.originalH = this.h;
       this.w = document.body.clientWidth - 50;
-      this.h = document.body.clientHeight;
       this.isFullScreen = true;
+      if (this.chartType === 'bar') {
+        this.chartWidthNumber = this.w;
+      }
       this.$emit('hidePage', true);
     },
     unFullScreen() {
       this.w = this.originalW;
       this.h = this.originalH;
       this.isFullScreen = false;
+      if (this.chartType === 'bar') {
+        this.chartWidthNumber = this.w;
+      }
       this.$emit('hidePage', false);
     },
     getImages(command) {
@@ -162,7 +173,6 @@ export default {
       if (document.getElementById('picChart')) {
         let chartsCanvas = document.getElementById('picChart').querySelectorAll('canvas')[0];
         if (chartsCanvas) {
-          // toDataURL()是canvas对象的一种方法，用于将canvas对象转换为base64位编码
           returnImageDatas = chartsCanvas && chartsCanvas.toDataURL(imageType);
         }
       }
@@ -233,9 +243,10 @@ export default {
   height: calc(100vh / 1.95);
 }
 
-.chart-style{
+.chart-style {
   overflow: auto;
 }
+
 .tip {
   float: left;
   font-size: 14px;

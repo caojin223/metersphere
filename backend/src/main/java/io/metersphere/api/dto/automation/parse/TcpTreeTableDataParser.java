@@ -5,19 +5,23 @@ import com.alibaba.fastjson.JSONObject;
 import io.metersphere.api.dto.automation.TcpTreeTableDataStruct;
 import io.metersphere.api.dto.mock.MockConfigRequestParams;
 import io.metersphere.api.mock.utils.MockApiUtils;
+import io.metersphere.commons.exception.MSException;
 import io.metersphere.commons.utils.LogUtil;
 import io.metersphere.commons.utils.XMLUtils;
+import io.metersphere.i18n.Translator;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.dom4j.Document;
 import org.dom4j.DocumentHelper;
+import org.dom4j.Element;
 import org.dom4j.io.OutputFormat;
 import org.dom4j.io.XMLWriter;
-import org.springframework.util.CollectionUtils;
 
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.IOException;
 import java.io.StringWriter;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -26,6 +30,9 @@ import java.util.List;
  * @Description
  */
 public class TcpTreeTableDataParser {
+    public static final String DATA_TYPE_STRING = "string";
+    public static final String DATA_TYPE_OBJECT = "object";
+
     public static String treeTableData2Xml(List<TcpTreeTableDataStruct> treeDataList) {
         String xmlString = "";
         try {
@@ -84,6 +91,51 @@ public class TcpTreeTableDataParser {
         return xmlString;
     }
 
+    public static List<TcpTreeTableDataStruct> xml2TreeTableData(String xmlString) {
+        List<TcpTreeTableDataStruct> returnList = new ArrayList<>();
+        Document document = XMLUtils.stringToDocument(xmlString);
+        if (document != null) {
+            Element rootElement = document.getRootElement();
+            TcpTreeTableDataStruct struct = new TcpTreeTableDataStruct();
+            struct.init();
+            struct.setName(rootElement.getName());
+            List<Element> elements = rootElement.elements();
+            if (CollectionUtils.isEmpty(elements)) {
+                struct.setValue(rootElement.getStringValue());
+                struct.setType(TcpTreeTableDataParser.DATA_TYPE_STRING);
+            } else {
+                struct.setType(TcpTreeTableDataParser.DATA_TYPE_OBJECT);
+                struct.setChildren(docElement2TreeTableData(elements));
+            }
+            returnList.add(struct);
+        }
+        if (CollectionUtils.isEmpty(returnList)) {
+            MSException.throwException(Translator.get("error_xml_struct"));
+        }
+        return returnList;
+    }
+
+    private static List<TcpTreeTableDataStruct> docElement2TreeTableData(List<Element> elements) {
+        List<TcpTreeTableDataStruct> returnList = new ArrayList<>();
+        if (CollectionUtils.isNotEmpty(elements)) {
+            elements.forEach(element -> {
+                TcpTreeTableDataStruct struct = new TcpTreeTableDataStruct();
+                struct.init();
+                struct.setName(element.getName());
+                List<Element> children = element.elements();
+                if (CollectionUtils.isEmpty(children)) {
+                    struct.setValue(element.getStringValue());
+                    struct.setType(TcpTreeTableDataParser.DATA_TYPE_STRING);
+                } else {
+                    struct.setType(TcpTreeTableDataParser.DATA_TYPE_OBJECT);
+                    struct.setChildren(docElement2TreeTableData(children));
+                }
+                returnList.add(struct);
+            });
+        }
+        return returnList;
+    }
+
     public static boolean isMatchTreeTableData(JSONObject sourceObj, List<TcpTreeTableDataStruct> tcpDataList) {
         if (CollectionUtils.isEmpty(tcpDataList)) {
             return true;
@@ -94,7 +146,7 @@ public class TcpTreeTableDataParser {
 
         boolean isMatch = false;
         for (TcpTreeTableDataStruct dataStruct : tcpDataList) {
-            if(isMatch){
+            if (isMatch) {
                 break;
             }
             String key = dataStruct.getName();
@@ -111,15 +163,21 @@ public class TcpTreeTableDataParser {
                 } else if (sourceObjItem instanceof JSONArray) {
                     if (!CollectionUtils.isEmpty(dataStruct.getChildren())) {
                         JSONArray jsonArray = (JSONArray) sourceObjItem;
-                        for (int i = 0; i < jsonArray.size(); i ++){
+                        boolean hasMatchAny = false;
+                        for (int i = 0; i < jsonArray.size(); i++) {
                             Object itemObj = jsonArray.get(i);
-                            if(itemObj instanceof JSONObject){
+                            if (itemObj instanceof JSONObject) {
                                 if (!isMatchTreeTableData((JSONObject) itemObj, dataStruct.getChildren())) {
                                     continue;
+                                } else {
+                                    hasMatchAny = true;
                                 }
-                            }else {
+                            } else {
                                 continue;
                             }
+                        }
+                        if (!hasMatchAny) {
+                            continue;
                         }
                     } else {
                         continue;
@@ -134,8 +192,8 @@ public class TcpTreeTableDataParser {
                         continue;
                     }
                 }
+                isMatch = true;
             }
-            isMatch = true;
         }
 
         return isMatch;

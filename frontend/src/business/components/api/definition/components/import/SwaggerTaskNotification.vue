@@ -87,16 +87,16 @@ export default {
       });
     },
     handleAddTaskModel() {
-      let Task = {};
-      Task.event = [];
-      Task.userIds = [];
-      Task.type = '';
-      Task.webhook = '';
-      Task.isSet = true;
-      Task.identification = '';
-      Task.taskType = 'SWAGGER_URL';
-      Task.testId = this.testId;
-      this.scheduleTask.unshift(Task);
+      let task = {};
+      task.event = [];
+      task.userIds = [];
+      task.type = '';
+      task.webhook = '';
+      task.isSet = true;
+      task.identification = '';
+      task.taskType = 'SWAGGER_URL';
+      task.testId = this.apiTestId;
+      this.scheduleTask.unshift(task);
     },
     handleTemplate(index, row) {
       if (hasLicense()) {
@@ -117,11 +117,6 @@ export default {
     handleReceivers(row) {
       row.receiverOptions = JSON.parse(JSON.stringify(this.scheduleReceiverOptions));
     },
-  },
-  watch: {
-    testId() {
-      this.initForm();
-    }
   }
 };
 </script>

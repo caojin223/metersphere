@@ -4,7 +4,6 @@ import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.github.pagehelper.Page;
 import com.github.pagehelper.PageHelper;
-import io.metersphere.api.jmeter.NewDriverManager;
 import io.metersphere.base.domain.JarConfig;
 import io.metersphere.base.domain.JarConfigExample;
 import io.metersphere.base.domain.Project;
@@ -19,15 +18,13 @@ import io.metersphere.log.utils.ReflexObjectUtil;
 import io.metersphere.log.vo.DetailColumn;
 import io.metersphere.log.vo.OperatingLogDetails;
 import io.metersphere.log.vo.system.SystemReference;
+import org.apache.commons.collections.CollectionUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.Resource;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 
 @Service
 @Transactional(rollbackFor = Exception.class)
@@ -46,6 +43,16 @@ public class JarConfigService {
 
     public List<JarConfig> list() {
         JarConfigExample example = new JarConfigExample();
+        return jarConfigMapper.selectByExample(example);
+    }
+
+
+    public List<JarConfig> listByProjectIds(List<String> projectIds) {
+        if(CollectionUtils.isEmpty(projectIds)){
+            return new ArrayList<>();
+        }
+        JarConfigExample example = new JarConfigExample();
+        example.createCriteria().andResourceTypeEqualTo("PROJECT").andResourceIdIn(projectIds);
         return jarConfigMapper.selectByExample(example);
     }
 
@@ -89,7 +96,6 @@ public class JarConfigService {
         if (file != null) {
             FileUtils.deleteFile(deletePath);
             FileUtils.uploadFile(file, getJarDir(jarConfig.getId()));
-            NewDriverManager.loadJar(jarConfig.getPath());
         }
     }
 
@@ -108,7 +114,6 @@ public class JarConfigService {
         jarConfig.setFileName(file.getOriginalFilename());
         jarConfigMapper.insert(jarConfig);
         FileUtils.uploadFile(file, getJarDir(jarConfig.getId()));
-        NewDriverManager.loadJar(jarConfig.getPath());
         return jarConfig.getId();
     }
 

@@ -1,6 +1,6 @@
 <template>
   <div>
-    <el-button type="primary" @click="relateTestCase">{{$t('test_track.review_view.relevance_case')}}</el-button>
+    <el-button type="primary" size="small" @click="relateTestCase">{{$t('test_track.review_view.relevance_case')}}</el-button>
 
     <ms-table
       v-loading="result.loading"
@@ -47,6 +47,10 @@
         prop="projectName">
       </ms-table-column>
 
+      <ms-table-column v-if="isXpack"
+        :label="$t('commons.version')"
+        prop="versionName">
+      </ms-table-column>
     </ms-table>
 
     <test-case-relate-list
@@ -64,6 +68,7 @@ import MsTableColumn from "@/business/components/common/components/table/MsTable
 import PriorityTableItem from "@/business/components/track/common/tableItems/planview/PriorityTableItem";
 import TypeTableItem from "@/business/components/track/common/tableItems/planview/TypeTableItem";
 import TestCaseRelateList from "@/business/components/track/issue/TestCaseRelateList";
+import {hasLicense} from "@/common/js/utils";
 export default {
   name: "TestCaseIssueList",
   components: {TestCaseRelateList, TypeTableItem, PriorityTableItem, MsTableColumn, MsTable},
@@ -80,6 +85,7 @@ export default {
           exec: this.handleDelete
         }
       ],
+      isXpack: false,
     };
   },
   props: {
@@ -90,6 +96,10 @@ export default {
       this.testCaseContainIds.delete(item.id);
       this.tableData.splice(index, 1);
       this.deleteIds.add(item.id);
+    },
+    clear() {
+      this.addIds.clear();
+      this.deleteIds.clear();
     },
     initTableData() {
       this.tableData = [];

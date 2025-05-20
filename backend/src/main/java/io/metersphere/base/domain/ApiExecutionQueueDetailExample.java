@@ -573,6 +573,196 @@ public class ApiExecutionQueueDetailExample {
             addCriterion("create_time not between", value1, value2, "createTime");
             return (Criteria) this;
         }
+
+        public Criteria andRetryEnableIsNull() {
+            addCriterion("retry_enable is null");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryEnableIsNotNull() {
+            addCriterion("retry_enable is not null");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryEnableEqualTo(Boolean value) {
+            addCriterion("retry_enable =", value, "retryEnable");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryEnableNotEqualTo(Boolean value) {
+            addCriterion("retry_enable <>", value, "retryEnable");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryEnableGreaterThan(Boolean value) {
+            addCriterion("retry_enable >", value, "retryEnable");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryEnableGreaterThanOrEqualTo(Boolean value) {
+            addCriterion("retry_enable >=", value, "retryEnable");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryEnableLessThan(Boolean value) {
+            addCriterion("retry_enable <", value, "retryEnable");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryEnableLessThanOrEqualTo(Boolean value) {
+            addCriterion("retry_enable <=", value, "retryEnable");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryEnableIn(List<Boolean> values) {
+            addCriterion("retry_enable in", values, "retryEnable");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryEnableNotIn(List<Boolean> values) {
+            addCriterion("retry_enable not in", values, "retryEnable");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryEnableBetween(Boolean value1, Boolean value2) {
+            addCriterion("retry_enable between", value1, value2, "retryEnable");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryEnableNotBetween(Boolean value1, Boolean value2) {
+            addCriterion("retry_enable not between", value1, value2, "retryEnable");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryNumberIsNull() {
+            addCriterion("retry_number is null");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryNumberIsNotNull() {
+            addCriterion("retry_number is not null");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryNumberEqualTo(Long value) {
+            addCriterion("retry_number =", value, "retryNumber");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryNumberNotEqualTo(Long value) {
+            addCriterion("retry_number <>", value, "retryNumber");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryNumberGreaterThan(Long value) {
+            addCriterion("retry_number >", value, "retryNumber");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryNumberGreaterThanOrEqualTo(Long value) {
+            addCriterion("retry_number >=", value, "retryNumber");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryNumberLessThan(Long value) {
+            addCriterion("retry_number <", value, "retryNumber");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryNumberLessThanOrEqualTo(Long value) {
+            addCriterion("retry_number <=", value, "retryNumber");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryNumberIn(List<Long> values) {
+            addCriterion("retry_number in", values, "retryNumber");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryNumberNotIn(List<Long> values) {
+            addCriterion("retry_number not in", values, "retryNumber");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryNumberBetween(Long value1, Long value2) {
+            addCriterion("retry_number between", value1, value2, "retryNumber");
+            return (Criteria) this;
+        }
+
+        public Criteria andRetryNumberNotBetween(Long value1, Long value2) {
+            addCriterion("retry_number not between", value1, value2, "retryNumber");
+            return (Criteria) this;
+        }
+
+        public Criteria andProjectIdsIsNull() {
+            addCriterion("project_ids is null");
+            return (Criteria) this;
+        }
+
+        public Criteria andProjectIdsIsNotNull() {
+            addCriterion("project_ids is not null");
+            return (Criteria) this;
+        }
+
+        public Criteria andProjectIdsEqualTo(String value) {
+            addCriterion("project_ids =", value, "projectIds");
+            return (Criteria) this;
+        }
+
+        public Criteria andProjectIdsNotEqualTo(String value) {
+            addCriterion("project_ids <>", value, "projectIds");
+            return (Criteria) this;
+        }
+
+        public Criteria andProjectIdsGreaterThan(String value) {
+            addCriterion("project_ids >", value, "projectIds");
+            return (Criteria) this;
+        }
+
+        public Criteria andProjectIdsGreaterThanOrEqualTo(String value) {
+            addCriterion("project_ids >=", value, "projectIds");
+            return (Criteria) this;
+        }
+
+        public Criteria andProjectIdsLessThan(String value) {
+            addCriterion("project_ids <", value, "projectIds");
+            return (Criteria) this;
+        }
+
+        public Criteria andProjectIdsLessThanOrEqualTo(String value) {
+            addCriterion("project_ids <=", value, "projectIds");
+            return (Criteria) this;
+        }
+
+        public Criteria andProjectIdsLike(String value) {
+            addCriterion("project_ids like", value, "projectIds");
+            return (Criteria) this;
+        }
+
+        public Criteria andProjectIdsNotLike(String value) {
+            addCriterion("project_ids not like", value, "projectIds");
+            return (Criteria) this;
+        }
+
+        public Criteria andProjectIdsIn(List<String> values) {
+            addCriterion("project_ids in", values, "projectIds");
+            return (Criteria) this;
+        }
+
+        public Criteria andProjectIdsNotIn(List<String> values) {
+            addCriterion("project_ids not in", values, "projectIds");
+            return (Criteria) this;
+        }
+
+        public Criteria andProjectIdsBetween(String value1, String value2) {
+            addCriterion("project_ids between", value1, value2, "projectIds");
+            return (Criteria) this;
+        }
+
+        public Criteria andProjectIdsNotBetween(String value1, String value2) {
+            addCriterion("project_ids not between", value1, value2, "projectIds");
+            return (Criteria) this;
+        }
     }
 
     public static class Criteria extends GeneratedCriteria {

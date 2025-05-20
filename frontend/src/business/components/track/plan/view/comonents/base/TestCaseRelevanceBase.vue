@@ -1,5 +1,5 @@
 <template>
-  <relevance-dialog :width="width" :title="dialogTitle" ref="relevanceDialog">
+  <relevance-dialog :width="width" :title="dialogTitle" ref="relevanceDialog" :full-screen="isFullScreen">
     <!-- todo -->
     <template slot="headerBtn" v-if="$slots.headerBtn">
       <div>
@@ -7,7 +7,7 @@
       </div>
     </template>
     <template slot="title" slot-scope="{title}" v-if="!$slots.headerBtn">
-      <ms-dialog-header :title="title" :enable-cancel="false" @confirm="save" btn-size="mini">
+      <ms-dialog-header :title="title" :enable-cancel="false" @confirm="save" btn-size="mini" @fullScreen="isFullScreen=!isFullScreen">
         <template #other>
           <table-select-count-bar :count="selectCounts" style="float: left; margin: 5px;"/>
 
@@ -19,16 +19,16 @@
     </template>
 
     <template v-slot:aside>
-      <span v-if="isAcrossSpace" class="menu-title">{{'[' + $t('project.version.checkout') +  $t('commons.space') +']'}}</span>
+      <span v-if="isAcrossSpace" class="menu-title">{{ '[' + $t('project.version.checkout') + $t('commons.space') + ']' }}</span>
       <el-select v-if="isAcrossSpace" filterable slot="prepend" v-model="workspaceId" @change="changeWorkspace"
-                 style="width: 160px"
+                 class="ms-header-workspace"
                  size="small">
         <el-option v-for="(item,index) in workspaceList" :key="index" :label="item.name" :value="item.id"/>
       </el-select>
       <select-menu
         :data="projects"
         v-if="multipleProject"
-        width="160px"
+        width="155px"
         :current-data="currentProject"
         :title="$t('test_track.switch_project')"
         @dataChange="changeProject"/>
@@ -68,6 +68,7 @@ export default {
       workspaceList: [],
       currentWorkSpaceId: '',
       selectCounts: null,
+      isFullScreen: false
     };
   },
   props: {
@@ -115,7 +116,9 @@ export default {
     },
 
     open() {
+      this.workspaceId = getCurrentWorkspaceId();
       this.getProject();
+      this.selectCounts = null;
       this.$refs.relevanceDialog.open();
     },
 
@@ -138,14 +141,14 @@ export default {
             this.projectName = data[0].name;
             this.changeProject(data[0]);
           }
-        }else {
+        } else {
           this.$message.warning(this.$t('commons.current_workspace') + this.$t('commons.not_exist') + this.$t('commons.project') + "!");
         }
       })
     },
 
     changeProject(project) {
-      if(project){
+      if (project) {
         this.currentProject = project;
         this.$emit('setProject', project.id);
         // 获取项目时刷新该项目模块
@@ -154,7 +157,7 @@ export default {
     },
 
     getWorkSpaceList() {
-      this.$get("/workspace/list/userworkspace/" + encodeURIComponent(getCurrentUserId()), response => {
+      this.$get("/workspace/list/userworkspace", response => {
         this.workspaceList = response.data;
       });
     },
@@ -179,7 +182,9 @@ export default {
   margin-left: 10px;
   margin-right: 10px;
 }
-/*.el-checkbox__label {*/
-/*  float: right;*/
-/*}*/
+
+.ms-header-workspace {
+  width: 155px;
+  margin-bottom: 10px;
+}
 </style>

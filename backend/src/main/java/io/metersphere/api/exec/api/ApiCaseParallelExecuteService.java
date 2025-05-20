@@ -1,11 +1,10 @@
 package io.metersphere.api.exec.api;
 
 import io.metersphere.api.exec.queue.DBTestQueue;
-import io.metersphere.api.exec.scenario.ApiScenarioSerialService;
 import io.metersphere.api.exec.utils.GenerateHashTreeUtil;
 import io.metersphere.api.jmeter.JMeterService;
 import io.metersphere.api.jmeter.utils.SmoothWeighted;
-import io.metersphere.base.domain.ApiDefinitionExecResult;
+import io.metersphere.base.domain.ApiDefinitionExecResultWithBLOBs;
 import io.metersphere.commons.utils.CommonBeanFactory;
 import io.metersphere.constants.RunModeConstants;
 import io.metersphere.dto.BaseSystemConfigDTO;
@@ -26,13 +25,13 @@ import java.util.Map;
 @Service
 public class ApiCaseParallelExecuteService {
     @Resource
-    private ApiScenarioSerialService apiScenarioSerialService;
+    private ApiCaseSerialService apiCaseSerialService;
     @Resource
     private JMeterService jMeterService;
     @Resource
     private RedisTemplate<String, Object> redisTemplate;
 
-    public void parallel(Map<String, ApiDefinitionExecResult> executeQueue, RunModeConfigDTO config, DBTestQueue executionQueue, String runMode) {
+    public void parallel(Map<String, ApiDefinitionExecResultWithBLOBs> executeQueue, RunModeConfigDTO config, DBTestQueue executionQueue, String runMode) {
         BooleanPool pool = GenerateHashTreeUtil.isResourcePool(config.getResourcePoolId());
         // 初始化分配策略
         if (pool.isPool()) {
@@ -44,7 +43,7 @@ public class ApiCaseParallelExecuteService {
             if (Thread.currentThread().isInterrupted()) {
                 break;
             }
-            ApiDefinitionExecResult result = executeQueue.get(testId);
+            ApiDefinitionExecResultWithBLOBs result = executeQueue.get(testId);
             String reportId = result.getId();
             JmeterRunRequestDTO runRequest = new JmeterRunRequestDTO(testId, reportId, runMode, null);
             runRequest.setPool(pool);
@@ -53,6 +52,10 @@ public class ApiCaseParallelExecuteService {
             runRequest.setReportType(executionQueue.getReportType());
             runRequest.setRunType(RunModeConstants.PARALLEL.toString());
             runRequest.setQueueId(executionQueue.getId());
+
+            runRequest.setRetryNum(config.getRetryNum());
+            runRequest.setRetryEnable(config.isRetryEnable());
+
             Map<String, Object> extendedParameters = new HashMap<>();
             extendedParameters.put("userId", result.getUserId());
             runRequest.setExtendedParameters(extendedParameters);
@@ -60,9 +63,11 @@ public class ApiCaseParallelExecuteService {
                 runRequest.setPlatformUrl(GenerateHashTreeUtil.getPlatformUrl(baseInfo, runRequest, executionQueue.getDetailMap().get(result.getId())));
             }
             if (!pool.isPool()) {
-                HashTree hashTree = apiScenarioSerialService.generateHashTree(testId, config.getEnvMap(), runRequest);
+                HashTree hashTree = apiCaseSerialService.generateHashTree(testId, config.getEnvMap(), runRequest);
                 runRequest.setHashTree(hashTree);
             }
+            // 开始执行
+            runRequest.getExtendedParameters().put("projectId", executionQueue.getDetail().getProjectIds());
 
             LoggerUtil.info("进入并行模式，开始执行用例：[" + result.getName() + "] 报告ID [" + reportId + "]");
             jMeterService.run(runRequest);

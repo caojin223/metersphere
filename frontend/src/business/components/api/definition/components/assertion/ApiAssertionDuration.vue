@@ -2,8 +2,11 @@
   <div>
     <el-row :gutter="10" type="flex" justify="space-between" align="middle">
       <el-col>
-        <el-input :disabled="isReadOnly" :value="value" v-bind="$attrs" step="100" size="small" type="number" @change="change" @input="input" :min="0"
-                  :placeholder="$t('api_test.request.assertions.response_in_time')"/>
+        <el-input :disabled="isReadOnly" :value="value" v-bind="$attrs" step="100" size="small" type="number"
+                  @change="change" @input="input" :min="1"
+                  :placeholder="$t('api_test.request.assertions.response_in_time')"
+                  onKeypress="return (/[\d]/.test(String.fromCharCode(event.keyCode)))"
+        />
       </el-col>
       <el-col class="assertion-btn">
         <el-tooltip :content="$t('test_resource_pool.enable_disable')" placement="top" v-if="edit">
@@ -55,8 +58,8 @@ export default {
       this.$emit('input', value);
     },
     validate() {
-      if (this.value == '' || Number(this.value) <= 0) {
-        this.$error(this.$t('commons.formatErr'));
+      if (this.value === '' || Number(this.value) <= 0) {
+        this.$warning(this.$t('commons.response_time_warning'));
         return false;
       }
       return true;

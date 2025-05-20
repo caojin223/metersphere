@@ -4,10 +4,20 @@
       <div class="ms-opt-btn" v-if="versionEnable">
         {{ $t('project.version.name') }}: {{ versionName }}
       </div>
-      <el-input :placeholder="$t('commons.search_by_name')" class="search-input" size="small"
-                :clearable="true"
-                v-model="tableSearch"/>
-      <el-button type="primary" style="float: right;margin-right: 10px" icon="el-icon-plus" size="small"
+      Mock地址：
+      <el-link v-if="this.getUrlPrefix !== '' " :href="getUrlPrefix" style="color: black" target="_blank"
+               type="primary">
+        <span>{{ this.getUrlPrefix }}</span>
+      </el-link>
+      <el-link v-else style="color: darkred" target="_blank"
+               type="primary">当前项目未开启Mock服务
+      </el-link>
+      <el-input v-model="tableSearch" :clearable="true" :placeholder="$t('commons.search_by_name')"
+                class="search-input"
+                size="small"/>
+      <el-button v-permission="['PROJECT_API_DEFINITION:READ+EDIT_API']" icon="el-icon-plus" size="small"
+                 style="float: right;margin-right: 10px"
+                 type="primary"
                  @click="addApiMock">{{ $t('commons.add') }}
       </el-button>
 
@@ -81,7 +91,7 @@
 
 <script>
 
-import {getCurrentProjectID, hasLicense} from "@/common/js/utils";
+import {getCurrentProjectID, hasLicense, operationConfirm} from "@/common/js/utils";
 import MockEditDrawer from "@/business/components/api/definition/components/mock/MockEditDrawer";
 import MsTable from "@/business/components/common/components/table/MsTable";
 import MsTableColumn from "@/business/components/common/components/table/MsTableColumn";
@@ -95,11 +105,12 @@ export default {
   },
   props: {
     baseMockConfigData: {},
-    versionName:String,
+    versionName: String,
     isTcp: {
       type: Boolean,
       default: false,
     },
+    form: Object
   },
   data() {
     return {
@@ -133,22 +144,60 @@ export default {
         }
       ],
       versionEnable: false,
+      mockBaseUrl: "",
     };
   },
 
   watch: {
     baseMockConfigData() {
       this.mockConfigData = this.baseMockConfigData;
-    }
+    },
   },
   created() {
     this.mockConfigData = this.baseMockConfigData;
     this.checkVersionEnable();
+    this.initMockEnvironment();
   },
   computed: {
+    getUrlPrefix() {
+      if (this.form.path == null) {
+        return this.mockBaseUrl;
+      } else {
+        let path = this.form.path;
+        let protocol = this.form.method;
+        if (protocol === 'GET' || protocol === 'DELETE') {
+          if (this.form.request != null && this.form.request.rest != null) {
+            let pathUrlArr = path.split("/");
+            let newPath = "";
+            pathUrlArr.forEach(item => {
+              if (item !== "") {
+                let pathItem = item;
+                if (item.indexOf("{") === 0 && item.indexOf("}") === (item.length - 1)) {
+                  let paramItem = item.substr(1, item.length - 2);
+                  for (let i = 0; i < this.form.request.rest.length; i++) {
+                    let param = this.form.request.rest[i];
+                    if (param.name === paramItem) {
+                      pathItem = param.value;
+                    }
+                  }
+                }
+                newPath += "/" + pathItem;
+              }
+            });
+            if (newPath !== "") {
+              path = newPath;
+            }
+          }
+        }
+        return this.mockBaseUrl + path;
+      }
+    },
     projectId() {
       return getCurrentProjectID();
     },
+    urlWidth() {
+      return document.documentElement.clientWidth - 900 + 'px';
+    }
   },
   methods: {
     redirectToTest(row) {
@@ -327,11 +376,7 @@ export default {
       });
     },
     removeExpect(row) {
-      this.$confirm(this.$t('api_test.mock.delete_mock_expect'), this.$t('commons.prompt'), {
-        confirmButtonText: this.$t('commons.confirm'),
-        cancelButtonText: this.$t('commons.cancel'),
-        type: 'warning'
-      }).then(() => {
+      operationConfirm(this.$t('api_test.mock.delete_mock_expect'), () => {
         let mockInfoId = row.mockConfigId;
         let selectUrl = "/mockConfig/deleteMockExpectConfig/" + row.id;
         this.$get(selectUrl, response => {
@@ -341,7 +386,6 @@ export default {
             message: this.$t('commons.delete_success'),
           });
         });
-      }).catch(() => {
       });
     },
     refreshMockInfo(mockConfigId) {
@@ -360,7 +404,26 @@ export default {
           this.versionEnable = response.data;
         });
       }
-    }
+    },
+    initMockEnvironment() {
+      let protocol = document.location.protocol;
+      protocol = protocol.substring(0, protocol.indexOf(":"));
+      let url = "/api/definition/getMockEnvironment/";
+      this.$get(url + this.projectId, response => {
+        let mockEnvironment = response.data;
+        let httpConfig = JSON.parse(mockEnvironment.config);
+        if (httpConfig != null) {
+          httpConfig = httpConfig.httpConfig;
+          let httpType = httpConfig.defaultCondition;
+          let conditions = httpConfig.conditions;
+          conditions.forEach(condition => {
+            if (condition.type === httpType) {
+              this.mockBaseUrl = condition.protocol + "://" + condition.socket;
+            }
+          });
+        }
+      });
+    },
   }
 };
 </script>
@@ -377,4 +440,5 @@ export default {
   margin-right: 10px;
   margin-bottom: 10px;
 }
+
 </style>

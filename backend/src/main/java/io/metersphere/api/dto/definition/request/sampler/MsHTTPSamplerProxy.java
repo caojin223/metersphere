@@ -34,7 +34,6 @@ import io.metersphere.commons.utils.LogUtil;
 import io.metersphere.jmeter.utils.ScriptEngineUtils;
 import io.metersphere.plugin.core.MsParameter;
 import io.metersphere.plugin.core.MsTestElement;
-import io.metersphere.utils.LoggerUtil;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.apache.commons.collections.CollectionUtils;
@@ -141,7 +140,6 @@ public class MsHTTPSamplerProxy extends MsTestElement {
         if (this.getReferenced() != null && MsTestElementConstants.REF.name().equals(this.getReferenced())) {
             boolean ref = this.setRefElement();
             if (!ref) {
-                LoggerUtil.debug("引用对象已经被删除：" + this.getId());
                 return;
             }
             hashTree = this.getHashTree();
@@ -173,7 +171,7 @@ public class MsHTTPSamplerProxy extends MsTestElement {
                 this.setProjectId(config.getProjectId());
             }
             String projectId = this.getProjectId();
-            config.setConfig(ElementUtil.getEnvironmentConfig(this.useEnvironment, projectId, this.isMockEnvironment()));
+            config.setConfig(ElementUtil.getEnvironmentConfig(this.useEnvironment, projectId));
             this.setProjectId(projectId);
         }
 
@@ -188,14 +186,11 @@ public class MsHTTPSamplerProxy extends MsTestElement {
         setSamplerPath(config, httpConfig, sampler);
 
         // 请求体处理
-        if (this.body != null && !StringUtils.equalsAnyIgnoreCase(method, "GET")) {
+        if (this.body != null) {
             List<KeyValue> bodyParams = this.body.getBodyParams(sampler, this.getId());
             if (StringUtils.isNotEmpty(this.body.getType()) && "Form Data".equals(this.body.getType())) {
                 AtomicBoolean kvIsEmpty = new AtomicBoolean(true);
                 this.body.getKvs().forEach(files -> {
-                    if (StringUtils.isNotEmpty(files.getName()) && "file".equals(files.getType()) && CollectionUtils.isNotEmpty(files.getFiles())) {
-                        sampler.setDoBrowserCompatibleMultipart(true);
-                    }
                     if (StringUtils.isNotEmpty(files.getName())) {
                         kvIsEmpty.set(false);
                     }
@@ -213,27 +208,6 @@ public class MsHTTPSamplerProxy extends MsTestElement {
             }
         }
 
-        if (config.isOperating() && config.isEffective(this.getProjectId()) && config.getConfig().get(this.getProjectId()).getCommonConfig() != null
-                && config.getConfig().get(this.getProjectId()).getCommonConfig().isEnableHost()) {
-            //导出的需要将DNSCache去掉，并把域名进行ip替换
-            Map<String, String> dnsMap = MsDNSCacheManager.getEnvironmentDns(config.getConfig().get(this.getProjectId()), httpConfig);
-            String domain = sampler.getDomain();
-            if (dnsMap.containsKey(domain)) {
-                String address = dnsMap.get(domain);
-                if (address.contains(":")) {
-                    String[] addressArr = StringUtils.split(address, ":");
-                    if (addressArr.length == 2) {
-                        try {
-                            sampler.setDomain(addressArr[0]);
-                            sampler.setPort(Integer.parseInt(addressArr[1]));
-                        } catch (Exception ignored) {
-                        }
-                    }
-                } else {
-                    sampler.setDomain(dnsMap.get(domain));
-                }
-            }
-        }
         final HashTree httpSamplerTree = tree.add(sampler);
 
         // 注意顺序，放在config前面，会优先于环境的请求头生效
@@ -252,18 +226,20 @@ public class MsHTTPSamplerProxy extends MsTestElement {
             setHeader(httpSamplerTree, config.getHeaders());
         }
         // 环境通用请求头
-        Arguments arguments = getConfigArguments(config);
+        Arguments arguments = ElementUtil.getConfigArguments(config, this.getName(), this.getProjectId(), null);
         if (arguments != null) {
             httpSamplerTree.add(arguments);
         }
+        //添加csv
+        ElementUtil.addApiVariables(config, httpSamplerTree, this.getProjectId());
         //判断是否要开启DNS
-        if (!config.isOperating() && config.isEffective(this.getProjectId()) && config.getConfig().get(this.getProjectId()).getCommonConfig() != null
+        if (config.isEffective(this.getProjectId()) && config.getConfig().get(this.getProjectId()).getCommonConfig() != null
                 && config.getConfig().get(this.getProjectId()).getCommonConfig().isEnableHost()) {
             MsDNSCacheManager.addEnvironmentVariables(httpSamplerTree, this.getName(), config.getConfig().get(this.getProjectId()));
             MsDNSCacheManager.addEnvironmentDNS(httpSamplerTree, this.getName(), config.getConfig().get(this.getProjectId()), httpConfig);
         }
 
-        if (this.authManager != null && StringUtils.equals(this.authManager.getVerification(), "Basic Auth")) {
+        if (this.authManager != null && MsAuthManager.mechanismMap.containsKey(this.authManager.getVerification())) {
             this.authManager.setAuth(httpSamplerTree, this.authManager, sampler);
         }
 
@@ -379,6 +355,7 @@ public class MsHTTPSamplerProxy extends MsTestElement {
                             }
                         }
                     } catch (Exception e) {
+                        LogUtil.error(e.getMessage(), e);
                     }
                 }
                 if (StringUtils.isNotEmpty(useEvnId) && !StringUtils.equals(useEvnId, this.getEnvironmentId())) {
@@ -425,7 +402,7 @@ public class MsHTTPSamplerProxy extends MsTestElement {
 
                         if (urlObject.getPort() > 0 && urlObject.getPort() == 10990 && StringUtils.isNotEmpty(this.getPort()) && this.getPort().startsWith("${")) {
                             sampler.setProperty("HTTPSampler.port", this.getPort());
-                        } else {
+                        } else if (urlObject.getPort() != -1) {
                             sampler.setPort(urlObject.getPort());
                         }
                         sampler.setProtocol(urlObject.getProtocol());
@@ -477,12 +454,6 @@ public class MsHTTPSamplerProxy extends MsTestElement {
                         if (!path.startsWith("/")) {
                             path = "/" + path;
                         }
-                        String port = sampler.getPort() != 80 ? ":" + sampler.getPort() : "";
-                        if (StringUtils.equals("https", sampler.getProtocol()) && sampler.getPort() == 443) {
-                            // 解决https delete请求时，path路径带443端口，请求头的host会变成域名加443
-                            port = "";
-                        }
-                        path = sampler.getProtocol() + "://" + sampler.getDomain() + port + path;
                     }
                     sampler.setProperty("HTTPSampler.path", path);
                 }
@@ -501,7 +472,7 @@ public class MsHTTPSamplerProxy extends MsTestElement {
                 sampler.setDomain(URLDecoder.decode(urlObject.getHost(), "UTF-8"));
                 if (urlObject.getPort() > 0 && urlObject.getPort() == 10990 && StringUtils.isNotEmpty(this.getPort()) && this.getPort().startsWith("${")) {
                     sampler.setProperty("HTTPSampler.port", this.getPort());
-                } else {
+                } else if (urlObject.getPort() != -1) {
                     sampler.setPort(urlObject.getPort());
                 }
                 sampler.setProtocol(urlObject.getProtocol());
@@ -512,11 +483,7 @@ public class MsHTTPSamplerProxy extends MsTestElement {
                     sampler.setProperty("HTTPSampler.path", envPath);
                 }
                 if (CollectionUtils.isNotEmpty(this.getArguments())) {
-                    if (StringUtils.equalsIgnoreCase(this.getMethod(), "GET")) {
-                        getQueryParameters(sampler);
-                    } else {
-                        sampler.setProperty("HTTPSampler.path", postQueryParameters(URLDecoder.decode(URLEncoder.encode(envPath, "UTF-8"), "UTF-8")));
-                    }
+                    sampler.setProperty("HTTPSampler.path", postQueryParameters(URLDecoder.decode(URLEncoder.encode(envPath, "UTF-8"), "UTF-8")));
                 }
             }
         } catch (Exception e) {
@@ -694,28 +661,28 @@ public class MsHTTPSamplerProxy extends MsTestElement {
         list.stream().
                 filter(KeyValue::isValid).
                 filter(KeyValue::isEnable).forEach(keyValue -> {
-                            try {
-                                String value = StringUtils.isNotEmpty(keyValue.getValue()) && keyValue.getValue().startsWith("@") ? ScriptEngineUtils.buildFunctionCallString(keyValue.getValue()) : keyValue.getValue();
-                                HTTPArgument httpArgument = new HTTPArgument(keyValue.getName(), value);
-                                if (keyValue.getValue() == null) {
-                                    httpArgument.setValue("");
-                                }
-                                httpArgument.setAlwaysEncoded(keyValue.isUrlEncode());
-                                if (StringUtils.isNotBlank(keyValue.getContentType())) {
-                                    httpArgument.setContentType(keyValue.getContentType());
-                                }
-                                if (StringUtils.equalsIgnoreCase(this.method, "get")) {
-                                    if (StringUtils.isNotEmpty(httpArgument.getValue())) {
-                                        arguments.addArgument(httpArgument);
-                                    }
-                                } else {
-                                    arguments.addArgument(httpArgument);
-                                }
-                            } catch (Exception e) {
-
-                            }
+                    try {
+                        String value = StringUtils.isNotEmpty(keyValue.getValue()) && keyValue.getValue().startsWith("@") ? ScriptEngineUtils.buildFunctionCallString(keyValue.getValue()) : keyValue.getValue();
+                        HTTPArgument httpArgument = new HTTPArgument(keyValue.getName(), value);
+                        if (keyValue.getValue() == null) {
+                            httpArgument.setValue("");
                         }
-                );
+                        httpArgument.setAlwaysEncoded(keyValue.isUrlEncode());
+                        if (StringUtils.isNotBlank(keyValue.getContentType())) {
+                            httpArgument.setContentType(keyValue.getContentType());
+                        }
+                        if (StringUtils.equalsIgnoreCase(this.method, "get")) {
+                            if (StringUtils.isNotEmpty(httpArgument.getValue())) {
+                                arguments.addArgument(httpArgument);
+                            }
+                        } else {
+                            arguments.addArgument(httpArgument);
+                        }
+                    } catch (Exception e) {
+                        LogUtil.error(e.getMessage(), e);
+                    }
+                }
+        );
         return arguments;
     }
 
@@ -756,30 +723,6 @@ public class MsHTTPSamplerProxy extends MsTestElement {
         if (headerManager.getHeaders().size() > 0 && isAdd) {
             tree.add(headerManager);
         }
-    }
-
-    /**
-     * 环境通用变量，这里只适用用接口定义和用例，场景自动化会加到场景中
-     */
-    private Arguments getConfigArguments(ParameterConfig config) {
-        Arguments arguments = new Arguments();
-        arguments.setEnabled(true);
-        arguments.setName(StringUtils.isNotEmpty(this.getName()) ? this.getName() : "Arguments");
-        arguments.setProperty(TestElement.TEST_CLASS, Arguments.class.getName());
-        arguments.setProperty(TestElement.GUI_CLASS, SaveService.aliasToClass("ArgumentsPanel"));
-        // 环境通用变量
-        if (config.isEffective(this.getProjectId()) && config.getConfig().get(this.getProjectId()).getCommonConfig() != null
-                && CollectionUtils.isNotEmpty(config.getConfig().get(this.getProjectId()).getCommonConfig().getVariables())) {
-            config.getConfig().get(this.getProjectId()).getCommonConfig().getVariables().stream().filter(KeyValue::isValid).filter(KeyValue::isEnable).forEach(keyValue ->
-                    arguments.addArgument(keyValue.getName(), keyValue.getValue(), "=")
-            );
-            // 清空变量，防止重复添加
-            config.getConfig().get(this.getProjectId()).getCommonConfig().getVariables().clear();
-        }
-        if (arguments.getArguments() != null && arguments.getArguments().size() > 0) {
-            return arguments;
-        }
-        return null;
     }
 
     private void addArguments(HashTree tree, String key, String value) {

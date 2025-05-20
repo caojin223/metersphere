@@ -20,8 +20,6 @@
         @save="save"
       />
       <is-change-confirm
-        :title="'请保存脑图'"
-        :tip="'脑图未保存，确认保存脑图吗？'"
         @confirm="changeConfirm"
         ref="isChangeConfirm"/>
     </div>
@@ -33,6 +31,7 @@
 
 import MsFullScreenButton from "@/business/components/common/components/MsFullScreenButton";
 import IsChangeConfirm from "@/business/components/common/components/IsChangeConfirm";
+import {minderPageInfoMap} from "@/network/testCase";
 export default {
   name: "MsModuleMinder",
   components: {IsChangeConfirm, MsFullScreenButton},
@@ -114,6 +113,9 @@ export default {
   created() {
     this.height = document.body.clientHeight - 285;
   },
+  destroyed() {
+    minderPageInfoMap.clear();
+  },
   mounted() {
     this.defaultMode = 3;
     if (this.minderKey) {
@@ -122,15 +124,18 @@ export default {
         this.defaultMode = Number.parseInt(model);
       }
     }
-    this.$nextTick(() => {
-      if (this.selectNode && this.selectNode.data) {
-        this.handleNodeSelect(this.selectNode);
-      } else {
-        this.parse(this.importJson.root, this.treeNodes);
-      }
-    });
+    this.initData();
   },
   methods: {
+    initData() {
+      this.$nextTick(() => {
+        if (this.selectNode && this.selectNode.data) {
+          this.handleNodeSelect(this.selectNode);
+        } else {
+          this.parse(this.importJson.root, this.treeNodes);
+        }
+      });
+    },
     getNoCaseModuleIds(ids, nodes) {
       if (nodes) {
         nodes.forEach(node => {
@@ -278,6 +283,7 @@ export default {
           data: {
             text: nodeData.name,
             id: nodeData.id,
+            caseNum: nodeData.caseNum,
             disable: this.moduleDisable || nodeData.id === 'root',
             tagEnable: this.tagEnable,
             type: 'node',

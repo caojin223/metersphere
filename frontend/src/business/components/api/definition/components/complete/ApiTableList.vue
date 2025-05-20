@@ -3,14 +3,15 @@
     <slot name="header"></slot>
     <ms-search
       :condition.sync="condition"
-      @search="initTable">
+      @search="search">
     </ms-search>
 
     <ms-table :data="tableData" :select-node-ids="selectNodeIds" :condition="condition" :page-size="pageSize"
               :total="total" enableSelection @selectCountChange="selectCountChange"
               :screenHeight="screenHeight"
               operator-width="170px"
-              @refresh="initTable"
+              @order="initTable"
+              @filter="search"
               ref="apitable">
       <ms-table-column
         prop="num"
@@ -125,7 +126,7 @@ import PriorityTableItem from "../../../../track/common/tableItems/planview/Prio
 import MsEnvironmentSelect from "../../../definition/components/case/MsEnvironmentSelect";
 import MsTableAdvSearchBar from "@/business/components/common/components/search/MsTableAdvSearchBar";
 import {getProtocolFilter} from "@/business/components/api/definition/api-definition";
-import {getProjectMember} from "@/network/user";
+import {getProjectMemberById} from "@/network/user";
 import TableSelectCountBar from "@/business/components/api/automation/scenario/api/TableSelectCountBar";
 import {hasLicense} from "@/common/js/utils";
 import MsSearch from "@/business/components/common/components/search/MsSearch";
@@ -186,9 +187,7 @@ export default {
     }
   },
   created: function () {
-    getProjectMember((data) => {
-      this.userFilters = data;
-    });
+    this.getUserFilter();
     this.getProtocolFilter();
     this.checkVersionEnable();
   },
@@ -198,6 +197,7 @@ export default {
     },
     projectId() {
       this.checkVersionEnable();
+      this.getUserFilter();
     }
   },
   mounted() {
@@ -236,6 +236,11 @@ export default {
     getSelectIds() {
       return this.$refs.apitable.selectIds;
     },
+    search() {
+      // 添加搜索条件时，当前页设置成第一页
+      this.currentPage = 1;
+      this.initTable();
+    },
     initTable() {
       this.$emit('refreshTable');
     },
@@ -253,6 +258,13 @@ export default {
           this.versionEnable = response.data;
         });
       }
+    },
+    getUserFilter() {
+      getProjectMemberById(this.projectId, (data) => {
+        this.userFilters = data.map(u => {
+          return {text: u.name, value: u.id};
+        });
+      });
     }
   },
 };

@@ -3,40 +3,40 @@
     <ms-drawer :size="60" @close="apiCaseClose" direction="bottom" ref="testCaseDrawer">
       <template v-slot:header>
         <api-case-header
-            :api="api"
-            @setEnvironment="setEnvironment"
-            @addCase="addCase"
-            @saveCase="saveCase"
-            :condition="condition"
-            :priorities="priorities"
-            :project-id="projectId"
-            :useEnvironment="environment"
-            :is-case-edit="isCaseEdit"
-            :button-text="saveButtonText"
-            ref="header"/>
+          :api="api"
+          @setEnvironment="setEnvironment"
+          @addCase="addCase"
+          @saveCase="saveCase"
+          :condition="condition"
+          :priorities="priorities"
+          :project-id="projectId"
+          :useEnvironment="environment"
+          :is-case-edit="isCaseEdit"
+          :button-text="saveButtonText"
+          ref="header" v-if="refreshHeader"/>
       </template>
 
       <el-container v-if="!result.loading">
         <el-main>
           <div v-for="item in apiCaseList" :key="item.id ? item.id : item.uuid">
             <api-case-item
-                :loading="singleLoading && singleRunId ===item.id || batchLoadingIds.indexOf(item.id) > -1"
-                @refresh="refresh"
-                @singleRun="singleRun"
-                @stop="stop"
-                @refreshModule="refreshModule"
-                @copyCase="copyCase"
-                @showExecResult="showExecResult"
-                @showHistory="showHistory"
-                @reLoadCase="reLoadCase"
-                :environment="environment"
-                @setSelectedCaseId="setSelectedCaseId"
-                :is-case-edit="isCaseEdit"
-                :api="api"
-                :currentApi="currentApi"
-                :loaded="loaded"
-                :maintainerOptions="maintainerOptions"
-                :api-case="item" ref="apiCaseItem"/>
+              :loading="singleLoading && singleRunId ===item.id || batchLoadingIds.indexOf(item.id) > -1"
+              @refresh="refresh"
+              @singleRun="singleRun"
+              @stop="stop"
+              @refreshModule="refreshModule"
+              @copyCase="copyCase"
+              @showExecResult="showExecResult"
+              @showHistory="showHistory"
+              @reLoadCase="reLoadCase"
+              :environment="environment"
+              @setSelectedCaseId="setSelectedCaseId"
+              :is-case-edit="isCaseEdit"
+              :api="api"
+              :currentApi="currentApi"
+              :loaded="loaded"
+              :maintainerOptions="maintainerOptions"
+              :api-case="item" ref="apiCaseItem"/>
           </div>
         </el-main>
       </el-container>
@@ -62,6 +62,7 @@ import MsDrawer from "../../../../common/components/MsDrawer";
 import {CASE_ORDER} from "../../model/JsonData";
 import {API_CASE_CONFIGS} from "@/business/components/common/components/search/search-components";
 import {parseEnvironment} from "@/business/components/api/definition/model/EnvironmentModel";
+import {Body} from "@/business/components/api/definition/model/ApiTestModel";
 
 export default {
   name: 'ApiCaseList',
@@ -103,7 +104,8 @@ export default {
       api: {},
       envMap: new Map,
       maintainerOptions: [],
-      environments: []
+      environments: [],
+      refreshHeader: true
     };
   },
   watch: {
@@ -139,7 +141,7 @@ export default {
   },
   methods: {
     getMaintainerOptions() {
-      this.$post('/user/project/member/tester/list', {projectId: getCurrentProjectID()}, response => {
+      this.$get('/user/project/member/list', response => {
         this.maintainerOptions = response.data;
       });
     },
@@ -159,7 +161,9 @@ export default {
 
       //默认最大化
       this.$nextTick(() => {
-        this.$refs.testCaseDrawer.setfullScreen();
+        if (this.$refs.testCaseDrawer) {
+          this.$refs.testCaseDrawer.setfullScreen();
+        }
       });
     },
     add(api) {
@@ -198,6 +202,10 @@ export default {
     },
     runTestCase(api, testCaseId) {
       if (api && testCaseId) {
+        this.refreshHeader = false;
+        this.$nextTick(() => {
+          this.refreshHeader = true;
+        });
         this.api = api;
         this.testCaseId = testCaseId;
         this.condition = {components: API_CASE_CONFIGS};
@@ -219,8 +227,10 @@ export default {
           }
         }
       }
-      let item = this.apiCaseList[index];
-      this.$refs.apiCaseItem[index].saveTestCase(item, hideAlert);
+      if (this.apiCaseList && this.apiCaseList.length !== 0) {
+        let item = this.apiCaseList[index];
+        this.$refs.apiCaseItem[index].saveTestCase(item, hideAlert);
+      }
     },
     saveApiAndCase(api) {
       if (api && api.url) {
@@ -320,12 +330,12 @@ export default {
         this.$get('/api/environment/list/' + this.projectId, response => {
           this.environments = response.data;
           // 获取原数据源名称
-          if(env === obj.originalEnvironmentId && obj.originalDataSourceId){
+          if (env === obj.originalEnvironmentId && obj.originalDataSourceId) {
             obj.dataSourceId = obj.originalDataSourceId;
             obj.environmentId = env;
             this.getTargetSourceName(this.environments, obj);
           }
-          if(!obj.targetDataSourceName){
+          if (!obj.targetDataSourceName) {
             this.getTargetSourceName(this.environments, obj);
           }
 
@@ -339,12 +349,12 @@ export default {
         });
       } else {
         // 获取原数据源名称
-        if(env === obj.originalEnvironmentId && obj.originalDataSourceId){
+        if (env === obj.originalEnvironmentId && obj.originalDataSourceId) {
           obj.dataSourceId = obj.originalDataSourceId;
           obj.environmentId = env;
           this.getTargetSourceName(this.environments, obj);
         }
-        if(!obj.targetDataSourceName){
+        if (!obj.targetDataSourceName) {
           this.getTargetSourceName(this.environments, obj);
         }
         // 设置新环境
@@ -413,6 +423,30 @@ export default {
       }
       if (Object.prototype.toString.call(apiCase.request).match(/\[object (\w+)\]/)[1].toLowerCase() !== 'object') {
         apiCase.request = JSON.parse(apiCase.request);
+        if (apiCase.request.protocol === 'HTTP') {
+          if (!apiCase.request.body) {
+            apiCase.request.body = new Body();
+          }
+          if (!apiCase.request.headers) {
+            apiCase.request.headers = [];
+          }
+          if (!apiCase.request.rest) {
+            apiCase.request.rest = [];
+          }
+          if (!apiCase.request.arguments) {
+            apiCase.request.arguments = [
+              {
+                contentType: "text/plain",
+                enable: true,
+                file: false,
+                required: false,
+                type: "text",
+                urlEncode: false,
+                valid: false
+              }
+            ];
+          }
+        }
       }
       if (!apiCase.request.hashTree) {
         apiCase.request.hashTree = [];
@@ -459,11 +493,14 @@ export default {
         this.condition.apiDefinitionId = this.api.id;
         this.result = this.$post("/api/testcase/list", this.condition, response => {
           let data = response.data;
-          if (data) {
+          if (data && data.length > 0) {
             data.forEach(apiCase => {
               this.formatCase(apiCase);
             });
             this.apiCaseList = data;
+          } else {
+            this.$warning(this.$t('commons.please_add_api_case'));
+            return;
           }
         });
       }
@@ -524,7 +561,8 @@ export default {
       this.$emit('showExecResult', row);
     },
     singleRun(row) {
-      if (row.apiMethod !== "SQL" && row.apiMethod !== "DUBBO" && row.apiMethod !== "dubbo://" && row.apiMethod !== "TCP" && !this.environment) {
+      let methods = ["SQL", "DUBBO", "dubbo://", "TCP"];
+      if (row.apiMethod && methods.indexOf(row.apiMethod) === -1 && !this.environment) {
         this.$warning(this.$t('api_test.environment.select_environment'));
         return;
       }
@@ -532,11 +570,12 @@ export default {
       this.singleLoading = true;
       this.singleRunId = row.id;
       row.request.name = row.id;
-      if (row.apiMethod !== "SQL" && row.apiMethod !== "DUBBO" && row.apiMethod !== "dubbo://" && row.apiMethod !== "TCP") {
+      if (row.apiMethod !== "SQL" && row.apiMethod !== "DUBBO" && row.apiMethod !== "dubbo://") {
         row.request.useEnvironment = this.environment;
       } else {
         row.request.useEnvironment = row.request.environmentId;
       }
+
       row.request.projectId = this.projectId;
       row.request.id = row.id;
       this.runData.push(row.request);

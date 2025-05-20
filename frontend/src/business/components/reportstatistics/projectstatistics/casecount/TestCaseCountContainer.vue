@@ -125,14 +125,16 @@ export default {
           this.pieOption.width = pieData.width;
           this.chartWidth = pieData.width;
         }
-        this.pieOption.series.forEach(item => {
-          item.type = this.$refs.analysisChart.chartType;
-        });
+        if (this.pieOption.series) {
+          this.pieOption.series.forEach(item => {
+            item.type = this.$refs.analysisChart.chartType;
+          });
+        }
       }
       if (selectTableData) {
         this.tableData = selectTableData;
       }
-      this.$refs.analysisChart.setPieOptionAndBarOption(this.loadOption,this.pieOption);
+      this.$refs.analysisChart.setPieOptionAndBarOption(this.loadOption, this.pieOption);
       this.loading = false;
       this.$refs.analysisChart.generateOption(this.chartType);
     },
@@ -142,6 +144,24 @@ export default {
     orderCharts(order) {
       this.options.order = order;
       this.filterCharts(this.options);
+    },
+    updateReport(reportId) {
+      let obj = {};
+      obj.id = reportId;
+      obj.projectId = getCurrentProjectID();
+      obj.selectOption = JSON.stringify(this.options);
+      let dataOptionObj = {
+        loadOption: this.loadOption,
+        pieOption: this.pieOption,
+        tableData: this.tableData,
+        chartType: this.chartType,
+      };
+      obj.dataOption = JSON.stringify(dataOptionObj);
+      obj.reportType = 'TEST_CASE_COUNT';
+      this.$post("/history/report/update", obj, response => {
+        this.$alert(this.$t('commons.save_success'));
+        this.$refs.historyReport.initReportData();
+      });
     },
     saveReport(reportName) {
       let obj = {};
@@ -162,6 +182,7 @@ export default {
       });
     },
     selectReport(selectId) {
+      let selectName = "";
       if (selectId) {
         this.loading = true;
         let paramObj = {
@@ -170,6 +191,7 @@ export default {
         this.$post('/history/report/selectById', paramObj, response => {
           let reportData = response.data;
           if (reportData) {
+            selectName = reportData.name;
             if (reportData.dataOption) {
               let dataOptionObj = JSON.parse(reportData.dataOption);
               if (dataOptionObj.chartType) {
@@ -185,14 +207,15 @@ export default {
             }
             this.loading = false;
           }
+          this.$emit('initHistoryReportId', selectId, selectName);
         }, (error) => {
           this.loading = false;
+          this.removeHistoryReportId();
         });
-        this.$emit('initHistoryReportId', selectId);
       }
     },
     removeHistoryReportId() {
-      this.$emit('initHistoryReportId', "");
+      this.$emit('initHistoryReportId', "", "");
     },
     getGroupNameStr(groupName) {
       if (groupName === 'creator') {

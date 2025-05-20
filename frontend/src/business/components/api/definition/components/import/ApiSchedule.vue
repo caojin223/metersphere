@@ -21,19 +21,21 @@
                            :defaultKey="formData.moduleId"
                            @getValue="setModule"
                            :obj="moduleObj" clearable checkStrictly ref="selectTree"/>
-              <!--              <ms-select-tree :disabled="readOnly" :data="treeNodes" :defaultKey="form.module" :obj="moduleObj"-->
-              <!--                              @getValue="setModule" clearable checkStrictly size="small"/>-->
+
             </el-form-item>
             <el-form-item :label-width="labelWith" :label="$t('commons.import_mode')" prop="modeId">
               <el-select size="small" v-model="formData.modeId" clearable>
                 <el-option v-for="item in modeOptions" :key="item.id" :label="item.name" :value="item.id"/>
               </el-select>
+              <el-checkbox size="mini" v-if="formData.modeId === 'fullCoverage'" v-model="formData.coverModule"
+                           style="padding-left: 10px">
+                {{ this.$t('commons.cover_api') }}
+              </el-checkbox>
             </el-form-item>
           </el-col>
 
           <el-col :span="12" style="margin-left: 50px">
-            <el-switch v-model="authEnable" :active-text="$t('api_test.api_import.add_request_params')"
-                       @change="changeAuthEnable"></el-switch>
+            <el-switch v-model="authEnable" :active-text="$t('api_test.api_import.add_request_params')"></el-switch>
           </el-col>
 
           <el-col :span="19" v-show="authEnable" style="margin-top: 10px; margin-left: 50px" class="request-tabs">
@@ -131,7 +133,7 @@ import MsApiVariable from "../ApiVariable";
 import MsApiAuthConfig from "../auth/ApiAuthConfig";
 import {REQUEST_HEADERS} from "@/common/js/constants";
 import {KeyValue} from "../../model/ApiTestModel";
-import {ELEMENT_TYPE, TYPE_TO_C} from "@/business/components/api/automation/scenario/Setting";
+import {TYPE_TO_C} from "@/business/components/api/automation/scenario/Setting";
 
 export default {
   name: "ApiSchedule",
@@ -175,10 +177,9 @@ export default {
         callback(new Error(this.$t('schedule.cron_expression_format_error')));
       } else if (!customValidate.pass) {
         callback(new Error(customValidate.info));
-      }else if(!this.intervalValidate()){
+      } else if (!this.intervalValidate()) {
         callback(new Error(this.$t('schedule.cron_expression_interval_error')));
-      }
-      else {
+      } else {
         callback();
       }
     };
@@ -204,9 +205,10 @@ export default {
       },
       formData: {
         swaggerUrl: '',
-        modeId: this.$t('commons.not_cover'),
+        modeId: 'incrementalMerge',
         moduleId: '',
-        rule: ''
+        rule: '',
+        coverModule: false
       },
       modeOptions: [
         {
@@ -251,17 +253,12 @@ export default {
     },
 
     initUserList() {
-      this.result = this.$post('/user/project/member/list', {projectId: getCurrentProjectID()},response => {
+      this.result = this.$get('/user/project/member/list', response => {
         this.scheduleReceiverOptions = response.data;
       });
     },
     currentUser: () => {
       return getCurrentUser();
-    },
-    changeAuthEnable() {
-      if (!this.authEnable) {
-        this.clearAuthInfo();
-      }
     },
     clear() {
       this.formData.id = null;
@@ -334,6 +331,9 @@ export default {
         this.$refs.taskList.search();
         this.clear();
       });
+    },
+    searchTaskList() {
+      this.$refs.taskList.search();
     },
     intervalValidate() {
       if (this.getIntervalTime() < 1 * 60 * 1000) {

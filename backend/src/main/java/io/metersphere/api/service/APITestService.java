@@ -5,6 +5,9 @@ import io.github.ningyu.jmeter.plugin.dubbo.sample.ProviderService;
 import io.metersphere.api.dto.*;
 import io.metersphere.api.dto.definition.RunDefinitionRequest;
 import io.metersphere.api.dto.definition.request.ParameterConfig;
+import io.metersphere.api.dto.definition.request.sampler.MsHTTPSamplerProxy;
+import io.metersphere.api.dto.definition.request.sampler.MsJDBCSampler;
+import io.metersphere.api.dto.definition.request.sampler.MsTCPSampler;
 import io.metersphere.api.dto.parse.ApiImport;
 import io.metersphere.api.dto.scenario.environment.EnvironmentConfig;
 import io.metersphere.api.dto.scenario.request.dubbo.RegistryCenter;
@@ -30,8 +33,9 @@ import io.metersphere.controller.request.ScheduleRequest;
 import io.metersphere.dto.ScheduleDao;
 import io.metersphere.i18n.Translator;
 import io.metersphere.job.sechedule.ApiTestJob;
+import io.metersphere.metadata.service.FileMetadataService;
 import io.metersphere.performance.parse.EngineSourceParserFactory;
-import io.metersphere.service.FileService;
+import io.metersphere.plugin.core.MsTestElement;
 import io.metersphere.service.ScheduleService;
 import io.metersphere.track.service.TestCaseService;
 import org.apache.commons.collections.CollectionUtils;
@@ -41,7 +45,6 @@ import org.apache.dubbo.common.constants.CommonConstants;
 import org.apache.jorphan.collections.HashTree;
 import org.aspectj.util.FileUtil;
 import org.dom4j.Document;
-import org.dom4j.DocumentHelper;
 import org.dom4j.Element;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -64,7 +67,7 @@ public class APITestService {
     @Resource
     private ApiTestFileMapper apiTestFileMapper;
     @Resource
-    private FileService fileService;
+    private FileMetadataService fileMetadataService;
     @Resource
     private JMeterService jMeterService;
     @Resource
@@ -142,31 +145,6 @@ public class APITestService {
     }
 
     public void copy(SaveAPITestRequest request) {
-
-        ApiTestExample example = new ApiTestExample();
-        example.createCriteria().andNameEqualTo(request.getName()).andProjectIdEqualTo(request.getProjectId());
-        if (apiTestMapper.countByExample(example) > 0) {
-            MSException.throwException(Translator.get("load_test_already_exists"));
-        }
-
-        // copy test
-        ApiTest copy = get(request.getId());
-        copy.setId(UUID.randomUUID().toString());
-        copy.setName(request.getName());
-        copy.setCreateTime(System.currentTimeMillis());
-        copy.setUpdateTime(System.currentTimeMillis());
-        copy.setStatus(APITestStatus.Saved.name());
-        copy.setUserId(Objects.requireNonNull(SessionUtils.getUser()).getId());
-        apiTestMapper.insert(copy);
-        // copy test file
-        ApiTestFile apiTestFile = getFileByTestId(request.getId());
-        if (apiTestFile != null) {
-            FileMetadata fileMetadata = fileService.copyFile(apiTestFile.getFileId());
-            apiTestFile.setTestId(copy.getId());
-            apiTestFile.setFileId(fileMetadata.getId());
-            apiTestFileMapper.insert(apiTestFile);
-        }
-        copyBodyFiles(copy.getId(), request.getId());
     }
 
     public void copyBodyFiles(String target, String source) {
@@ -225,7 +203,7 @@ public class APITestService {
         if (file == null) {
             MSException.throwException(Translator.get("file_cannot_be_null"));
         }
-        byte[] bytes = fileService.loadFileAsBytes(file.getFileId());
+        byte[] bytes = new byte[0];
         // 解析 xml 处理 mock 数据
         bytes = JmeterDocumentParser.parse(bytes);
         InputStream is = new ByteArrayInputStream(bytes);
@@ -290,7 +268,7 @@ public class APITestService {
     }
 
     private void saveFile(ApiTest apiTest, MultipartFile file) {
-        final FileMetadata fileMetadata = fileService.saveFile(file, apiTest.getProjectId());
+        final FileMetadata fileMetadata = fileMetadataService.saveFile(file, apiTest.getProjectId());
         ApiTestFile apiTestFile = new ApiTestFile();
         apiTestFile.setTestId(apiTest.getId());
         apiTestFile.setFileId(fileMetadata.getId());
@@ -305,7 +283,7 @@ public class APITestService {
 
         if (!CollectionUtils.isEmpty(ApiTestFiles)) {
             final List<String> fileIds = ApiTestFiles.stream().map(ApiTestFile::getFileId).collect(Collectors.toList());
-            fileService.deleteFileByIds(fileIds);
+            fileMetadataService.deleteBatch(fileIds);
         }
     }
 
@@ -388,9 +366,14 @@ public class APITestService {
             provider.setService(p);
             provider.setServiceInterface(info[0]);
             Map<String, URL> services = providerService.findByService(p);
-            if (services != null && !services.isEmpty()) {
-                String[] methods = services.values().stream().findFirst().get().getParameter(CommonConstants.METHODS_KEY).split(",");
-                provider.setMethods(Arrays.asList(methods));
+            if (services != null && !services.isEmpty() && !CollectionUtils.isEmpty(services.values())) {
+                String parameter = services.values().stream().findFirst().get().getParameter(CommonConstants.METHODS_KEY);
+                if (StringUtils.isNotBlank(parameter)) {
+                    String[] methods = parameter.split(",");
+                    provider.setMethods(Arrays.asList(methods));
+                } else {
+                    provider.setMethods(new ArrayList<>());
+                }
             } else {
                 provider.setMethods(new ArrayList<>());
             }
@@ -460,51 +443,55 @@ public class APITestService {
      * @return
      * @author song tianyang
      */
-    public JmxInfoDTO updateJmxString(String jmx, String projectId) {
+    public JmxInfoDTO updateJmxString(String jmx, String projectId, boolean saveFile) {
         jmx = this.updateJmxMessage(jmx);
 
-        //获取要转化的文件
-        List<String> attachmentFilePathList = new ArrayList<>();
-        try {
-            Document doc = EngineSourceParserFactory.getDocument(new ByteArrayInputStream(jmx.getBytes("utf-8")));
-            Element root = doc.getRootElement();
-            Element rootHashTreeElement = root.element("hashTree");
-            List<Element> innerHashTreeElementList = rootHashTreeElement.elements("hashTree");
-            for (Element innerHashTreeElement : innerHashTreeElementList) {
-                List<Element> thirdHashTreeElementList = innerHashTreeElement.elements();
-                for (Element element : thirdHashTreeElementList) {
-                    //HTTPSamplerProxy， 进行附件转化： 1.elementProp里去掉路径； 2。elementProp->filePath获取路径并读出来
-                    attachmentFilePathList.addAll(this.parseAttachmentFileInfo(element));
-                }
-                //如果存在证书文件，也要匹配出来
-                attachmentFilePathList.addAll(this.parseAttachmentFileInfo(rootHashTreeElement));
-            }
-        } catch (Exception e) {
-            LogUtil.error(e);
-        }
-        if (!jmx.startsWith("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")) {
-            jmx = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" + jmx;
-        }
         //处理附件
         Map<String, String> attachmentFiles = new HashMap<>();
-        //去重处理
-        if (!CollectionUtils.isEmpty(attachmentFilePathList)) {
-            attachmentFilePathList = attachmentFilePathList.stream().distinct().collect(Collectors.toList());
-        }
         List<FileMetadata> fileMetadataList = new ArrayList<>();
-        for (String filePath : attachmentFilePathList) {
-            File file = new File(filePath);
-            if (file.exists() && file.isFile()) {
-                try {
-                    FileMetadata fileMetadata = fileService.insertFileByFileName(file, FileUtil.readAsByteArray(file), projectId);
-                    if (fileMetadata != null) {
-                        fileMetadataList.add(fileMetadata);
-                        attachmentFiles.put(fileMetadata.getId(), fileMetadata.getName());
+        if (saveFile) {
+            //获取要转化的文件
+            List<String> attachmentFilePathList = new ArrayList<>();
+            try {
+                Document doc = EngineSourceParserFactory.getDocument(new ByteArrayInputStream(jmx.getBytes("utf-8")));
+                Element root = doc.getRootElement();
+                Element rootHashTreeElement = root.element("hashTree");
+                List<Element> innerHashTreeElementList = rootHashTreeElement.elements("hashTree");
+                for (Element innerHashTreeElement : innerHashTreeElementList) {
+                    List<Element> thirdHashTreeElementList = innerHashTreeElement.elements();
+                    for (Element element : thirdHashTreeElementList) {
+                        //HTTPSamplerProxy， 进行附件转化： 1.elementProp里去掉路径； 2。elementProp->filePath获取路径并读出来
+                        attachmentFilePathList.addAll(this.parseAttachmentFileInfo(element));
                     }
-                } catch (Exception e) {
-                    LogUtil.error(e);
+                    //如果存在证书文件，也要匹配出来
+                    attachmentFilePathList.addAll(this.parseAttachmentFileInfo(rootHashTreeElement));
+                }
+            } catch (Exception e) {
+                LogUtil.error(e);
+            }
+
+            //去重处理
+            if (!CollectionUtils.isEmpty(attachmentFilePathList)) {
+                attachmentFilePathList = attachmentFilePathList.stream().distinct().collect(Collectors.toList());
+            }
+            for (String filePath : attachmentFilePathList) {
+                File file = new File(filePath);
+                if (file.exists() && file.isFile()) {
+                    try {
+                        FileMetadata fileMetadata = fileMetadataService.saveFile(FileUtil.readAsByteArray(file), file.getName(), file.length());
+                        if (fileMetadata != null) {
+                            fileMetadataList.add(fileMetadata);
+                            attachmentFiles.put(fileMetadata.getId(), fileMetadata.getName());
+                        }
+                    } catch (Exception e) {
+                        LogUtil.error(e);
+                    }
                 }
             }
+        }
+
+        if (!jmx.startsWith("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")) {
+            jmx = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" + jmx;
         }
 
         JmxInfoDTO returnDTO = new JmxInfoDTO("Demo.jmx", jmx, attachmentFiles);
@@ -628,8 +615,47 @@ public class APITestService {
         HashTree hashTree = runRequest.getTestElement().generateHashTree(config);
         String jmxString = runRequest.getTestElement().getJmx(hashTree);
         //将jmx处理封装为通用方法
-        JmxInfoDTO dto = updateJmxString(jmxString, runRequest.getProjectId());
+        JmxInfoDTO dto = updateJmxString(jmxString, runRequest.getProjectId(), true);
         dto.setName(runRequest.getName() + ".jmx");
         return dto;
+    }
+
+    public Map<String, List<String>> selectEnvironmentByHashTree(String projectId, MsTestElement testElement) {
+        Map<String, List<String>> projectEnvMap = new HashMap<>();
+        if (testElement != null) {
+            List<String> envIdList = this.getEnvIdByHashTree(testElement);
+            projectEnvMap.put(projectId, envIdList);
+        }
+        return projectEnvMap;
+    }
+
+    private List<String> getEnvIdByHashTree(MsTestElement testElement) {
+        List<String> envIdList = new ArrayList<>();
+        if (testElement instanceof MsHTTPSamplerProxy) {
+            String envId = ((MsHTTPSamplerProxy) testElement).getUseEnvironment();
+            if (StringUtils.isNotEmpty(envId)) {
+                envIdList.add(envId);
+            }
+        } else if (testElement instanceof MsTCPSampler) {
+            String envId = ((MsTCPSampler) testElement).getUseEnvironment();
+            if (StringUtils.isNotEmpty(envId)) {
+                envIdList.add(envId);
+            }
+        } else if (testElement instanceof MsJDBCSampler) {
+            String envId = ((MsJDBCSampler) testElement).getUseEnvironment();
+            if (StringUtils.isNotEmpty(envId)) {
+                envIdList.add(envId);
+            }
+        } else if (CollectionUtils.isNotEmpty(testElement.getHashTree())) {
+            for (MsTestElement child : testElement.getHashTree()) {
+                List<String> childEnvId = this.getEnvIdByHashTree(child);
+                childEnvId.forEach(envId -> {
+                    if (StringUtils.isNotEmpty(envId) && !envIdList.contains(envId)) {
+                        envIdList.add(envId);
+                    }
+                });
+            }
+        }
+        return envIdList;
     }
 }

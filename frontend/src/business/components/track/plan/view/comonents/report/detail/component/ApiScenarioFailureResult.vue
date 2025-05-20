@@ -83,7 +83,9 @@ import {
   getSharePlanScenarioAllCase,
   getSharePlanScenarioFailureCase,
   getPlanScenarioErrorReportCase,
-  getSharePlanScenarioErrorReportCase, getPlanScenarioUnExecuteCase, getSharePlanScenarioUnExecuteCase,
+  getSharePlanScenarioErrorReportCase,
+  getPlanScenarioUnExecuteCase,
+  getSharePlanScenarioUnExecuteCase
 } from "@/network/test-plan";
 import MsTable from "@/business/components/common/components/table/MsTable";
 import MsTableColumn from "@/business/components/common/components/table/MsTableColumn";
@@ -108,7 +110,7 @@ export default {
     isAll: Boolean,
     isErrorReport: Boolean,
     isUnExecute: Boolean,
-    isDb: Boolean
+    isDb: Boolean,
   },
   data() {
     return {

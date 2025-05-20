@@ -60,6 +60,9 @@
             left join
             project on issues.project_id = project.id
         </if>
+        <if test="request.isCustomSorted and request.customFieldId != null">
+            left join custom_field_issues cfi on issues.id = cfi.resource_id and cfi.field_id = #{request.customFieldId}
+        </if>
         <include refid="queryWhereCondition"/>
         <include refid="io.metersphere.base.mapper.ext.ExtBaseMapper.orders"/>
     </select>
@@ -80,11 +83,22 @@
     <select id="getNextNum" resultType="io.metersphere.base.domain.Issues">
         SELECT * FROM issues WHERE issues.project_id = #{projectId} ORDER BY num DESC LIMIT 1;
     </select>
-    <select id="getCountByStatus" resultType="io.metersphere.base.domain.IssuesDao">
-        select count(issues.id) as totalIssueCount, ifnull(issues.status,issues.platform_status) as status from issues
-        left join project on issues.project_id = project.id
-        <include refid="queryWhereCondition"/>
-        group by status;
+    <select id="getCountByStatus" resultType="io.metersphere.base.domain.IssuesStatusCountDao">
+        select count(1) as `count`, if(i.platform = 'Local', cfi.value, i.platform_status) as statusValue, i.platform
+        from issues i
+        inner join project p
+            on i.project_id = p.id and p.workspace_id = #{request.workspaceId}
+        left join custom_field_issues cfi
+            on i.id = cfi.resource_id and field_id in (
+              select cf.id
+              from custom_field cf
+              left join project pr
+                on cf.project_id = pr.id
+              where cf.scene = 'ISSUE' and cf.name = '状态'
+                and (pr.workspace_id = #{request.workspaceId} or global = true)
+            )
+        where i.creator = #{request.creator}
+        group by statusValue;
     </select>
     <select id="getRelateIssues" resultType="io.metersphere.base.domain.IssuesDao">
         select issues.id, issues.num, issues.title, issues.project_id, issues.create_time, issues.update_time,
@@ -100,7 +114,7 @@
     <select id="getIssueForSync" resultType="io.metersphere.base.domain.IssuesDao">
         select id,platform, platform_id
         from issues
-        where project_id = #{projectId} and platform != 'Local' and (platform_status != 'delete' or platform_status is null);
+        where project_id = #{projectId} and platform = #{platform} and (platform_status != 'delete' or platform_status is null);
     </select>
     <select id="selectForPlanReport" resultType="io.metersphere.track.dto.PlanReportIssueDTO">
         select id,status,platform_status,platform from issues where resource_id = #{planId} and ( platform_status != 'delete' or platform_status is null);
@@ -123,6 +137,43 @@
         <include refid="Issue_List_Column" />
         from issues
         where id = #{id,jdbcType=VARCHAR}
+    </select>
+    <select id="getIssueCustomField" resultType="io.metersphere.dto.CustomFieldItemDTO">
+        select cfi.field_id           as id,
+               cf.type,
+               cf.name,
+               case cf.type
+                   when 'richText' then cfi.text_value
+                   when 'textarea' then cfi.text_value
+                   else cfi.value end as value
+        from custom_field_issues cfi
+        join custom_field cf on cf.id = cfi.field_id
+        where cfi.resource_id = #{issueId}
+    </select>
+    <select id="getPlatformIssueByIds" resultType="io.metersphere.base.domain.IssuesDao">
+        select * from issues where project_id = #{projectId} and platform_id in
+        <foreach collection="ids" item="value" separator="," open="(" close=")">
+            #{value}
+        </foreach>
+    </select>
+    <select id="getIssueCustomFields" resultType="io.metersphere.base.domain.IssuesDao">
+        select cfi.field_id           as fieldId,
+               cf.type fieldType,
+               cft.custom_data,
+               cf.name as fieldName,
+               cfi.resource_id as id,
+               case cf.type
+                   when 'richText' then cfi.text_value
+                   when 'textarea' then cfi.text_value
+                   else cfi.value end as fieldValue
+        from custom_field_issues cfi
+                 join custom_field_template cft on cfi.field_id = cft.field_id
+                 join custom_field cf on cf.id = cft.field_id
+                 join project on project.id = cf.project_id and project.issue_template_id = cft.template_id
+        where cfi.resource_id in
+        <foreach collection="ids" item="value" separator="," open="(" close=")">
+            #{value}
+        </foreach>
     </select>
 
     <sql id="queryWhereCondition">
@@ -196,6 +247,26 @@
                                     #{value}
                                 </foreach>
                             </when>
+                            <when test="key.startsWith('custom_single')">
+                                and issues.id in (
+                                select resource_id from custom_field_issues
+                                where concat('custom_single-',field_id) = #{key}
+                                and trim(both '"' from value) in
+                                <foreach collection="values" item="value" separator="," open="(" close=")">
+                                    #{value}
+                                </foreach>
+                                )
+                            </when>
+                            <when test="key.startsWith('custom_multiple')">
+                                and issues.id in (
+                                select resource_id from custom_field_issues
+                                where concat('custom_multiple-',field_id) = #{key}
+                                and
+                                <foreach collection="values" item="value" separator="or" open="(" close=")">
+                                    JSON_CONTAINS(value, #{value})
+                                </foreach>
+                                )
+                            </when>
                         </choose>
                     </if>
                 </foreach>
@@ -238,12 +309,32 @@
         </if>
         <if test="${condition}.customs != null and ${condition}.customs.size() > 0">
             <foreach collection="${condition}.customs" item="custom" separator="" open="" close="">
-                and issues.id in (
-                select resource_id from custom_field_issues where field_id = #{custom.id}
-                and trim(both '"' from value)
-                <include refid="io.metersphere.base.mapper.ext.ExtBaseMapper.condition">
-                    <property name="object" value="custom"/>
-                </include>)
+                and issues.id ${custom.operator} (
+                    select resource_id from custom_field_issues where field_id = #{custom.id}
+                    <choose>
+                        <when test="custom.type == 'multipleMember' or custom.type == 'checkbox' or custom.type == 'multipleSelect'">
+                            and ${custom.value}
+                        </when>
+                        <when test="custom.type == 'date' or custom.type == 'datetime'">
+                            and left(replace(unix_timestamp(trim(both '"' from `value`)), '.', ''), 13)
+                            <include refid="io.metersphere.base.mapper.ext.ExtBaseMapper.condition">
+                                <property name="object" value="custom"/>
+                            </include>
+                        </when>
+                        <when test="custom.type == 'richText' or custom.type == 'textarea'">
+                            and text_value
+                            <include refid="io.metersphere.base.mapper.ext.ExtBaseMapper.condition">
+                                <property name="object" value="custom"/>
+                            </include>
+                        </when>
+                        <otherwise>
+                            and trim(both '"' from value)
+                            <include refid="io.metersphere.base.mapper.ext.ExtBaseMapper.condition">
+                                <property name="object" value="custom"/>
+                            </include>
+                        </otherwise>
+                    </choose>
+                )
             </foreach>
         </if>
     </sql>

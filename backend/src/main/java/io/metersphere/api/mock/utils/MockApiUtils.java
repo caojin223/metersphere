@@ -7,7 +7,7 @@ import com.alibaba.fastjson.JSONValidator;
 import io.metersphere.api.dto.mock.ApiDefinitionResponseDTO;
 import io.metersphere.api.dto.mock.MockConfigRequestParams;
 import io.metersphere.api.dto.mock.RequestMockParams;
-import io.metersphere.api.dto.mockconfig.response.JsonSchemaReturnObj;
+import io.metersphere.api.dto.shell.filter.ScriptFilter;
 import io.metersphere.api.mock.dto.MockParamConditionEnum;
 import io.metersphere.commons.exception.MSException;
 import io.metersphere.commons.json.JSONSchemaGenerator;
@@ -105,7 +105,7 @@ public class MockApiUtils {
             } else if (StringUtils.equalsIgnoreCase(type, "XML")) {
                 if (bodyObj.containsKey("raw")) {
                     String xmlStr = bodyObj.getString("raw");
-                    JSONObject matchObj = XMLUtils.stringToJSONObject(xmlStr);
+                    JSONObject matchObj = XMLUtils.xmlStringToJSONObject(xmlStr);
                     returnJson = matchObj;
                 }
             } else if (StringUtils.equalsIgnoreCase(type, "Raw")) {
@@ -146,73 +146,6 @@ public class MockApiUtils {
         return returnJson;
     }
 
-    public static JSONObject parseJsonSchema(JSONObject bodyReturnObj,boolean useJMeterFunc) {
-        JSONObject returnObj = new JSONObject();
-        if (bodyReturnObj == null) {
-            return returnObj;
-        }
-
-        Set<String> keySet = bodyReturnObj.keySet();
-        for (String key : keySet) {
-            try {
-                JsonSchemaReturnObj obj = bodyReturnObj.getObject(key, JsonSchemaReturnObj.class);
-                if (StringUtils.equals("object", obj.getType())) {
-                    JSONObject itemObj = parseJsonSchema(obj.getProperties(),useJMeterFunc);
-                    if (!itemObj.isEmpty()) {
-                        returnObj.put(key, itemObj);
-                    }
-                } else if (StringUtils.equals("array", obj.getType())) {
-                    if (obj.getItems() != null) {
-                        JSONObject itemObj = obj.getItems();
-                        if (itemObj.containsKey("type")) {
-                            if (StringUtils.equals("object", itemObj.getString("type")) && itemObj.containsKey("properties")) {
-                                JSONObject arrayObj = itemObj.getJSONObject("properties");
-                                JSONObject parseObj = parseJsonSchema(arrayObj,useJMeterFunc);
-                                JSONArray array = new JSONArray();
-                                array.add(parseObj);
-                                returnObj.put(key, array);
-                            } else if (StringUtils.equals("string", itemObj.getString("type")) && itemObj.containsKey("mock")) {
-                                JsonSchemaReturnObj arrayObj = JSONObject.toJavaObject(itemObj, JsonSchemaReturnObj.class);
-                                String value = arrayObj.getMockValue();
-                                if(useJMeterFunc){
-                                    value = getMockValues(arrayObj.getMockValue());
-                                }
-                                JSONArray array = new JSONArray();
-                                array.add(value);
-                                returnObj.put(key, array);
-                            }
-                        }
-                    }
-                } else {
-                    String values = obj.getMockValue();
-                    if (StringUtils.isEmpty(values)) {
-                        values = "";
-                    } else if(useJMeterFunc){
-                        try {
-                            values = values.startsWith("@") ? ScriptEngineUtils.buildFunctionCallString(values) : values;
-                        } catch (Exception e) {
-                        }
-                    }
-                    returnObj.put(key, values);
-                }
-            } catch (Exception e) {
-                LogUtil.error(e);
-            }
-        }
-        return returnObj;
-    }
-
-    private static String getMockValues(String values) {
-        if (StringUtils.isEmpty(values)) {
-            values = "";
-        } else {
-            try {
-                values = values.startsWith("@") ? ScriptEngineUtils.buildFunctionCallString(values) : values;
-            } catch (Exception e) {
-            }
-        }
-        return values;
-    }
 
     public static List<MockConfigRequestParams> getParamsByJSONArray(JSONArray array) {
         List<MockConfigRequestParams> requestParamsList = new ArrayList<>();
@@ -253,12 +186,10 @@ public class MockApiUtils {
                                         isJsonSchema = true;
                                     }
                                 }
-                                if (isJsonSchema) {
-                                    if (bodyObj.containsKey("jsonSchema") && bodyObj.getJSONObject("jsonSchema").containsKey("properties")) {
-                                        String bodyRetunStr = bodyObj.getJSONObject("jsonSchema").getJSONObject("properties").toJSONString();
-                                        JSONObject bodyReturnObj = JSONObject.parseObject(bodyRetunStr);
-                                        JSONObject returnObj = MockApiUtils.parseJsonSchema(bodyReturnObj,false);
-                                        returnStr = returnObj.toJSONString();
+                                if (isJsonSchema && bodyObj.containsKey("jsonSchema")) {
+                                    String json = JSONSchemaGenerator.getJson(bodyObj.getJSONObject("jsonSchema").toJSONString());
+                                    if (StringUtils.isNotEmpty(json)) {
+                                        returnStr = json;
                                     }
                                 } else {
                                     if (bodyObj.containsKey("raw")) {
@@ -336,7 +267,7 @@ public class MockApiUtils {
         return responseDTO;
     }
 
-    public String getResultByResponseResult(JSONObject bodyObj, String url, Map<String, String> headerMap, RequestMockParams requestMockParams, boolean useScript) {
+    public String getResultByResponseResult(String projectId, JSONObject bodyObj, String url, Map<String, String> headerMap, RequestMockParams requestMockParams, boolean useScript) {
         MockScriptEngineUtils scriptEngineUtils = new MockScriptEngineUtils();
         ScriptEngine scriptEngine = null;
         String scriptLanguage = "beanshell";
@@ -351,10 +282,11 @@ public class MockApiUtils {
                     LogUtil.error(e);
                 }
             }
-        }
-        scriptEngine = scriptEngineUtils.getBaseScriptEngine(scriptLanguage, url, headerMap, requestMockParams);
-        if (StringUtils.isNotEmpty(script) && scriptEngine != null) {
-            scriptEngineUtils.runScript(scriptEngine, script);
+            ScriptFilter.verify(scriptLanguage, "Mock后置脚本", script);
+            scriptEngine = scriptEngineUtils.getBaseScriptEngine(projectId, scriptLanguage, url, headerMap, requestMockParams);
+            if (StringUtils.isNotEmpty(script) && scriptEngine != null) {
+                scriptEngineUtils.runScript(scriptEngine, script);
+            }
         }
 
         if (headerMap == null) {
@@ -378,12 +310,10 @@ public class MockApiUtils {
                             isJsonSchema = true;
                         }
                     }
-                    if (isJsonSchema) {
-                        if (bodyObj.containsKey("jsonSchema") && bodyObj.getJSONObject("jsonSchema").containsKey("properties")) {
-                            String bodyRetunStr = bodyObj.getJSONObject("jsonSchema").getJSONObject("properties").toJSONString();
-                            JSONObject bodyReturnObj = JSONObject.parseObject(bodyRetunStr);
-                            JSONObject returnObj = MockApiUtils.parseJsonSchema(bodyReturnObj,false);
-                            returnStr = returnObj.toJSONString();
+                    if (isJsonSchema && bodyObj.containsKey("jsonSchema")) {
+                        String json = JSONSchemaGenerator.getJson(bodyObj.getJSONObject("jsonSchema").toJSONString());
+                        if (StringUtils.isNotEmpty(json)) {
+                            returnStr = json;
                         }
                     } else {
                         if (bodyObj.containsKey("raw")) {
@@ -415,7 +345,9 @@ public class MockApiUtils {
                     }
                 }
             }
-            returnStr = scriptEngineUtils.parseReportString(scriptEngine, returnStr);
+            if (scriptEngine != null) {
+                returnStr = scriptEngineUtils.parseReportString(scriptEngine, returnStr);
+            }
             return returnStr;
         }
     }
@@ -485,7 +417,7 @@ public class MockApiUtils {
             return returnJson;
         } else if (StringUtils.startsWithIgnoreCase(request.getContentType(), "text/xml")) {
             String xmlString = readXml(request);
-            JSONObject object = XMLUtils.stringToJSONObject(xmlString);
+            JSONObject object = XMLUtils.xmlStringToJSONObject(xmlString);
             return object;
         } else if (StringUtils.startsWithIgnoreCase(request.getContentType(), "application/x-www-form-urlencoded")) {
             JSONObject object = new JSONObject();
@@ -725,6 +657,9 @@ public class MockApiUtils {
     }
 
     public static boolean isValueMatch(String requestParam, MockConfigRequestParams params) {
+        if (StringUtils.isBlank(params.getCondition())) {
+            params.setCondition(MockParamConditionEnum.VALUE_EQUALS.name());
+        }
         if (StringUtils.equals(params.getCondition(), MockParamConditionEnum.VALUE_EQUALS.name())) {
             return StringUtils.equals(requestParam, params.getValue());
         } else if (StringUtils.equals(params.getCondition(), MockParamConditionEnum.VALUE_NOT_EQUALS.name())) {
@@ -773,12 +708,51 @@ public class MockApiUtils {
         }
     }
 
-    public static boolean isUrlInList(String url,List<String> urlList){
-        if(CollectionUtils.isEmpty(urlList)){
+    public static boolean isUrlMatch(String url, String compareUrl) {
+        String urlSuffix = url;
+        if (urlSuffix.startsWith("/")) {
+            urlSuffix = urlSuffix.substring(1);
+        }
+        String[] urlParams = urlSuffix.split("/");
+        if (StringUtils.equalsAny(compareUrl, url, "/" + url)) {
+            return true;
+        } else {
+            if (StringUtils.isEmpty(compareUrl)) {
+                return false;
+            }
+            if (compareUrl.startsWith("/")) {
+                compareUrl = compareUrl.substring(1);
+            }
+            if (StringUtils.isNotEmpty(compareUrl)) {
+                String[] pathArr = compareUrl.split("/");
+                if (pathArr.length == urlParams.length) {
+                    boolean isFetch = true;
+                    for (int i = 0; i < urlParams.length; i++) {
+                        String pathItem = pathArr[i];
+                        String urlItem = urlParams[i];
+                        if (!(pathItem.startsWith("{") && pathItem.endsWith("}")) && !(urlItem.startsWith("{") && urlItem.endsWith("}"))) {
+                            if (!StringUtils.equals(pathArr[i], urlParams[i])) {
+                                isFetch = false;
+                                break;
+                            }
+                        }
+
+                    }
+                    if (isFetch) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    public static boolean isUrlInList(String url, Collection<String> urlList) {
+        if (CollectionUtils.isEmpty(urlList)) {
             return false;
         }
         String urlSuffix = url;
-        if(urlSuffix.startsWith("/")){
+        if (urlSuffix.startsWith("/")) {
             urlSuffix = urlSuffix.substring(1);
         }
         String[] urlParams = urlSuffix.split("/");

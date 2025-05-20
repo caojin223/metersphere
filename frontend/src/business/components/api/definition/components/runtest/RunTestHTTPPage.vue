@@ -31,7 +31,8 @@
         <!-- 操作按钮 -->
         <el-form-item>
           <el-dropdown split-button type="primary" class="ms-api-buttion" @click="handleCommand('add')"
-                       @command="handleCommand" size="small" v-if="!runLoading">
+                       @command="handleCommand" size="small" v-if="!runLoading"
+                       v-permission="['PROJECT_API_DEFINITION:READ+EDIT_API']">
             {{ $t('commons.test') }}
             <el-dropdown-menu slot="dropdown">
               <el-dropdown-item command="load_case">{{ $t('api_test.definition.request.load_case') }}
@@ -61,7 +62,8 @@
       <div v-loading="loading">
         <p class="tip">{{ $t('api_test.definition.request.req_param') }} </p>
         <!-- HTTP 请求参数 -->
-        <ms-api-request-form :isShowEnable="true" :definition-test="true" :headers="api.request.headers" :response="responseData"
+        <ms-api-request-form :isShowEnable="true" :definition-test="true" :headers="api.request.headers"
+                             :response="responseData"
                              v-if="loadRequest"
                              :request="api.request" ref="apiRequestForm"/>
         <!--返回结果-->
@@ -82,7 +84,7 @@
                       ref="caseList"/>
 
     <!-- 执行组件 -->
-    <ms-run :debug="false" :environment="api.environment" :reportId="reportId" :run-data="runData" :env-map="envMap"
+    <ms-run :debug="false" :reportId="reportId" :run-data="runData" :env-map="envMap"
             @runRefresh="runRefresh" @errorRefresh="errorRefresh" ref="runTest"/>
 
   </div>
@@ -98,6 +100,7 @@ import MsRun from "../Run";
 import {REQ_METHOD} from "../../model/JsonData";
 import EnvironmentSelect from "../environment/EnvironmentSelect";
 import {TYPE_TO_C} from "@/business/components/api/automation/scenario/Setting";
+import {mergeRequestDocumentData} from "@/business/components/api/definition/api-definition";
 
 export default {
   name: "RunTestHTTPPage",
@@ -119,13 +122,12 @@ export default {
       createCase: "",
       currentRequest: {},
       refreshSign: "",
-      loadCaseConfirmButton:this.$t("commons.confirm"),
+      loadCaseConfirmButton: this.$t("commons.confirm"),
       responseData: {type: 'HTTP', responseResult: {}, subRequestResults: []},
       reqOptions: REQ_METHOD,
       rules: {
         method: [{required: true, message: this.$t('test_track.case.input_maintainer'), trigger: 'change'}],
         path: [{required: true, message: this.$t('api_test.definition.request.path_info'), trigger: 'blur'}],
-        environmentId: [{required: true, message: this.$t('api_test.definition.request.run_env'), trigger: 'change'}],
       },
       runData: [],
       reportId: "",
@@ -201,6 +203,7 @@ export default {
       })
     },
     handleCommand(e) {
+      mergeRequestDocumentData(this.api.request);
       switch (e) {
         case "load_case":
           return this.loadCase();
@@ -215,6 +218,10 @@ export default {
       }
     },
     runTest() {
+      if (!this.api.environmentId) {
+        this.$warning(this.$t('api_test.environment.select_environment'));
+        return;
+      }
       this.$refs['apiData'].validate((valid) => {
         if (valid) {
           this.runLoading = true;
@@ -253,21 +260,38 @@ export default {
     apiCaseClose() {
       this.visible = false;
     },
-    getBodyUploadFiles() {
+    getBodyUploadFiles(data) {
       let bodyUploadFiles = [];
-      this.api.bodyUploadIds = [];
-      let request = this.api.request;
+      data.bodyUploadIds = [];
+      let request = data.request;
       if (request.body) {
-        request.body.kvs.forEach(param => {
-          if (param.files) {
-            param.files.forEach(item => {
-              if (item.file) {
-                item.name = item.file.name;
-                bodyUploadFiles.push(item.file);
-              }
-            });
-          }
-        });
+        if (request.body.kvs) {
+          request.body.kvs.forEach(param => {
+            if (param.files) {
+              param.files.forEach(item => {
+                if (item.file) {
+                  item.name = item.file.name;
+                  bodyUploadFiles.push(item.file);
+                }
+              });
+            }
+          });
+        }
+        if (request.body.binary) {
+          request.body.binary.forEach(param => {
+            if (param.files) {
+              param.files.forEach(item => {
+                if (item.file) {
+                  let fileId = getUUID().substring(0, 8);
+                  item.name = item.file.name;
+                  item.id = fileId;
+                  data.bodyUploadIds.push(fileId);
+                  bodyUploadFiles.push(item.file);
+                }
+              });
+            }
+          });
+        }
       }
       return bodyUploadFiles;
     },
@@ -305,7 +329,7 @@ export default {
     },
     updateApi() {
       let url = "/api/definition/update";
-      let bodyFiles = this.getBodyUploadFiles();
+      let bodyFiles = this.getBodyUploadFiles(this.api);
       this.api.method = this.api.request.method;
       this.api.path = this.api.request.path;
       if (Object.prototype.toString.call(this.api.response).match(/\[object (\w+)\]/)[1].toLowerCase() !== 'object') {
@@ -370,6 +394,7 @@ export default {
     init() {
       // 深度复制
       this.api = JSON.parse(JSON.stringify(this.apiData));
+      this.initLocalFile();
       this.api.protocol = this.currentProtocol;
       this.currentRequest = this.api.request;
       if (!this.api.environmentId && this.$store.state.useEnvironment) {
@@ -377,6 +402,28 @@ export default {
       }
       this.runLoading = false;
       this.checkVersionEnable();
+    },
+    initLocalFile() {
+      if (this.apiData.request && this.apiData.request.body) {
+        if (this.apiData.request.body.binary && this.apiData.request.body.binary.length > 0) {
+          this.apiData.request.body.binary.forEach(item => {
+            this.api.request.body.binary.forEach(api => {
+              if (item.uuid && api.uuid && item.uuid === api.uuid) {
+                api = item;
+              }
+            })
+          })
+        }
+        if (this.apiData.request.body.kvs && this.apiData.request.body.kvs.length > 0) {
+          this.apiData.request.body.kvs.forEach(item => {
+            this.api.request.body.kvs.forEach(api => {
+              if (item.uuid && api.uuid && item.uuid === api.uuid && item.files && api.files) {
+                api.files = item.files;
+              }
+            })
+          })
+        }
+      }
     }
   },
   created() {

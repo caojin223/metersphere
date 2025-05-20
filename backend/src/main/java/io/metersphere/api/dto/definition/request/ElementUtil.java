@@ -11,26 +11,32 @@ import io.metersphere.api.dto.EnvironmentType;
 import io.metersphere.api.dto.definition.request.controller.MsLoopController;
 import io.metersphere.api.dto.definition.request.sampler.MsHTTPSamplerProxy;
 import io.metersphere.api.dto.definition.request.variable.ScenarioVariable;
-import io.metersphere.api.dto.mockconfig.MockConfigStaticData;
+import io.metersphere.api.dto.scenario.DatabaseConfig;
 import io.metersphere.api.dto.scenario.KeyValue;
 import io.metersphere.api.dto.scenario.environment.EnvironmentConfig;
+import io.metersphere.api.dto.scenario.request.BodyFile;
 import io.metersphere.api.service.ApiTestEnvironmentService;
 import io.metersphere.base.domain.ApiScenarioWithBLOBs;
 import io.metersphere.base.domain.ApiTestEnvironmentWithBLOBs;
+import io.metersphere.base.domain.FileMetadata;
 import io.metersphere.base.mapper.ApiScenarioMapper;
 import io.metersphere.commons.constants.DelimiterConstants;
 import io.metersphere.commons.constants.LoopConstants;
 import io.metersphere.commons.constants.MsTestElementConstants;
+import io.metersphere.commons.constants.StorageConstants;
 import io.metersphere.commons.exception.MSException;
 import io.metersphere.commons.utils.CommonBeanFactory;
 import io.metersphere.commons.utils.FileUtils;
 import io.metersphere.commons.utils.LogUtil;
 import io.metersphere.constants.RunModeConstants;
+import io.metersphere.i18n.Translator;
+import io.metersphere.jmeter.utils.ScriptEngineUtils;
+import io.metersphere.metadata.service.FileMetadataService;
 import io.metersphere.plugin.core.MsParameter;
 import io.metersphere.plugin.core.MsTestElement;
 import io.metersphere.service.EnvironmentGroupProjectService;
-import io.metersphere.utils.LoggerUtil;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.config.CSVDataSet;
@@ -66,7 +72,7 @@ public class ElementUtil {
             arguments.setName(StringUtils.isNoneBlank(name) ? name : "Arguments");
             arguments.setProperty(TestElement.TEST_CLASS, Arguments.class.getName());
             arguments.setProperty(TestElement.GUI_CLASS, SaveService.aliasToClass("ArgumentsPanel"));
-            config.getConfig().get(projectId).getCommonConfig().getVariables().stream().filter(KeyValue::isValid).filter(KeyValue::isEnable).forEach(keyValue ->
+            config.getConfig().get(projectId).getCommonConfig().getVariables().stream().filter(ScenarioVariable::isConstantValid).filter(ScenarioVariable::isEnable).forEach(keyValue ->
                     arguments.addArgument(keyValue.getName(), keyValue.getValue(), "=")
             );
             if (arguments.getArguments().size() > 0) {
@@ -76,15 +82,12 @@ public class ElementUtil {
         return null;
     }
 
-    public static Map<String, EnvironmentConfig> getEnvironmentConfig(String environmentId, String projectId, boolean isMockEnvironment) {
+    public static Map<String, EnvironmentConfig> getEnvironmentConfig(String environmentId, String projectId) {
         ApiTestEnvironmentService environmentService = CommonBeanFactory.getBean(ApiTestEnvironmentService.class);
         ApiTestEnvironmentWithBLOBs environment = environmentService.get(environmentId);
         if (environment != null && environment.getConfig() != null) {
             if (StringUtils.isEmpty(projectId)) {
                 projectId = environment.getProjectId();
-            }
-            if (StringUtils.equals(environment.getName(), MockConfigStaticData.MOCK_EVN_NAME)) {
-                isMockEnvironment = true;
             }
             // 单独接口执行
             if (StringUtils.isEmpty(projectId)) {
@@ -101,11 +104,12 @@ public class ElementUtil {
 
     public static void addCsvDataSet(HashTree tree, List<ScenarioVariable> variables, ParameterConfig config, String shareMode) {
         if (CollectionUtils.isNotEmpty(variables)) {
-            List<ScenarioVariable> list = variables.stream().filter(ScenarioVariable::isCSVValid).collect(Collectors.toList());
+            List<ScenarioVariable> list = variables.stream().filter(ScenarioVariable::isCSVValid).filter(ScenarioVariable::isEnable).collect(Collectors.toList());
             if (CollectionUtils.isEmpty(list) && CollectionUtils.isNotEmpty(config.getTransferVariables())) {
-                list = config.getTransferVariables().stream().filter(ScenarioVariable::isCSVValid).collect(Collectors.toList());
+                list = config.getTransferVariables().stream().filter(ScenarioVariable::isCSVValid).filter(ScenarioVariable::isEnable).collect(Collectors.toList());
             }
             if (CollectionUtils.isNotEmpty(list)) {
+                FileMetadataService fileMetadataService = CommonBeanFactory.getBean(FileMetadataService.class);
                 list.forEach(item -> {
                     CSVDataSet csvDataSet = new CSVDataSet();
                     csvDataSet.setEnabled(true);
@@ -113,11 +117,81 @@ public class ElementUtil {
                     csvDataSet.setProperty(TestElement.GUI_CLASS, SaveService.aliasToClass("TestBeanGUI"));
                     csvDataSet.setName(StringUtils.isEmpty(item.getName()) ? "CSVDataSet" : item.getName());
                     csvDataSet.setProperty("fileEncoding", StringUtils.isEmpty(item.getEncoding()) ? "UTF-8" : item.getEncoding());
-                    if (CollectionUtils.isNotEmpty(item.getFiles())) {
-                        if (!config.isOperating() && !new File(BODY_FILE_DIR + "/" + item.getFiles().get(0).getId() + "_" + item.getFiles().get(0).getName()).exists()) {
-                            MSException.throwException(StringUtils.isEmpty(item.getName()) ? "CSVDataSet" : item.getName() + "：[ CSV文件不存在 ]");
+                    if (CollectionUtils.isEmpty(item.getFiles())) {
+                        MSException.throwException(StringUtils.isEmpty(item.getName()) ? "CSVDataSet" : item.getName() + "：[ " + Translator.get("csv_no_exist") + " ]");
+                    } else {
+                        boolean isRef = false;
+                        String fileId = null;
+                        boolean isRepository = false;
+                        BodyFile file = item.getFiles().get(0);
+                        String path = BODY_FILE_DIR + "/" + item.getFiles().get(0).getId() + "_" + item.getFiles().get(0).getName();
+                        if (StringUtils.equalsIgnoreCase(file.getStorage(), StorageConstants.FILE_REF.name())) {
+                            isRef = true;
+                            fileId = file.getFileId();
+                            if (fileMetadataService != null) {
+                                FileMetadata fileMetadata = fileMetadataService.getFileMetadataById(fileId);
+                                if (fileMetadata != null && StringUtils.equals(fileMetadata.getStorage(), StorageConstants.GIT.name())) {
+                                    isRepository = true;
+                                }
+                            }
+                            path = FileUtils.getFilePath(file);
                         }
-                        csvDataSet.setProperty("filename", BODY_FILE_DIR + "/" + item.getFiles().get(0).getId() + "_" + item.getFiles().get(0).getName());
+                        if (!config.isOperating() && !isRepository && !new File(path).exists()) {
+                            MSException.throwException(StringUtils.isEmpty(item.getName()) ? "CSVDataSet" : item.getName() + "：[ " + Translator.get("csv_no_exist") + " ]");
+                        }
+                        csvDataSet.setProperty("filename", path);
+                        csvDataSet.setProperty("isRef", isRef);
+                        csvDataSet.setProperty("fileId", fileId);
+                    }
+                    csvDataSet.setIgnoreFirstLine(false);
+                    csvDataSet.setProperty("shareMode", shareMode);
+                    csvDataSet.setProperty("recycle", true);
+                    csvDataSet.setProperty("delimiter", item.getDelimiter());
+                    csvDataSet.setProperty("quotedData", item.isQuotedData());
+                    csvDataSet.setComment(StringUtils.isEmpty(item.getDescription()) ? "" : item.getDescription());
+                    tree.add(csvDataSet);
+                });
+            }
+        }
+    }
+
+    public static void addApiCsvDataSet(HashTree tree, List<ScenarioVariable> variables, ParameterConfig config, String shareMode) {
+        if (CollectionUtils.isNotEmpty(variables)) {
+            List<ScenarioVariable> list = variables.stream().filter(ScenarioVariable::isCSVValid).filter(ScenarioVariable::isEnable).collect(Collectors.toList());
+            if (CollectionUtils.isNotEmpty(list)) {
+                FileMetadataService fileMetadataService = CommonBeanFactory.getBean(FileMetadataService.class);
+                list.forEach(item -> {
+                    CSVDataSet csvDataSet = new CSVDataSet();
+                    csvDataSet.setEnabled(true);
+                    csvDataSet.setProperty(TestElement.TEST_CLASS, CSVDataSet.class.getName());
+                    csvDataSet.setProperty(TestElement.GUI_CLASS, SaveService.aliasToClass("TestBeanGUI"));
+                    csvDataSet.setName(StringUtils.isEmpty(item.getName()) ? "CSVDataSet" : item.getName());
+                    csvDataSet.setProperty("fileEncoding", StringUtils.isEmpty(item.getEncoding()) ? "UTF-8" : item.getEncoding());
+                    if (CollectionUtils.isEmpty(item.getFiles())) {
+                        MSException.throwException(StringUtils.isEmpty(item.getName()) ? "CSVDataSet" : item.getName() + "：[ " + Translator.get("csv_no_exist") + " ]");
+                    } else {
+                        boolean isRef = false;
+                        String fileId = null;
+                        boolean isRepository = false;
+                        BodyFile file = item.getFiles().get(0);
+                        String path = BODY_FILE_DIR + "/" + item.getFiles().get(0).getId() + "_" + item.getFiles().get(0).getName();
+                        if (StringUtils.equalsIgnoreCase(file.getStorage(), StorageConstants.FILE_REF.name())) {
+                            isRef = true;
+                            fileId = file.getFileId();
+                            if (fileMetadataService != null) {
+                                FileMetadata fileMetadata = fileMetadataService.getFileMetadataById(fileId);
+                                if (fileMetadata != null && StringUtils.equals(fileMetadata.getStorage(), StorageConstants.GIT.name())) {
+                                    isRepository = true;
+                                }
+                            }
+                            path = FileUtils.getFilePath(file);
+                        }
+                        if (!config.isOperating() && !isRepository && !new File(path).exists()) {
+                            MSException.throwException(StringUtils.isEmpty(item.getName()) ? "CSVDataSet" : item.getName() + "：[ " + Translator.get("csv_no_exist") + " ]");
+                        }
+                        csvDataSet.setProperty("filename", path);
+                        csvDataSet.setProperty("isRef", isRef);
+                        csvDataSet.setProperty("fileId", fileId);
                     }
                     csvDataSet.setIgnoreFirstLine(false);
                     csvDataSet.setProperty("shareMode", shareMode);
@@ -133,7 +207,7 @@ public class ElementUtil {
 
     public static void addCounter(HashTree tree, List<ScenarioVariable> variables, boolean isInternal) {
         if (CollectionUtils.isNotEmpty(variables)) {
-            List<ScenarioVariable> list = variables.stream().filter(ScenarioVariable::isCounterValid).collect(Collectors.toList());
+            List<ScenarioVariable> list = variables.stream().filter(ScenarioVariable::isCounterValid).filter(ScenarioVariable::isEnable).collect(Collectors.toList());
             if (CollectionUtils.isNotEmpty(list)) {
                 list.forEach(item -> {
                     CounterConfig counterConfig = new CounterConfig();
@@ -159,7 +233,7 @@ public class ElementUtil {
 
     public static void addRandom(HashTree tree, List<ScenarioVariable> variables) {
         if (CollectionUtils.isNotEmpty(variables)) {
-            List<ScenarioVariable> list = variables.stream().filter(ScenarioVariable::isRandom).collect(Collectors.toList());
+            List<ScenarioVariable> list = variables.stream().filter(ScenarioVariable::isRandom).filter(ScenarioVariable::isEnable).collect(Collectors.toList());
             if (CollectionUtils.isNotEmpty(list)) {
                 list.forEach(item -> {
                     RandomVariableConfig randomVariableConfig = new RandomVariableConfig();
@@ -296,6 +370,7 @@ public class ElementUtil {
         this.add("DNSCacheManager");
         this.add("DebugSampler");
         this.add("AuthManager");
+        this.add("AbstractSampler");
     }};
 
     private static void formatSampler(JSONObject element) {
@@ -346,8 +421,11 @@ public class ElementUtil {
     public static void dataFormatting(JSONArray hashTree) {
         for (int i = 0; i < hashTree.size(); i++) {
             JSONObject element = hashTree.getJSONObject(i);
+            if (element == null) {
+                continue;
+            }
             formatSampler(element);
-            if (element != null && element.get("clazzName") == null && clazzMap.containsKey(element.getString("type"))) {
+            if (element.get("clazzName") == null && clazzMap.containsKey(element.getString("type"))) {
                 element.fluentPut("clazzName", clazzMap.get(element.getString("type")));
             }
             if (element.containsKey("hashTree")) {
@@ -410,7 +488,7 @@ public class ElementUtil {
                 } else if (element != null && element.get("type").toString().equals("HTTPSamplerProxy")) {
                     MsHTTPSamplerProxy httpSamplerProxy = JSON.toJavaObject(element, MsHTTPSamplerProxy.class);
                     if (httpSamplerProxy != null
-                            && (!httpSamplerProxy.isCustomizeReq() || (httpSamplerProxy.isCustomizeReq() && httpSamplerProxy.getIsRefEnvironment()))) {
+                            && (!httpSamplerProxy.isCustomizeReq() || (httpSamplerProxy.isCustomizeReq() && BooleanUtils.isTrue(httpSamplerProxy.getIsRefEnvironment())))) {
                         // 多态JSON普通转换会丢失内容，需要通过 ObjectMapper 获取
                         if (element != null && StringUtils.isNotEmpty(element.getString("hashTree"))) {
                             LinkedList<MsTestElement> elements = mapper.readValue(element.getString("hashTree"),
@@ -579,6 +657,10 @@ public class ElementUtil {
         if (StringUtils.isNotEmpty(config.getScenarioId()) && StringUtils.equals(config.getReportType(), RunModeConstants.SET_REPORT.toString())) {
             resourceId = config.getScenarioId() + "=" + resourceId;
         }
+        // 跳过失败重试层
+        if (parent != null && StringUtils.equalsAnyIgnoreCase("RetryLoopController", parent.getType())) {
+            parent = parent.getParent();
+        }
         return resourceId + "_" + ElementUtil.getFullIndexPath(parent, indexPath);
     }
 
@@ -627,7 +709,6 @@ public class ElementUtil {
     public static void setBaseParams(AbstractTestElement sampler, MsTestElement parent, ParameterConfig config, String id, String indexPath) {
         sampler.setProperty("MS-ID", id);
         sampler.setProperty("MS-RESOURCE-ID", ElementUtil.getResourceId(id, config, parent, indexPath));
-        LoggerUtil.debug("mqtt sampler resourceId :" + sampler.getPropertyAsString("MS-RESOURCE-ID"));
     }
 
     public static void accuracyHashTree(HashTree hashTree) {
@@ -684,7 +765,6 @@ public class ElementUtil {
                     list.get(i).setIndex(String.valueOf(i));
                 }
             }
-            return list.stream().sorted(Comparator.comparing(MsTestElement::getIndex)).collect(Collectors.toList());
         }
         return list;
     }
@@ -768,5 +848,120 @@ public class ElementUtil {
             }
         }
         return elementList;
+    }
+
+    public static String getEvlValue(String evlValue) {
+        try {
+            if (StringUtils.startsWith(evlValue, "@")) {
+                return ScriptEngineUtils.calculate(evlValue);
+            } else {
+                return ScriptEngineUtils.buildFunctionCallString(evlValue);
+            }
+        } catch (Exception e) {
+            return evlValue;
+        }
+    }
+
+    public static Arguments getConfigArguments(ParameterConfig config, String name, String projectId, List<ScenarioVariable> variables) {
+        Arguments arguments = new Arguments();
+        arguments.setEnabled(true);
+        arguments.setName(StringUtils.isNotEmpty(name) ? name : "Arguments");
+        arguments.setProperty(TestElement.TEST_CLASS, Arguments.class.getName());
+        arguments.setProperty(TestElement.GUI_CLASS, SaveService.aliasToClass("ArgumentsPanel"));
+
+        // 场景变量
+        if (CollectionUtils.isNotEmpty(variables)) {
+            variables.stream().filter(ScenarioVariable::isConstantValid).forEach(keyValue ->
+                    arguments.addArgument(keyValue.getName(), keyValue.getValue(), "=")
+            );
+
+            List<ScenarioVariable> variableList = variables.stream().filter(ScenarioVariable::isListValid).collect(Collectors.toList());
+            variableList.forEach(item -> {
+                String[] arrays = item.getValue().split(",");
+                for (int i = 0; i < arrays.length; i++) {
+                    arguments.addArgument(item.getName() + "_" + (i + 1), arrays[i], "=");
+                }
+            });
+        }
+        // 环境通用变量
+        if (config.isEffective(projectId) && config.getConfig().get(projectId).getCommonConfig() != null
+                && CollectionUtils.isNotEmpty(config.getConfig().get(projectId).getCommonConfig().getVariables())) {
+            //常量
+            List<ScenarioVariable> constants = config.getConfig().get(projectId).getCommonConfig().getVariables().stream().filter(ScenarioVariable::isConstantValid).filter(ScenarioVariable::isEnable).collect(Collectors.toList());
+            constants.forEach(keyValue ->
+                    arguments.addArgument(keyValue.getName(), keyValue.getValue(), "=")
+            );
+            // List类型的变量
+            List<ScenarioVariable> variableList = config.getConfig().get(projectId).getCommonConfig().getVariables().stream().filter(ScenarioVariable::isListValid).filter(ScenarioVariable::isEnable).collect(Collectors.toList());
+            variableList.forEach(item -> {
+                String[] arrays = item.getValue().split(",");
+                for (int i = 0; i < arrays.length; i++) {
+                    arguments.addArgument(item.getName() + "_" + (i + 1), arrays[i], "=");
+                }
+            });
+            // 清空变量，防止重复添加
+            config.getConfig().get(projectId).getCommonConfig().getVariables().removeAll(constants);
+            config.getConfig().get(projectId).getCommonConfig().getVariables().removeAll(variableList);
+        }
+
+        if (arguments.getArguments() != null && arguments.getArguments().size() > 0) {
+            return arguments;
+        }
+        return null;
+    }
+
+    public static void addApiVariables(ParameterConfig config, HashTree httpSamplerTree, String projectId) {
+        if (config.isEffective(projectId) && config.getConfig().get(projectId).getCommonConfig() != null
+                && CollectionUtils.isNotEmpty(config.getConfig().get(projectId).getCommonConfig().getVariables())) {
+            ElementUtil.addApiCsvDataSet(httpSamplerTree, config.getConfig().get(projectId).getCommonConfig().getVariables(), config, "shareMode.group");
+            ElementUtil.addCounter(httpSamplerTree, config.getConfig().get(projectId).getCommonConfig().getVariables(), false);
+            ElementUtil.addRandom(httpSamplerTree, config.getConfig().get(projectId).getCommonConfig().getVariables());
+        }
+    }
+
+    public static DatabaseConfig dataSource(String projectId, String dataSourceId, EnvironmentConfig envConfig) {
+        try {
+            ApiTestEnvironmentService environmentService = CommonBeanFactory.getBean(ApiTestEnvironmentService.class);
+            List<ApiTestEnvironmentWithBLOBs> environment = environmentService.list(projectId);
+            EnvironmentConfig dataConfig = null;
+            List<String> dataName = new ArrayList<>();
+            List<ApiTestEnvironmentWithBLOBs> orgDataSource = environment.stream().filter(ApiTestEnvironmentWithBLOBs -> ApiTestEnvironmentWithBLOBs.getConfig().contains(dataSourceId)).collect(Collectors.toList());
+            if (CollectionUtils.isNotEmpty(orgDataSource)) {
+                dataConfig = JSONObject.parseObject(orgDataSource.get(0).getConfig(), EnvironmentConfig.class);
+                if (CollectionUtils.isNotEmpty(dataConfig.getDatabaseConfigs())) {
+                    dataName = dataConfig.getDatabaseConfigs().stream().filter(DatabaseConfig -> DatabaseConfig.getId().equals(dataSourceId)).map(DatabaseConfig::getName).collect(Collectors.toList());
+                }
+            }
+            List<String> finalDataName = dataName;
+            List<DatabaseConfig> collect = envConfig.getDatabaseConfigs().stream().filter(DatabaseConfig -> DatabaseConfig.getName().equals(finalDataName.get(0))).collect(Collectors.toList());
+            if (CollectionUtils.isNotEmpty(collect)) {
+                return collect.get(0);
+            }
+        } catch (Exception e) {
+            LogUtil.error(e);
+        }
+        return null;
+    }
+
+    public static void replaceFileMetadataId(MsTestElement testElement, String newFileMetadataId, String oldFileMetadataId) {
+        if (testElement != null && testElement instanceof MsHTTPSamplerProxy) {
+            if (((MsHTTPSamplerProxy) testElement).getBody() != null && CollectionUtils.isNotEmpty(((MsHTTPSamplerProxy) testElement).getBody().getKvs())) {
+                for (KeyValue keyValue : ((MsHTTPSamplerProxy) testElement).getBody().getKvs()) {
+                    if (CollectionUtils.isNotEmpty(keyValue.getFiles())) {
+                        for (BodyFile bodyFile : keyValue.getFiles()) {
+                            if (StringUtils.equals(bodyFile.getFileId(), oldFileMetadataId)) {
+                                bodyFile.setFileId(newFileMetadataId);
+                            }
+                        }
+                    }
+                }
+            }
+            if (CollectionUtils.isNotEmpty(testElement.getHashTree())) {
+                for (MsTestElement childElement : testElement.getHashTree()) {
+                    replaceFileMetadataId(childElement, newFileMetadataId, oldFileMetadataId);
+
+                }
+            }
+        }
     }
 }

@@ -106,6 +106,7 @@ import MsChangeHistory from "../../history/ChangeHistory";
 import MsTableOperatorButton from "@/business/components/common/components/MsTableOperatorButton";
 import MsTipButton from "@/business/components/common/components/MsTipButton";
 import DiffVersion from "@/business/components/performance/test/DiffVersion";
+import {PROJECT_ID} from "@/common/js/constants";
 
 const requireComponent = require.context('@/business/components/xpack/', true, /\.vue$/);
 const versionHistory = requireComponent.keys().length > 0 ? requireComponent("./version/VersionHistory.vue") : {};
@@ -159,6 +160,7 @@ export default {
       }],
       maintainerOptions: [],
       versionData: [],
+      projectEnvMap: {},
     };
   },
   watch: {
@@ -179,6 +181,10 @@ export default {
 
   },
   created() {
+    let projectId = this.$route.query.projectId;
+    if (projectId && projectId !== getCurrentProjectID()) {
+      sessionStorage.setItem(PROJECT_ID, projectId);
+    }
     this.isReadOnly = !hasPermission('PROJECT_PERFORMANCE_TEST:READ+EDIT');
     this.getTest(this.$route.params.testId);
     if (hasLicense()) {
@@ -186,7 +192,7 @@ export default {
     }
     this.$EventBus.$on('projectChange', this.handleProjectChange);
   },
-  destroyed () {
+  destroyed() {
     this.$EventBus.$off('projectChange', this.handleProjectChange);
   },
   mounted() {
@@ -198,7 +204,7 @@ export default {
       return getCurrentUser();
     },
     getMaintainerOptions() {
-      this.$post('/user/project/member/tester/list', {projectId: getCurrentProjectID()}, response => {
+      this.$get('/user/project/member/list', response => {
         this.maintainerOptions = response.data;
       });
     },
@@ -207,11 +213,11 @@ export default {
     },
     importAPITest() {
       let apiTest = this.$store.state.test;
-      console.log("输出vuex的test");
-      console.log(apiTest);
       if (apiTest && apiTest.name) {
-        console.log("set test name");
         this.$set(this.test, "name", apiTest.name);
+        if (apiTest.jmx.projectEnvMap) {
+          this.projectEnvMap = apiTest.jmx.projectEnvMap;
+        }
         if (apiTest.jmx.scenarioId) {
           this.$refs.basicConfig.importScenario(apiTest.jmx.scenarioId);
           this.$refs.basicConfig.handleUpload();
@@ -239,45 +245,36 @@ export default {
           for (let fileID in apiTest.jmx.attachFiles) {
             attachFiles.push(fileID);
           }
-          // if (attachFiles.length > 0) {
-          // this.$refs.basicConfig.selectAttachFileById(attachFiles);
-          // }
         }
         this.active = '1';
         this.$store.commit("clearTest");
       } else {
         let scenarioJmxs = this.$store.state.scenarioJmxs;
-        console.log("输出vuex的scenarioJmxs");
-        console.log(scenarioJmxs);
         if (scenarioJmxs && scenarioJmxs.name) {
-          console.log("set scenarioJmxs name");
           this.$set(this.test, "name", scenarioJmxs.name);
           let relateApiList = [];
+          if (scenarioJmxs.projectEnvMap) {
+            this.projectEnvMap = scenarioJmxs.projectEnvMap;
+          }
           if (scenarioJmxs.jmxs) {
             scenarioJmxs.jmxs.forEach(item => {
               if (item.scenarioId) {
                 this.$refs.basicConfig.importScenario(item.scenarioId);
-                this.$refs.basicConfig.handleUpload();
                 relateApiList.push({
                   apiId: item.scenarioId,
                   apiVersion: item.version,
                   type: 'SCENARIO'
                 });
               }
-              if (item.caseId) {
-                this.$refs.basicConfig.importCase(item);
-              }
               if (JSON.stringify(item.attachFiles) !== "{}") {
                 let attachFiles = [];
                 for (let fileID in item.attachFiles) {
                   attachFiles.push(fileID);
                 }
-                // if (attachFiles.length > 0) {
-                //   this.$refs.basicConfig.selectAttachFileById(attachFiles);
-                // }
               }
               this.$set(this.test, "apiList", relateApiList);
             });
+            this.$refs.basicConfig.handleUpload();
             this.active = '1';
             this.$store.commit("clearScenarioJmxs");
           }
@@ -294,6 +291,13 @@ export default {
             this.test = response.data;
             if (!this.test.schedule) {
               this.test.schedule = {};
+            }
+            if (this.test.envInfo) {
+              try {
+                this.projectEnvMap = JSON.parse(this.test.envInfo);
+              } catch (e) {
+                this.projectEnvMap = null;
+              }
             }
             this.getDefaultFollow(testId);
           }
@@ -374,12 +378,11 @@ export default {
       this.test.testResourcePoolId = this.$refs.pressureConfig.resourcePool;
       // 高级配置
       this.test.advancedConfiguration = JSON.stringify(this.$refs.advancedConfig.configurations());
-
+      this.test.projectEnvMap = this.projectEnvMap;
       // file属性不需要json化
       let requestJson = JSON.stringify(this.test, function (key, value) {
         return key === "file" ? undefined : value;
       });
-
       formData.append('request', new Blob([requestJson], {
         type: "application/json"
       }));
@@ -441,7 +444,6 @@ export default {
       });
     },
     saveCronExpression(cronExpression) {
-      this.test.schedule.enable = true;
       this.test.schedule.value = cronExpression;
       this.saveSchedule();
     },
@@ -460,6 +462,9 @@ export default {
       let url = '/performance/schedule/create';
       if (param.id) {
         url = '/performance/schedule/update';
+      } else {
+        // 创建定时任务，初始化是开启状态
+        this.test.schedule.enable = true;
       }
       this.$post(url, param, response => {
         this.$success(this.$t('commons.save_success'));

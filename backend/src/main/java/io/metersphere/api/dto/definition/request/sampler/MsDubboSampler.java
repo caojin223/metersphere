@@ -30,7 +30,6 @@ import io.metersphere.commons.utils.CommonBeanFactory;
 import io.metersphere.commons.utils.LogUtil;
 import io.metersphere.plugin.core.MsParameter;
 import io.metersphere.plugin.core.MsTestElement;
-import io.metersphere.utils.LoggerUtil;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.apache.commons.collections.CollectionUtils;
@@ -87,7 +86,7 @@ public class MsDubboSampler extends MsTestElement {
         // 非导出操作，且不是启用状态则跳过执行
         if (!config.isOperating() && !this.isEnable()) {
             return;
-        }else if(config.isOperating() && StringUtils.isNotEmpty(config.getOperatingSampleTestName())){
+        } else if (config.isOperating() && StringUtils.isNotEmpty(config.getOperatingSampleTestName())) {
             this.setName(config.getOperatingSampleTestName());
         }
         if (this.getReferenced() != null && "Deleted".equals(this.getReferenced())) {
@@ -96,7 +95,6 @@ public class MsDubboSampler extends MsTestElement {
         if (this.getReferenced() != null && MsTestElementConstants.REF.name().equals(this.getReferenced())) {
             boolean ref = this.setRefElement();
             if (!ref) {
-                LoggerUtil.debug("引用对象已经被删除：" + this.getId());
                 return;
             }
             hashTree = this.getHashTree();
@@ -112,9 +110,9 @@ public class MsDubboSampler extends MsTestElement {
         //处理全局前后置脚本(步骤内)
         String environmentId = this.getEnvironmentId();
         if (environmentId == null) {
-            if(StringUtils.isEmpty(this.useEnvironment) && envConfig != null){
+            if (StringUtils.isEmpty(this.useEnvironment) && envConfig != null) {
                 environmentId = envConfig.getApiEnvironmentid();
-            }else {
+            } else {
                 environmentId = this.useEnvironment;
             }
         }
@@ -182,6 +180,9 @@ public class MsDubboSampler extends MsTestElement {
         DubboSample sampler = new DubboSample();
         sampler.setEnabled(this.isEnable());
         sampler.setName(this.getName());
+        if (StringUtils.isEmpty(this.getName())) {
+            sampler.setName("DubboSamplerProxy");
+        }
         if (config.isOperating()) {
             String[] testNameArr = sampler.getName().split("<->");
             if (testNameArr.length > 0) {
@@ -215,7 +216,7 @@ public class MsDubboSampler extends MsTestElement {
 
     private ConfigTestElement configCenter(MsConfigCenter configCenter) {
         ConfigTestElement configTestElement = new ConfigTestElement();
-        if (configCenter != null && configCenter.getProtocol() != null && configCenter.getUsername() != null && configCenter.getPassword() != null) {
+        if (configCenter != null && StringUtils.isNotEmpty(configCenter.getAddress()) && StringUtils.isNotEmpty(configCenter.getProtocol()) && StringUtils.isNotEmpty(configCenter.getUsername()) && StringUtils.isNotEmpty(configCenter.getPassword())) {
             Constants.setConfigCenterProtocol(configCenter.getProtocol(), configTestElement);
             Constants.setConfigCenterGroup(configCenter.getGroup(), configTestElement);
             Constants.setConfigCenterNamespace(configCenter.getNamespace(), configTestElement);

@@ -1,14 +1,16 @@
 <template>
-      <mavon-editor :id="id" :editable="!disabled" @imgAdd="imgAdd" :default-open="defaultOpen" class="mavon-editor"
-                  :xss-options="xssOptions"
-                  @change="$emit('change')"
-                  :subfield="false" :toolbars="toolbars" :language="language" :toolbarsFlag="disabled ? false : true" @imgDel="imgDel" v-model="data[prop]"  ref="md"/>
+  <mavon-editor :id="id" :editable="!disabled" @imgAdd="imgAdd" :default-open="defaultOpenValue"
+                :xss-options="xssOptions" :style="{'min-height': customMinHeight + 'px', 'min-width': '100px'}"
+                @change="change" :image-click="imageClick"
+                :subfield="false" :toolbars="toolbars" :language="language" :toolbarsFlag="!disabled"
+                @imgDel="imgDel" v-model="data[prop]" ref="md"/>
 </template>
 
 <script>
 import {getCurrentUser, getUUID} from "@/common/js/utils";
 import {deleteMarkDownImg, uploadMarkDownImg} from "@/network/image";
 import {DEFAULT_XSS_ATTR} from "@/common/js/constants";
+
 export default {
   name: "MsMarkDownText",
   components: {},
@@ -16,10 +18,22 @@ export default {
     data: Object,
     prop: String,
     disabled: Boolean,
+    defaultOpen: {
+      type: String,
+      default() {
+        return 'preview';
+      }
+    },
     autoReview: {
       type: Boolean,
       default() {
         return true;
+      }
+    },
+    customMinHeight: {
+      type: [Number, String],
+      default() {
+        return 20;
       }
     },
     toolbars: {
@@ -99,13 +113,10 @@ export default {
           dt: DEFAULT_XSS_ATTR,
           em: DEFAULT_XSS_ATTR,
           blockquote: DEFAULT_XSS_ATTR,
-          // 如果支持视频
-    //      audio: ['autoplay', 'controls', 'loop', 'preload', 'src'],
-    //      video: ['autoplay', 'controls', 'loop', 'preload', 'src', 'height', 'width']
         },
         stripIgnoreTagBody: true
       },
-      defaultOpen: 'preview'
+      defaultOpenValue: 'preview'
     }
   },
 
@@ -129,39 +140,52 @@ export default {
       }
     }
   },
+  watch: {
+    defaultOpen() {
+      if (this.defaultOpen) {
+        this.defaultOpenValue = this.defaultOpen;
+      }
+    }
+  },
   mounted() {
-    if(!this.disabled){
+    if (!this.disabled) {
       // 点击编辑，失去焦点展示
       let el = document.getElementById(this.id);
       if (!this.autoReview) {
-        this.defaultOpen = null;
+        this.defaultOpenValue = null;
+      }
+      if (this.defaultOpen) {
+        this.defaultOpenValue = this.defaultOpen;
       }
       if (el) {
         el.addEventListener('click', () => {
           let imagePreview = el.getElementsByClassName('v-note-img-wrapper');
           if (imagePreview.length > 0) { // 图片预览的时候不切换到编辑模式
-            if (this.autoReview)
-              this.defaultOpen = 'preview';
+            if (this.autoReview) {
+              this.defaultOpenValue = 'preview';
+            }
           } else {
-            if (this.autoReview)
-              this.defaultOpen = null;
+            if (this.autoReview) {
+              this.defaultOpenValue = null;
+            }
           }
         });
         let input = el.getElementsByClassName('auto-textarea-input');
         input[0].addEventListener('blur', () => {
-          if (this.autoReview)
-            this.defaultOpen = 'preview';
+          if (this.autoReview) {
+            this.defaultOpenValue = 'preview';
+          }
         });
       }
     }
 
   },
   methods: {
-    imgAdd(pos, file){
+    imgAdd(pos, file) {
       this.result.loading = true;
-      uploadMarkDownImg(file, (response, param) => {
+      uploadMarkDownImg(file, (data) => {
         this.$success(this.$t('commons.save_success'));
-        let url = '/resource/md/get?fileName='  +  param.id + '_' + encodeURIComponent(param.fileName);
+        let url = '/resource/md/get?fileName=' + data;
         this.$refs.md.$img2Url(pos, url);
         this.result.loading = false;
       });
@@ -178,6 +202,51 @@ export default {
     },
     toolbar_left_click(param) {
       this.$refs.md.toolbar_left_click(param);
+    },
+    change() {
+      this.$nextTick(() => {
+        this.$emit('change');
+      });
+    },
+    imageClick(e) {
+      // 富文本点击时使用el-image的方式展示, 去掉自定义action及关闭元素, 避免多个mavon-editor遮罩影响
+      // 创建img标签
+      let url = e.src;
+      let imgTag = document.createElement("img");
+      imgTag.src = url;
+      imgTag.classList.add("el-image-viewer__img");
+      imgTag.style.transformStyle = "scale(1) rotate(0deg)";
+      imgTag.style.marginLeft = "0px";
+      imgTag.style.marginTop = "0px";
+      imgTag.style.maxHeight = "100%";
+      imgTag.style.maxWidth = "100%";
+      // 创建el-image-viewer__canvas元素div
+      let canvas = document.createElement("div");
+      canvas.classList.add("el-image-viewer__canvas");
+      canvas.appendChild(imgTag);
+      // 设置点击监听函数用于关闭预览
+      // canvas.addEventListener("click", function () {
+      //   wrap.remove();
+      // });
+
+      //创建el-image-viewer__mask遮罩元素div
+      let mask = document.createElement("div");
+      mask.classList.add("el-image-viewer__mask");
+
+      //创建el-image-viewer__wrapper元素div
+      let wrap = document.createElement("div");
+      wrap.classList.add("el-image-viewer__wrapper");
+      wrap.style.zIndex = '99999';
+      // 元素关闭事件
+      wrap.addEventListener("click", function () {
+        wrap.remove();
+      });
+      wrap.appendChild(canvas);
+      wrap.appendChild(mask);
+      // 获取body的第一个子节点
+      let first = document.body.firstChild;
+      // 将div插入
+      document.body.insertBefore(wrap, first);
     }
   }
 }
@@ -185,12 +254,22 @@ export default {
 
 <style scoped>
 
-.mavon-editor {
-  min-height: 20px;
+.v-note-wrapper {
+  display: block !important;
+  position: static !important;
 }
 
-/deep/ .v-note-wrapper {
-  position: initial;
+/deep/ .dropdown-item.dropdown-images {
+  display: none;
+}
+
+/deep/ .v-note-op .v-left-item.transition .op-icon.fa.fa-mavon-picture-o.dropdown.dropdown-wrapper .op-image.popup-dropdown.transition {
+  margin-left: 45px;
+}
+
+
+/deep/ .v-note-op .v-left-item.transition .add-image-link-wrapper .add-image-link .op-btn.sure {
+  background: #783887;
 }
 
 </style>

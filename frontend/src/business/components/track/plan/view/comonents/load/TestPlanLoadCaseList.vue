@@ -7,7 +7,7 @@
             :plan-id="planId"
             :plan-status="planStatus"
             :isShowVersion="false"
-            @refresh="initTable"
+            @refresh="search"
             @relevanceCase="$emit('relevanceCase')"/>
       </template>
 
@@ -27,7 +27,8 @@
         row-key="id"
         :row-order-group-id="planId"
         :row-order-func="editTestPlanLoadCaseOrder"
-        @refresh="initTable"
+        @order="initTable"
+        @filter="search"
         ref="table">
         <span v-for="(item) in fields" :key="item.key">
           <ms-table-column
@@ -36,7 +37,16 @@
             prop="num"
             sortable
             min-width="80"
-            label="ID"/>
+            label="ID">
+             <template v-slot:default="scope">
+               <el-link @click="openById(scope.row)">
+                  <span>
+                    {{ scope.row.num }}
+                  </span>
+               </el-link>
+            </template>
+          </ms-table-column>
+
           <ms-table-column
             :field="item"
             :fields-width="fieldsWidth"
@@ -143,7 +153,14 @@ import {
   buildBatchParam, getCustomTableHeader, getCustomTableWidth
 } from "@/common/js/tableUtils";
 import {TEST_PLAN_LOAD_CASE} from "@/common/js/constants";
-import {getCurrentProjectID, getCurrentUser, getCurrentUserId, hasLicense} from "@/common/js/utils";
+import {
+  getCurrentProjectID,
+  getCurrentUser,
+  getCurrentUserId,
+  getCurrentWorkspaceId,
+  getUUID,
+  hasLicense
+} from "@/common/js/utils";
 import HeaderLabelOperate from "@/business/components/common/head/HeaderLabelOperate";
 import MsPlanRunMode from "../../../common/PlanRunMode";
 import MsTable from "@/business/components/common/components/table/MsTable";
@@ -319,6 +336,10 @@ export default {
       this.initTable();
       this.refreshStatus();
     },
+    search() {
+      this.currentPage = 1;
+      this.initTable();
+    },
     initTable() {
       this.autoCheckStatus();
       this.condition.testPlanId = this.planId;
@@ -365,11 +386,13 @@ export default {
       });
     },
     refreshStatus() {
-      this.refreshScheduler = setInterval(() => {
-        // 如果有状态不是最终状态则定时查询
-        let arr = this.tableData.filter(data => data.status !== 'Completed' && data.status !== 'Error' && data.status !== 'Saved');
-        arr.length > 0 ? this.initTable() : clearInterval(this.refreshScheduler);
-      }, 8000);
+      // 暂时保留，试运行后再看是否还需要
+      // this.refreshScheduler = setInterval(() => {
+      //   // 如果有状态不是最终状态则定时查询
+      //   let arr = this.tableData.filter(data => data.status !== 'Completed' && data.status !== 'Error' && data.status !== 'Saved');
+      //   arr.length > 0 ? this.initTable() : clearInterval(this.refreshScheduler);
+      // }, 8000);
+      this.initTable();
     },
     handleDeleteBatch() {
       this.$alert(this.$t('test_track.plan_view.confirm_cancel_relevance') + "？", '', {
@@ -479,6 +502,15 @@ export default {
           });
         });
       }
+    },
+    openById(item) {
+      let loadData = this.$router.resolve({
+        name: 'editPerTest',
+        params: {
+          testId: item.loadCaseId,
+        }
+      });
+      window.open(loadData.href, '_blank');
     },
   },
   beforeDestroy() {

@@ -11,6 +11,7 @@ export const TEST_PLAN_FUNCTION_TEST_CASE = 'test_plan_function_test_case'
 export const TEST_PLAN_API_CASE = 'test_plan_api_case'
 export const TEST_PLAN_LOAD_CASE = 'test_plan_load_case'
 export const TEST_PLAN_SCENARIO_CASE = 'test_plan_scenario_case'
+export const TEST_PLAN_UI_SCENARIO_CASE = 'test_plan_ui_scenario_case'
 
 export const TokenKey = 'Admin-Token';
 export const LicenseKey = 'License';
@@ -144,47 +145,62 @@ export const MOCKJS_FUNC = [
 
 export const JMETER_FUNC = [
   {type: "Information", name: "${__threadNum}", description: "get thread number"},
+  {type: "Information", name: "${__threadGroupName}", description: "get thread group name"},
   {type: "Information", name: "${__samplerName}", description: "get the sampler name (label)"},
   {type: "Information", name: "${__machineIP}", description: "get the local machine IP address"},
   {type: "Information", name: "${__machineName}", description: "get the local machine name"},
   {type: "Information", name: "${__time}", description: "return current time in various formats"},
+  {type: "Information", name: "${__timeShift}", description: "return a date in various formats with the specified amount of seconds/minutes/hours/days added"},
   {type: "Information", name: "${__log}", description: "log (or display) a message (and return the value)"},
   {type: "Information", name: "${__logn}", description: "log (or display) a message (empty return value)"},
   {type: "Input", name: "${__StringFromFile}", description: "read a line from a file"},
   {type: "Input", name: "${__FileToString}", description: "read an entire file"},
-  {type: "Input", name: "${__CSVRead}", description: "read from CSV definitioned file"},
+  {type: "Input", name: "${__CSVRead}", description: "read from CSV delimited file"},
   {type: "Input", name: "${__XPath}", description: "Use an XPath expression to read from a file"},
+  {type: "Input", name: "${__StringToFile}", description: "write a string to a file"},
   {type: "Calculation", name: "${__counter}", description: "generate an incrementing number"},
+  {type: "Formatting", name: "${__dateTimeConvert}", description: "Convert a date or time from source to target format"},
+  {type: "Calculation", name: "${__digest}", description: "Generate a digest (SHA-1, SHA-256, MD5...)"},
   {type: "Calculation", name: "${__intSum}", description: "add int numbers"},
   {type: "Calculation", name: "${__longSum}", description: "add long numbers"},
   {type: "Calculation", name: "${__Random}", description: "generate a random number"},
+  {type: "Calculation", name: "${__RandomDate}", description: "generate random date within a specific date range"},
+  {type: "Calculation", name: "${__RandomFromMultipleVars}", description: "extracts an element from the values of a set of variables separated by |"},
   {type: "Calculation", name: "${__RandomString}", description: "generate a random string"},
   {type: "Calculation", name: "${__UUID}", description: "generate a random type 4 UUID"},
+  {type: "Scripting", name: "${__groovy}", description: "run an Apache Groovy script"},
   {type: "Scripting", name: "${__BeanShell}", description: "run a BeanShell script"},
-  {type: "Scripting", name: "${__javaScript}", description: "process JavaScript (Mozilla Rhino)"},
-  {type: "Scripting", name: "${__jexl}", description: "evaluate a Commons Jexl expression"},
-  {type: "Scripting", name: "${__jexl2}", description: "evaluate a Commons Jexl expression"},
+  {type: "Scripting", name: "${__javaScript}", description: "process JavaScript (Nashorn)"},
+  {type: "Scripting", name: "${__jexl2}", description: "evaluate a Commons Jexl2 expression"},
+  {type: "Scripting", name: "${__jexl3}", description: "evaluate a Commons Jexl3 expression"},
+  {type: "Properties", name: "${__isPropDefined}", description: "Test if a property exists"},
   {type: "Properties", name: "${__property}", description: "read a property"},
   {type: "Properties", name: "${__P}", description: "read a property (shorthand method)"},
   {type: "Properties", name: "${__setProperty}", description: "set a JMeter property"},
   {type: "Variables", name: "${__split}", description: "Split a string into variables"},
-  {type: "Variables", name: "${__V}", description: "evaluate a variable name"},
   {type: "Variables", name: "${__eval}", description: "evaluate a variable expression"},
   {type: "Variables", name: "${__evalVar}", description: "evaluate an expression stored in a variable"},
-  {type: "String", name: "${__regexFunction}", description: "parse previous response using a regular expression"},
-  {type: "String", name: "${__escapeOroRegexpChars}", description: "quote meta chars used by ORO regular expression"},
+  {type: "Properties", name: "${__isVarDefined}", description: "Test if a variable exists"},
+  {type: "Variables", name: "${__V}", description: "evaluate a variable name"},
   {type: "String", name: "${__char}", description: "generate Unicode char values from a list of numbers"},
-  {type: "String", name: "${__unescape}", description: "Process strings containing Java escapes (e.g. & )"},
-  {type: "String", name: "${__unescapeHtml}", description: "Decode HTML-encoded strings"},
+  {type: "String", name: "${__changeCase}", description: "Change case following different modes"},
   {type: "String", name: "${__escapeHtml}", description: "Encode strings using HTML encoding"},
+  {type: "String", name: "${__escapeOroRegexpChars}", description: "quote meta chars used by ORO regular expression"},
+  {type: "String", name: "${__escapeXml}", description: "Encode strings using XMl encoding"},
+  {type: "String", name: "${__regexFunction}", description: "parse previous response using a regular expression"},
+  {type: "String", name: "${__unescape}", description: "Process strings containing Java escapes (e.g. \n & \t)"},
+  {type: "String", name: "${__unescapeHtml}", description: "Decode HTML-encoded strings"},
+  {type: "String", name: "${__urldecode}", description: "Decode a application/x-www-form-urlencoded string"},
+  {type: "String", name: "${__urlencode}", description: "Encode a string to a application/x-www-form-urlencoded string"},
   {type: "String", name: "${__TestPlanName}", description: "Return name of current test plan"},
 ]
 
-export const ORIGIN_COLOR = '#2c2a48';
+export const ORIGIN_COLOR = '#783887';
 export const ORIGIN_COLOR_SHALLOW = '#595591';
 export const COUNT_NUMBER = '#6C317C';
 export const COUNT_NUMBER_SHALLOW = '#CDB9D2';
 export const PRIMARY_COLOR = '#783887';
+export const WHITE_COLOR = '#FFF';
 
 export const CONFIG_TYPE = {
   NOT: "NOT",
@@ -192,10 +208,10 @@ export const CONFIG_TYPE = {
   ABNORMAL: "ABNORMAL"
 }
 
-export const WORKSTATION={
-  UPCOMING:"upcoming",
-  FOCUS:"focus",
-  NODE:"node"
+export const WORKSTATION = {
+  UPCOMING: "upcoming",
+  FOCUS: "focus",
+  NODE: "node"
 }
 
 export const ENV_TYPE = {
@@ -204,3 +220,42 @@ export const ENV_TYPE = {
 }
 
 export const DEFAULT_XSS_ATTR = ['style', 'class'];
+
+
+export const SECOND_LEVEL_ROUTE_PERMISSION_MAP = {
+  API: [
+    {router: '/api/home', permission: ['PROJECT_API_HOME:READ']},
+    {router: '/api/definition', permission: ['PROJECT_API_DEFINITION:READ']},
+    {router: '/api/automation', permission: ['PROJECT_API_SCENARIO:READ']},
+    {router: '/api/automation/report', permission: ['PROJECT_API_REPORT:READ']},
+  ],
+  TRACK: [
+    {router: '/track/home', permission: ['PROJECT_TRACK_HOME:READ']},
+    {router: '/track/case/all', permission: ['PROJECT_TRACK_CASE:READ']},
+    {router: '/track/review/all', permission: ['PROJECT_TRACK_REVIEW:READ']},
+    {router: '/track/plan/all', permission: ['PROJECT_TRACK_PLAN:READ']},
+    {router: '/track/issue', permission: ['PROJECT_TRACK_ISSUE:READ']},
+    {router: '/track/testPlan/reportList', permission: ['PROJECT_TRACK_REPORT:READ']},
+  ],
+  LOAD: [
+    {router: '/performance/home', permission: ['PROJECT_PERFORMANCE_HOME:READ']},
+    {router: '/performance/test/all', permission: ['PROJECT_PERFORMANCE_TEST:READ']},
+    {router: '/performance/report/all', permission: ['PROJECT_PERFORMANCE_REPORT:READ']},
+  ],
+  UI: [
+    {router: '/ui/automation', permission: ['PROJECT_UI_SCENARIO:READ']},
+    {router: '/ui/element', permission: ['PROJECT_UI_ELEMENT:READ']},
+    {router: '/ui/report', permission: ['PROJECT_UI_REPORT:READ']},
+  ],
+  REPORT: [
+    {router: '/report/projectStatistics', permission: ['PROJECT_REPORT_ANALYSIS:READ']},
+    {
+      router: '/report/projectReport',
+      permission: [
+        'PROJECT_ENTERPRISE_REPORT:READ+EXPORT', 'PROJECT_ENTERPRISE_REPORT:READ+CREATE',
+        'PROJECT_ENTERPRISE_REPORT:READ+DELETE', 'PROJECT_ENTERPRISE_REPORT:READ+COPY',
+        'PROJECT_ENTERPRISE_REPORT:READ+SCHEDULE', 'PROJECT_ENTERPRISE_REPORT:READ+EDIT'
+      ]
+    }
+  ]
+}

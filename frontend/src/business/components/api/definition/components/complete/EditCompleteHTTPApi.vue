@@ -7,12 +7,12 @@
         <div style="float: right;margin-right: 20px" class="ms-opt-btn">
           <el-tooltip :content="$t('commons.follow')" placement="bottom" effect="dark" v-if="!showFollow">
             <i class="el-icon-star-off"
-               style="color: #783987; font-size: 25px; margin-right: 5px; position: relative; top: 5px; cursor: pointer "
+               style="color: var(--primary_color); font-size: 25px; margin-right: 5px; position: relative; top: 5px; cursor: pointer "
                @click="saveFollow"/>
           </el-tooltip>
           <el-tooltip :content="$t('commons.cancel')" placement="bottom" effect="dark" v-if="showFollow">
             <i class="el-icon-star-on"
-               style="color: #783987; font-size: 28px; margin-right: 5px; position: relative; top: 5px; cursor: pointer "
+               style="color: var(--primary_color); font-size: 28px; margin-right: 5px; position: relative; top: 5px; cursor: pointer "
                @click="saveFollow"/>
           </el-tooltip>
           <el-link type="primary" style="margin-right: 5px" @click="openHis" v-if="httpForm.id">
@@ -24,22 +24,25 @@
                               :version-data="versionData"
                               :current-id="httpForm.id"
                               @compare="compare" @checkout="checkout" @create="create" @del="del"/>
-          <el-button type="primary" size="small" @click="saveApi" title="ctrl + s"
+          <el-button v-if="!isXpack || !apiSyncRuleRelation.showUpdateRule" type="primary" size="small"
+                     @click="saveApi" title="ctrl + s"
                      v-permission="['PROJECT_API_DEFINITION:READ+EDIT_API']">{{ $t('commons.save') }}
           </el-button>
+          <el-dropdown v-else
+                       v-permission="['PROJECT_API_DEFINITION:READ+EDIT_API']"
+                       split-button type="primary" size="small" @click="saveApi" @command="handleCommand">
+            {{ $t('commons.save') }}
+            <el-dropdown-menu slot="dropdown">
+              <el-dropdown-item command="openSyncRule">{{
+                  $t('commons.save') + '&' + $t('workstation.sync') + $t('commons.setting')
+                }}
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </el-dropdown>
         </div>
         <br/>
-
-        <ms-form-divider :title="$t('test_track.plan_view.base_info')"/>
-
-        <!-- 基础信息 -->
         <div class="base-info">
           <el-row>
-            <el-col :span="8">
-              <el-form-item :label="$t('commons.name')" prop="name">
-                <el-input class="ms-http-input" size="small" v-model="httpForm.name"/>
-              </el-form-item>
-            </el-col>
             <el-col :span="16">
               <el-form-item :label="$t('api_report.request')" prop="path">
                 <el-input :placeholder="$t('api_test.definition.request.path_info')" v-model="httpForm.path"
@@ -51,70 +54,6 @@
               </el-form-item>
             </el-col>
           </el-row>
-
-          <el-row>
-            <el-col :span="8">
-              <el-form-item :label="$t('api_test.definition.request.responsible')" prop="userId">
-                <el-select v-model="httpForm.userId"
-                           :placeholder="$t('api_test.definition.request.responsible')" filterable size="small"
-                           class="ms-http-select">
-                  <el-option
-                    v-for="item in maintainerOptions"
-                    :key="item.id"
-                    :label="item.name + ' (' + item.email + ')'"
-                    :value="item.id">
-                  </el-option>
-                </el-select>
-              </el-form-item>
-            </el-col>
-            <el-col :span="8">
-              <el-form-item :label="$t('test_track.module.module')" prop="moduleId">
-                <ms-select-tree size="small" :data="moduleOptions" :defaultKey="httpForm.moduleId" @getValue="setModule"
-                                :obj="moduleObj" clearable checkStrictly/>
-              </el-form-item>
-            </el-col>
-
-            <el-col :span="8">
-              <el-form-item :label="$t('commons.status')" prop="status">
-                <el-select class="ms-http-select" size="small" v-model="httpForm.status">
-                  <el-option v-for="item in options" :key="item.id" :label="$t(item.label)" :value="item.id"/>
-                </el-select>
-              </el-form-item>
-            </el-col>
-          </el-row>
-          <el-row>
-            <el-col :span="8">
-              <el-form-item :label="$t('commons.tag')" prop="tag">
-                <ms-input-tag :currentScenario="httpForm" ref="tag" v-model="httpForm.tags"/>
-              </el-form-item>
-            </el-col>
-            <el-col :span="8">
-              <el-form-item :label="$t('commons.description')" prop="description">
-                <el-input class="ms-http-textarea"
-                          v-model="httpForm.description"
-                          type="textarea"
-                          :autosize="{ minRows: 1, maxRows: 10}"
-                          :rows="1" size="small"/>
-              </el-form-item>
-            </el-col>
-          </el-row>
-        </div>
-
-        <!-- MOCK信息 -->
-        <ms-form-divider :title="$t('test_track.plan_view.mock_info')"/>
-        <div class="base-info mock-info">
-          <el-row>
-            <el-col :span="20">
-              Mock地址：
-              <el-link :href="getUrlPrefix" target="_blank" style="color: black"
-                       type="primary">{{ this.getUrlPrefix }}
-              </el-link>
-            </el-col>
-            <el-col :span="4">
-              <el-link @click="mockSetting" type="primary">Mock设置</el-link>
-            </el-col>
-          </el-row>
-
         </div>
 
         <!-- 请求参数 -->
@@ -181,6 +120,78 @@
         </ms-dialog-footer>
       </template>
     </el-dialog>
+
+    <el-dialog :visible.sync="batchSyncApiVisible"
+               :title="$t('commons.save')+'&'+$t('workstation.sync')+$t('commons.setting')" v-if="isXpack">
+      <el-row style="margin-bottom: 10px;box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1)">
+        <div class="timeClass">
+          <span style="font-size: 16px;font-weight: bold;padding-left: 10px;">{{
+              $t('api_test.definition.one_click_sync') + "case"
+            }}</span>
+          <el-switch v-model="apiSyncRuleRelation.syncCase" style="padding-right: 10px"></el-switch>
+        </div>
+        <br/>
+        <span style="font-size: 12px;padding-left: 10px;">{{ $t('workstation.batch_sync_api_tips') }}</span><br/><br/>
+        <span v-if="apiSyncRuleRelation.syncCase" style="font-size: 16px; font-weight: bold;padding-left: 10px;">
+        {{ $t('workstation.sync') + $t('commons.setting') }}
+        <i class="el-icon-arrow-down" v-if="showApiSyncConfig" @click="showApiSyncConfig=false"/>
+        <i class="el-icon-arrow-right" v-if="!showApiSyncConfig" @click="showApiSyncConfig=true"/>
+      </span><br/><br/>
+        <div v-if="showApiSyncConfig">
+          <sync-setting style="padding-left: 20px" v-if="apiSyncRuleRelation.syncCase"
+                        v-bind:sync-data="apiSyncRuleRelation.apiSyncConfig"
+                        ref="synSetting" @updateSyncData="updateSyncData"></sync-setting>
+        </div>
+      </el-row>
+      <el-row style="margin-bottom: 10px;box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1)">
+        <div class="timeClass">
+          <span style="font-size: 16px;font-weight: bold;padding-left: 10px;">
+            {{ $t('api_test.definition.change_notification') }}
+            <el-tooltip class="ms-num" effect="dark"
+                        :content="$t('project_application.workstation.api_receiver_tip')"
+                        placement="top">
+                  <i class="el-icon-warning"/>
+            </el-tooltip>
+          </span>
+          <el-switch v-model="apiSyncRuleRelation.sendNotice" style="padding-right: 10px"></el-switch>
+        </div>
+        <span style="font-size: 12px;padding-left: 10px;">
+          {{ $t('api_test.definition.recipient_tips') }}
+        </span><br/>
+        <p
+          style="font-size: 12px;color: var(--primary_color);margin-bottom: 20px;text-decoration:underline;cursor: pointer;padding-left: 10px;"
+          @click="gotoApiMessage">
+          {{ $t('project_application.workstation.go_to_api_message') }}
+        </p>
+        <el-row v-if="apiSyncRuleRelation.sendNotice" style="margin-bottom: 5px;margin-top: 5px">
+          <el-col :span="4"><span
+            style="font-weight: bold;padding-left: 10px;">{{ $t('api_test.definition.recipient') + ":" }}</span>
+          </el-col>
+          <el-col :span="20" style="color: var(--primary_color)">
+            <el-checkbox v-model="apiSyncRuleRelation.caseCreator">{{ 'CASE' + $t('api_test.creator') }}</el-checkbox>
+            <el-checkbox v-model="apiSyncRuleRelation.scenarioCreator">
+              {{ $t('commons.scenario') + $t('api_test.creator') }}
+            </el-checkbox>
+          </el-col>
+        </el-row>
+      </el-row>
+      <el-row>
+        <el-checkbox v-model="apiSyncRuleRelation.showUpdateRule" style="padding-left: 10px;">{{
+            $t('project_application.workstation.no_show_setting')
+          }}
+        </el-checkbox>
+        <el-tooltip class="ms-num" effect="dark"
+                    :content="$t('project_application.workstation.no_show_setting_tip')"
+                    placement="top">
+          <i class="el-icon-warning"/>
+        </el-tooltip>
+      </el-row>
+      <span slot="footer" class="dialog-footer">
+        <el-button @click="batchSyncApiVisible = false">取 消</el-button>
+        <el-button type="primary" @click="batchSync()">确 定</el-button>
+      </span>
+    </el-dialog>
+
   </div>
 </template>
 
@@ -194,7 +205,7 @@ import MsInputTag from "@/business/components/api/automation/scenario/MsInputTag
 import MsJsr233Processor from "../../../automation/scenario/component/Jsr233Processor";
 import MsSelectTree from "../../../../common/select-tree/SelectTree";
 import MsChangeHistory from "../../../../history/ChangeHistory";
-import {getCurrentProjectID, getCurrentUser, getUUID, hasLicense} from "@/common/js/utils";
+import {getCurrentUser, getUUID, hasLicense} from "@/common/js/utils";
 import MsFormDivider from "@/business/components/common/components/MsFormDivider";
 import ApiOtherInfo from "@/business/components/api/definition/components/complete/ApiOtherInfo";
 import HttpApiVersionDiff from "./version/HttpApiVersionDiff";
@@ -202,6 +213,8 @@ import {createComponent} from ".././jmeter/components";
 import {TYPE_TO_C} from "@/business/components/api/automation/scenario/Setting";
 import MsDialogFooter from "@/business/components/common/components/MsDialogFooter";
 import {getProjectMemberOption} from "@/network/user";
+import {deepClone} from "@/common/js/tableUtils";
+import SyncSetting from "@/business/components/api/definition/util/SyncSetting";
 
 const {Body} = require("@/business/components/api/definition/model/ApiTestModel");
 const Sampler = require("@/business/components/api/definition/components/jmeter/components/sampler/sampler");
@@ -217,7 +230,7 @@ export default {
     ApiOtherInfo,
     MsFormDivider,
     MsJsr233Processor, MsResponseText, MsApiRequestForm, MsInputTag, MsSelectTree, MsChangeHistory,
-    HttpApiVersionDiff
+    HttpApiVersionDiff, SyncSetting,
   },
   data() {
     let validateURL = (rule, value, callback) => {
@@ -225,6 +238,13 @@ export default {
         callback(this.$t('api_test.definition.request.path_valid_info'));
       }
       callback();
+    };
+    let validateModuleId = (rule, value, callback) => {
+      if (this.httpForm.moduleId.length === 0 || !this.httpForm.moduleId) {
+        callback(this.$t('test_track.case.input_module'));
+      } else {
+        callback();
+      }
     };
     return {
       rule: {
@@ -237,10 +257,13 @@ export default {
           trigger: 'blur'
         }],
         userId: [{required: true, message: this.$t('test_track.case.input_maintainer'), trigger: 'change'}],
-        moduleId: [{required: true, message: this.$t('test_track.case.input_module'), trigger: 'change'}],
+        moduleId: [{required: true, validator: validateModuleId, trigger: 'change'}],
         status: [{required: true, message: this.$t('commons.please_select'), trigger: 'change'}],
       },
       httpForm: {environmentId: "", path: "", tags: []},
+      beforeHttpForm: {environmentId: "", path: "", tags: []},
+      beforeRequest: {arguments: []},
+      beforeResponse: {},
       newData: {environmentId: "", path: "", tags: []},
       dialogVisible: false,
       isShowEnable: true,
@@ -259,66 +282,30 @@ export default {
       newMockBaseUrl: "",
       count: 0,
       versionData: [],
-      newRequest:Sampler,
-      newResponse:{},
+      newRequest: Sampler,
+      newResponse: {},
       createNewVersionVisible: false,
+      batchSyncApiVisible: false,
+      isXpack: false,
+      showApiSyncConfig: true,
+      apiSyncRuleRelation: {
+        caseCreator: true,
+        scenarioCreator: true,
+        showUpdateRule: false,
+        apiSyncCaseRequest: '',
+        apiSyncConfig: {},
+        syncCase: true,
+        sendNotice: true,
+      },
+      noShowSyncRuleRelation: false,
+      citedScenarioCount: 0
     };
   },
   props: {moduleOptions: {}, request: {}, response: {}, basisData: {}, syncTabs: Array, projectId: String},
   watch: {
-    'httpForm.name': {
-      handler(v, v1) {
-        if (v && v1 && v !== v1) {
-          this.apiMapStatus();
-        }
-      }
-    },
     'httpForm.path': {
       handler(v, v1) {
         if (v && v1 && v !== v1) {
-          this.apiMapStatus();
-        }
-      }
-    },
-    'httpForm.userId': {
-      handler(v, v1) {
-        if (v && v1 && v !== v1) {
-          this.apiMapStatus();
-        }
-      }
-    },
-    'httpForm.moduleId': {
-      handler(v, v1) {
-        if (v && v1 && v !== v1) {
-          this.apiMapStatus();
-        }
-      }
-    },
-    'httpForm.status': {
-      handler(v, v1) {
-        if (v && v1 && v !== v1) {
-          this.apiMapStatus();
-        }
-      }
-    },
-    'httpForm.follows': {
-      handler(v, v1) {
-        if (v && v1 && JSON.stringify(v) !== JSON.stringify(v1)) {
-          this.apiMapStatus();
-        }
-      }
-    },
-    'httpForm.description': {
-      handler(v, v1) {
-        if (v && v1 !== undefined && v !== v1) {
-          this.apiMapStatus();
-        }
-      }
-    },
-    'httpForm.tags': {
-      handler(v, v1) {
-        this.count++;
-        if (v && v1 && JSON.stringify(v) !== JSON.stringify(v1) && this.count > 1) {
           this.apiMapStatus();
         }
       }
@@ -341,6 +328,11 @@ export default {
             Object.assign(this.request, request);
           }
         });
+      }
+    },
+    batchSyncApiVisible() {
+      if (!this.batchSyncApiVisible && this.apiSyncRuleRelation.showUpdateRule) {
+        this.noShowSyncRuleRelation = true;
       }
     }
   },
@@ -455,18 +447,63 @@ export default {
       if (this.httpForm.tags instanceof Array) {
         this.httpForm.tags = JSON.stringify(this.httpForm.tags);
       }
+      if (this.beforeHttpForm.tags instanceof Array) {
+        this.beforeHttpForm.tags = JSON.stringify(this.beforeHttpForm.tags);
+      }
     },
     saveApi() {
       this.$refs['httpForm'].validate((valid) => {
         if (valid) {
           this.setParameter();
-
           if (!this.httpForm.versionId) {
             if (this.$refs.versionHistory && this.$refs.versionHistory.currentVersion) {
               this.httpForm.versionId = this.$refs.versionHistory.currentVersion.id;
             }
           }
-          this.$emit('saveApi', this.httpForm);
+          if (hasLicense() && (this.httpForm.caseTotal > 0 || this.citedScenarioCount > 0) && !this.httpForm.isCopy) {
+            if ((this.httpForm.method !== this.beforeHttpForm.method) && !this.noShowSyncRuleRelation) {
+              this.batchSyncApiVisible = true;
+            }
+            if ((this.httpForm.path !== this.beforeHttpForm.path) && !this.noShowSyncRuleRelation) {
+              this.batchSyncApiVisible = true;
+            }
+            if (this.request.headers && this.beforeRequest.headers) {
+              let submitRequestHeaders = JSON.stringify(this.request.headers);
+              let beforeRequestHeaders = JSON.stringify(this.beforeRequest.headers);
+              if ((submitRequestHeaders !== beforeRequestHeaders) && !this.noShowSyncRuleRelation) {
+                this.batchSyncApiVisible = true;
+              }
+            }
+            if (this.request.arguments && this.beforeRequest.arguments) {
+              let submitRequestQuery = JSON.stringify(this.request.arguments);
+              let beforeRequestQuery = JSON.stringify(this.beforeRequest.arguments);
+              if ((submitRequestQuery !== beforeRequestQuery) && !this.noShowSyncRuleRelation) {
+                this.batchSyncApiVisible = true;
+              }
+            }
+            if (this.request.rest && this.beforeRequest.rest) {
+              let submitRequestRest = JSON.stringify(this.request.rest);
+              let beforeRequestRest = JSON.stringify(this.beforeRequest.rest);
+              if ((submitRequestRest !== beforeRequestRest) && !this.noShowSyncRuleRelation) {
+                this.batchSyncApiVisible = true;
+              }
+            }
+            if (this.request.body && this.beforeRequest.body) {
+              let submitRequestBody = JSON.stringify(this.request.body);
+              let beforeRequestBody = JSON.stringify(this.beforeRequest.body);
+              if ((submitRequestBody !== beforeRequestBody) && !this.noShowSyncRuleRelation) {
+                this.batchSyncApiVisible = true;
+              }
+            }
+            if (this.apiSyncRuleRelation.showUpdateRule === true && !this.noShowSyncRuleRelation) {
+              this.batchSyncApiVisible = true;
+            }
+            if (this.batchSyncApiVisible !== true) {
+              this.$emit('saveApi', this.httpForm);
+            }
+          } else {
+            this.$emit('saveApi', this.httpForm);
+          }
           this.count = 0;
           this.$store.state.apiStatus.set("fromChange", false);
           this.$store.state.apiMap.set(this.httpForm.id, this.$store.state.apiStatus);
@@ -476,6 +513,42 @@ export default {
           }
           return false;
         }
+      });
+    },
+    batchSync() {
+      if (hasLicense() && (this.httpForm.caseTotal > 0 || this.citedScenarioCount > 0) && !this.httpForm.isCopy) {
+        if (this.$refs.synSetting && this.$refs.synSetting.fromData) {
+          let fromData = this.$refs.synSetting.fromData;
+          fromData.method = true;
+          fromData.path = true;
+          fromData.protocol = true;
+          this.httpForm.triggerUpdate = JSON.stringify(fromData);
+          this.apiSyncRuleRelation.apiSyncCaseRequest = JSON.stringify(fromData);
+        }
+        if (this.apiSyncRuleRelation.sendNotice && this.apiSyncRuleRelation.sendNotice === true) {
+          this.httpForm.sendSpecialMessage = this.apiSyncRuleRelation.sendNotice;
+        } else {
+          this.httpForm.sendSpecialMessage = false
+        }
+
+        if (this.apiSyncRuleRelation.caseCreator && this.apiSyncRuleRelation.caseCreator === true) {
+          this.httpForm.caseCreator = this.apiSyncRuleRelation.caseCreator;
+        } else {
+          this.httpForm.caseCreator = false
+        }
+        if (this.apiSyncRuleRelation.scenarioCreator && this.apiSyncRuleRelation.scenarioCreator === true) {
+          this.httpForm.scenarioCreator = this.apiSyncRuleRelation.scenarioCreator;
+        } else {
+          this.httpForm.scenarioCreator = false
+        }
+        this.apiSyncRuleRelation.resourceId = this.httpForm.id;
+        this.apiSyncRuleRelation.resourceType = "API";
+        this.saveApiSyncRuleRelation(this.apiSyncRuleRelation);
+      }
+    },
+    saveApiSyncRuleRelation(apiSyncRuleRelation) {
+      this.$post("/api/update/rule/relation/add/" + apiSyncRuleRelation.resourceId, apiSyncRuleRelation, () => {
+        this.$emit('saveApi', this.httpForm);
       });
     },
     createModules() {
@@ -520,8 +593,12 @@ export default {
       }
     },
     setModule(id, data) {
-      this.httpForm.moduleId = id;
-      this.httpForm.modulePath = data.path;
+      if (id && id !== "") {
+        this.httpForm.moduleId = id;
+      }
+      if (data && data.path) {
+        this.httpForm.modulePath = data.path;
+      }
     },
     initMockEnvironment() {
       let protocol = document.location.protocol;
@@ -708,7 +785,7 @@ export default {
             this.$refs.versionHistory.loading = false;
           }
         }
-      },error => {
+      }, error => {
         if (this.$refs.versionHistory) {
           this.$refs.versionHistory.loading = false;
         }
@@ -726,20 +803,71 @@ export default {
           }
         }
       });
+    },
+    gotoApiMessage() {
+      let apiResolve = this.$router.resolve({
+        name: 'MessageSettings'
+      });
+      window.open(apiResolve.href, '_blank');
+    },
+    getSyncRule() {
+      this.$get('/api/update/rule/relation/get/' + this.httpForm.id + '/API', response => {
+        if (response.data) {
+          this.apiSyncRuleRelation = response.data;
+          if (this.apiSyncRuleRelation.apiSyncCaseRequest) {
+            this.apiSyncRuleRelation.apiSyncConfig = JSON.parse(this.apiSyncRuleRelation.apiSyncCaseRequest);
+          }
+          if (this.apiSyncRuleRelation.caseCreator === null || this.apiSyncRuleRelation.caseCreator === undefined) {
+            this.apiSyncRuleRelation.caseCreator = true;
+          }
+          if (this.apiSyncRuleRelation.scenarioCreator === null || this.apiSyncRuleRelation.scenarioCreator === undefined) {
+            this.apiSyncRuleRelation.scenarioCreator = true;
+          }
+          if (this.apiSyncRuleRelation.syncCase === null || this.apiSyncRuleRelation.syncCase === undefined) {
+            this.apiSyncRuleRelation.syncCase = true;
+          }
+          if (this.apiSyncRuleRelation.sendNotice === null || this.apiSyncRuleRelation.sendNotice === undefined) {
+            this.apiSyncRuleRelation.sendNotice = true;
+          }
+          this.noShowSyncRuleRelation = this.apiSyncRuleRelation.showUpdateRule
+        }
+      });
+    },
+    updateSyncData(value) {
+      this.apiSyncRuleRelation.apiSyncConfig = value;
+    },
+    handleCommand(command) {
+      if (command === 'openSyncRule') {
+        this.noShowSyncRuleRelation = false;
+        this.saveApi();
+      }
+    },
+    getCitedScenarioCount() {
+      this.$get('/api/definition/be/cited/scenario/' + this.httpForm.id, response => {
+        if (response.data) {
+          this.citedScenarioCount = response.data;
+        }
+      });
     }
   },
 
   created() {
     this.getMaintainerOptions();
+    this.isXpack = !!hasLicense();
     if (!this.basisData.environmentId) {
       this.basisData.environmentId = "";
     }
     if (this.basisData.moduleId && this.basisData.moduleId === 'default-module') {
       this.basisData.moduleId = this.moduleOptions[0].id;
     }
+    if (this.basisData.isCopy) {
+      this.basisData.caseTotal = 0;
+    }
     this.httpForm = JSON.parse(JSON.stringify(this.basisData));
+
     this.$get('/api/definition/follow/' + this.basisData.id, response => {
       this.httpForm.follows = response.data;
+      this.beforeHttpForm.follows = response.data;
       for (let i = 0; i < response.data.length; i++) {
         if (response.data[i] === this.currentUser().id) {
           this.showFollow = true;
@@ -751,12 +879,27 @@ export default {
 
     if (hasLicense()) {
       this.getVersionHistory();
+      this.getSyncRule();
+      this.getCitedScenarioCount();
+    }
+  },
+  mounted() {
+    if (hasLicense()) {
+      this.beforeHttpForm = deepClone(this.basisData);
+      this.beforeRequest = deepClone(this.request);
+      this.beforeResponse = deepClone(this.response);
     }
   }
 };
 </script>
 
 <style scoped>
+.timeClass {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  margin-bottom: 5px;
+}
 
 .base-info .el-form-item {
   width: 100%;

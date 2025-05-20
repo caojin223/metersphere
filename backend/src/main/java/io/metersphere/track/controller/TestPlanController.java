@@ -1,7 +1,6 @@
 package io.metersphere.track.controller;
 
 import com.alibaba.fastjson.JSONArray;
-import com.alibaba.fastjson.JSONObject;
 import com.github.pagehelper.Page;
 import com.github.pagehelper.PageHelper;
 import io.metersphere.api.dto.datacount.request.ScheduleInfoRequest;
@@ -10,6 +9,7 @@ import io.metersphere.base.domain.*;
 import io.metersphere.commons.constants.*;
 import io.metersphere.commons.utils.PageUtils;
 import io.metersphere.commons.utils.Pager;
+import io.metersphere.controller.request.ScheduleRequest;
 import io.metersphere.log.annotation.MsAuditLog;
 import io.metersphere.notice.annotation.SendNotice;
 import io.metersphere.service.CheckPermissionService;
@@ -18,7 +18,7 @@ import io.metersphere.track.dto.*;
 import io.metersphere.track.request.testcase.PlanCaseRelevanceRequest;
 import io.metersphere.track.request.testcase.QueryTestPlanRequest;
 import io.metersphere.track.request.testplan.AddTestPlanRequest;
-import io.metersphere.track.request.testplan.TestplanRunRequest;
+import io.metersphere.track.request.testplan.TestPlanRunRequest;
 import io.metersphere.track.request.testplancase.TestCaseRelevanceRequest;
 import io.metersphere.track.service.TestPlanProjectService;
 import io.metersphere.track.service.TestPlanService;
@@ -206,18 +206,24 @@ public class TestPlanController {
 
 
     @PostMapping("/edit/runModeConfig")
-    public void updateRunModeConfig(@RequestBody TestplanRunRequest testplanRunRequest) {
-       testPlanService.updateRunModeConfig(testplanRunRequest);
+    public void updateRunModeConfig(@RequestBody TestPlanRunRequest testplanRunRequest) {
+        testPlanService.updateRunModeConfig(testplanRunRequest);
     }
 
     @PostMapping("/run")
-    public String run(@RequestBody TestplanRunRequest testplanRunRequest) {
+    public String run(@RequestBody TestPlanRunRequest testplanRunRequest) {
+        return testPlanService.runPlan(testplanRunRequest);
+    }
+
+    @PostMapping("/run/save")
+    public String runAndSave(@RequestBody TestPlanRunRequest testplanRunRequest) {
+        testPlanService.updateRunModeConfig(testplanRunRequest);
         return testPlanService.runPlan(testplanRunRequest);
     }
 
     @PostMapping(value = "/run/batch")
-    @MsAuditLog(module = OperLogModule.TRACK_TEST_PLAN, type = OperLogConstants.EXECUTE, content = "#msClass.getLogDetails(#request.ids)", msClass = TestPlanService.class)
-    public void runBatch(@RequestBody TestplanRunRequest request) {
+    @MsAuditLog(module = OperLogModule.TRACK_TEST_PLAN, type = OperLogConstants.EXECUTE, content = "#msClass.getLogDetails(#request.testPlanIds)", msClass = TestPlanService.class)
+    public void runBatch(@RequestBody TestPlanRunRequest request) {
         request.setTriggerMode(TriggerMode.BATCH.name());
         testPlanService.runBatch(request);
     }
@@ -274,6 +280,17 @@ public class TestPlanController {
         return testPlanService.haveExecCase(id);
     }
 
+    /**
+     * 该测试计划是否包含ui场景
+     *
+     * @param id
+     * @return
+     */
+    @GetMapping("/have/ui/case/{id}")
+    public boolean haveUiCase(@PathVariable String id) {
+        return testPlanService.haveUiCase(id);
+    }
+
     @GetMapping("/principal/{planId}")
     public List<User> getPlanPrincipal(@PathVariable String planId) {
         return testPlanService.getPlanPrincipal(planId);
@@ -296,7 +313,22 @@ public class TestPlanController {
 
     @PostMapping(value = "/update/scheduleByEnable")
     public ScheduleDTO updateTestPlanBySchedule(@RequestBody ScheduleInfoRequest request) {
-        return testPlanService.updateTestPlanBySchedule(request);
+        Schedule schedule = scheduleService.getSchedule(request.getTaskID());
+        schedule.setEnable(request.isEnable());
+        testPlanService.updateSchedule(schedule);
+        return testPlanService.getNextTriggerSchedule(schedule);
+    }
+
+    @PostMapping(value = "/schedule/update")
+    public void updateSchedule(@RequestBody Schedule request) {
+        testPlanService.updateSchedule(request);
+    }
+
+    @PostMapping(value = "/schedule/create")
+    @MsAuditLog(module = OperLogModule.TRACK_TEST_PLAN_SCHEDULE, type = OperLogConstants.CREATE,
+            title = "#request.name", content = "#msClass.getLogDetails(#request)", msClass = ScheduleService.class)
+    public void createSchedule(@RequestBody ScheduleRequest request) {
+        scheduleService.createSchedule(request);
     }
 
 }

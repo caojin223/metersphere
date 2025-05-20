@@ -11,7 +11,7 @@
                 @select-all="handleSelectAll"
                 @select="handleSelect"
                 ref="userTable">
-        <el-table-column type="selection" width="50"/>
+        <el-table-column v-if="hasPermission('WORKSPACE_PROJECT_MANAGER:READ+ADD_USER')" type="selection" width="50"/>
         <ms-table-header-select-popover v-show="total>0"
                                         :page-size="pageSize>total?total:pageSize"
                                         :total="total"
@@ -21,7 +21,8 @@
                                         @selectAll="isSelectDataAll(true)"/>
         <el-table-column width="30" min-width="30" :resizable="false" align="center">
           <template v-slot:default="scope">
-            <show-more-btn :is-show="scope.row.showMore" :buttons="buttons" :size="selectDataCounts"/>
+            <show-more-btn v-permission="['WORKSPACE_PROJECT_MANAGER:READ+ADD_USER']"
+                           :is-show="scope.row.showMore" :buttons="buttons" :size="selectDataCounts"/>
           </template>
         </el-table-column>
         <el-table-column prop="id" label="ID"/>
@@ -101,8 +102,8 @@ import MsDialogFooter from "../../common/components/MsDialogFooter";
 import {
   getCurrentProjectID,
   getCurrentUser,
-  getCurrentWorkspaceId,
-  listenGoBack,
+  getCurrentWorkspaceId, hasPermission,
+  listenGoBack, operationConfirm,
   removeGoBackListener
 } from "@/common/js/utils";
 import MsTableHeaderSelectPopover from "@/business/components/common/components/table/MsTableHeaderSelectPopover";
@@ -145,7 +146,7 @@ export default {
           {required: true, message: this.$t('group.please_select_group'), trigger: ['blur']}
         ]
       },
-      screenHeight: 'calc(100vh - 195px)',
+      screenHeight: 'calc(100vh - 155px)',
       multipleSelection: [],
       currentPage: 1,
       pageSize: 10,
@@ -172,6 +173,7 @@ export default {
     this.initTableData();
   },
   methods: {
+    hasPermission,
     currentUser: () => {
       return getCurrentUser();
     },
@@ -234,17 +236,11 @@ export default {
       removeGoBackListener(this.handleClose);
     },
     del(row) {
-      this.$confirm(this.$t('member.remove_member'), '', {
-        confirmButtonText: this.$t('commons.confirm'),
-        cancelButtonText: this.$t('commons.cancel'),
-        type: 'warning'
-      }).then(() => {
+      operationConfirm(this.$t('member.remove_member'), () => {
         this.result = this.$get('/user/ws/member/delete/' + getCurrentWorkspaceId() + '/' + encodeURIComponent(row.id), () => {
           this.$success(this.$t('commons.remove_success'));
           this.initTableData();
         });
-      }).catch(() => {
-        this.$info(this.$t('commons.remove_cancel'));
       });
     },
     edit(row) {

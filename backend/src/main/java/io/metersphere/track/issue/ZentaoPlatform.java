@@ -4,24 +4,25 @@ import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson.TypeReference;
-import io.metersphere.base.domain.IssuesDao;
-import io.metersphere.base.domain.IssuesExample;
-import io.metersphere.base.domain.IssuesWithBLOBs;
-import io.metersphere.base.domain.Project;
-import io.metersphere.commons.constants.IssuesManagePlatform;
-import io.metersphere.commons.constants.IssuesStatus;
+import io.metersphere.base.domain.*;
+import io.metersphere.base.domain.ext.CustomFieldResource;
+import io.metersphere.commons.constants.*;
 import io.metersphere.commons.exception.MSException;
 import io.metersphere.commons.utils.LogUtil;
 import io.metersphere.dto.UserDTO;
 import io.metersphere.track.dto.DemandDTO;
+import io.metersphere.track.dto.PlatformStatusDTO;
 import io.metersphere.track.issue.client.ZentaoClient;
+import io.metersphere.track.issue.client.ZentaoGetClient;
 import io.metersphere.track.issue.domain.PlatformUser;
 import io.metersphere.track.issue.domain.zentao.AddIssueResponse;
 import io.metersphere.track.issue.domain.zentao.GetIssueResponse;
 import io.metersphere.track.issue.domain.zentao.ZentaoBuild;
 import io.metersphere.track.issue.domain.zentao.ZentaoConfig;
+import io.metersphere.track.request.attachment.AttachmentRequest;
 import io.metersphere.track.request.testcase.IssuesRequest;
 import io.metersphere.track.request.testcase.IssuesUpdateRequest;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.util.Strings;
 import org.springframework.core.io.FileSystemResource;
@@ -29,20 +30,25 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
-import org.springframework.util.CollectionUtils;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
 
+import java.io.File;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class ZentaoPlatform extends AbstractIssuePlatform {
     protected final ZentaoClient zentaoClient;
 
     protected final String[] imgArray = {
-        "bmp", "jpg", "png", "tif", "gif", "jpeg"
+            "bmp", "jpg", "png", "tif", "gif", "jpeg"
     };
 
 
@@ -216,6 +222,22 @@ public class ZentaoPlatform extends AbstractIssuePlatform {
         } else {
             MSException.throwException("请确认该Zentao账号是否开启超级modle调用接口权限");
         }
+
+        // 如果是复制新增, 同步MS附件到Zentao
+        if (StringUtils.isNotEmpty(issuesRequest.getCopyIssueId())) {
+            AttachmentRequest request = new AttachmentRequest();
+            request.setBelongId(issuesRequest.getCopyIssueId());
+            request.setBelongType(AttachmentType.ISSUE.type());
+            List<String> attachmentIds = attachmentService.getAttachmentIdsByParam(request);
+            if (CollectionUtils.isNotEmpty(attachmentIds)) {
+                attachmentIds.forEach(attachmentId -> {
+                    FileAttachmentMetadata fileAttachmentMetadata = fileService.getFileAttachmentMetadataByFileId(attachmentId);
+                    File file = new File(fileAttachmentMetadata.getFilePath() + File.separator + fileAttachmentMetadata.getName());
+                    zentaoClient.uploadAttachment("bug", issuesRequest.getPlatformId(), file);
+                });
+            }
+        }
+
         return issues;
     }
 
@@ -223,8 +245,37 @@ public class ZentaoPlatform extends AbstractIssuePlatform {
     public void updateIssue(IssuesUpdateRequest request) {
         setUserConfig();
         MultiValueMap<String, Object> param = buildUpdateParam(request);
+        if (request.getTransitions() != null) {
+            request.setPlatformStatus(request.getTransitions().getValue());
+        }
         handleIssueUpdate(request);
+        this.handleZentaoBugStatus(param);
         zentaoClient.updateIssue(request.getPlatformId(), param);
+    }
+
+    private void handleZentaoBugStatus(MultiValueMap<String, Object> param) {
+        if (!param.containsKey("status")) {
+            return;
+        }
+        List<Object> status = param.get("status");
+        if (CollectionUtils.isEmpty(status)) {
+            return;
+        }
+        try {
+            SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            String str = (String) status.get(0);
+            if (StringUtils.equals(str, "resolved")) {
+                param.add("resolvedDate", format.format(new Date()));
+            } else if (StringUtils.equals(str, "closed")) {
+                param.add("closedDate", format.format(new Date()));
+                if (!param.containsKey("resolution")) {
+                    // 解决方案默认为已解决
+                    param.add("resolution", "fixed");
+                }
+            }
+        } catch (Exception e) {
+            //
+        }
     }
 
     private MultiValueMap<String, Object> buildUpdateParam(IssuesUpdateRequest issuesRequest) {
@@ -236,6 +287,9 @@ public class ZentaoPlatform extends AbstractIssuePlatform {
         MultiValueMap<String, Object> paramMap = new LinkedMultiValueMap<>();
         paramMap.add("product", projectId);
         paramMap.add("title", issuesRequest.getTitle());
+        if (issuesRequest.getTransitions() != null) {
+            paramMap.add("status", issuesRequest.getTransitions().getValue());
+        }
 
         addCustomFields(issuesRequest, paramMap);
 
@@ -338,14 +392,18 @@ public class ZentaoPlatform extends AbstractIssuePlatform {
 
     @Override
     public void syncIssues(Project project, List<IssuesDao> issues) {
+        HashMap<String, List<CustomFieldResource>> customFieldMap = new HashMap<>();
+
         issues.forEach(item -> {
             IssuesWithBLOBs issue = issuesMapper.selectByPrimaryKey(item.getId());
             JSONObject bug = zentaoClient.getBugById(item.getPlatformId());
             issue = getUpdateIssues(issue, bug);
-            customFieldIssuesService.addFields(item.getId(), customFieldService.getCustomFieldResource(issue.getCustomFields()));
+            customFieldMap.put(item.getId(), customFieldService.getCustomFieldResource(issue.getCustomFields()));
             issue.setId(item.getId());
             issuesMapper.updateByPrimaryKeySelective(issue);
+            syncZentaoIssueAttachments(issue);
         });
+        customFieldIssuesService.batchEditFields(customFieldMap);
     }
 
     public List<ZentaoBuild> getBuilds() {
@@ -372,8 +430,8 @@ public class ZentaoPlatform extends AbstractIssuePlatform {
         RestTemplate restTemplate = new RestTemplate();
         try {
             String fileUpload = zentaoClient.requestUrl.getFileUpload();
-            ResponseEntity<String> responseEntity = restTemplate.exchange(fileUpload + session,
-                    HttpMethod.POST, requestEntity, String.class);
+            ResponseEntity<String> responseEntity = restTemplate.exchange(fileUpload, HttpMethod.POST, requestEntity,
+                    String.class, "bug", null, session);
             String body = responseEntity.getBody();
             JSONObject obj = JSONObject.parseObject(body);
             JSONObject data = obj.getJSONObject("data");
@@ -395,20 +453,30 @@ public class ZentaoPlatform extends AbstractIssuePlatform {
         while (matcher.find()) {
             // get file name
             String originSubUrl = matcher.group(1);
-            String fileName = originSubUrl.substring(10);
-            fileName = resourceService.decodeFileName(fileName);
-            // get file
-            ResponseEntity<FileSystemResource> mdImage = resourceService.getMdImage(fileName);
-            // upload zentao
-            String id = uploadFile(mdImage.getBody());
-            // todo delete local file
-            int index = fileName.lastIndexOf(".");
-            String suffix = "";
-            if (index != -1) {
-                suffix = fileName.substring(index);
+            if (originSubUrl.contains("/url?url=")) {
+                String path = URLDecoder.decode(originSubUrl, StandardCharsets.UTF_8);
+                String fileName;
+                if (path.indexOf("fileID") > 0) {
+                    fileName = path.substring(path.indexOf("fileID") + 7);
+                } else {
+                    fileName = path.substring(path.indexOf("file-read-") + 10);
+                }
+                zentaoSteps = zentaoSteps.replaceAll(Pattern.quote(originSubUrl), fileName);
+            } else {
+                String fileName = originSubUrl.substring(10);
+                // get file
+                ResponseEntity<FileSystemResource> mdImage = resourceService.getMdImage(fileName);
+                // upload zentao
+                String id = uploadFile(mdImage.getBody());
+                // todo delete local file
+                int index = fileName.lastIndexOf(".");
+                String suffix = "";
+                if (index != -1) {
+                    suffix = fileName.substring(index);
+                }
+                // replace id
+                zentaoSteps = zentaoSteps.replaceAll(Pattern.quote(originSubUrl), id + suffix);
             }
-            // replace id
-            zentaoSteps = zentaoSteps.replaceAll(Pattern.quote(originSubUrl), id + suffix);
         }
         // image link
         String netImgRegex = "!\\[(.*?)]\\((http.*?)\\)";
@@ -446,8 +514,7 @@ public class ZentaoPlatform extends AbstractIssuePlatform {
                 }
 
                 if (Arrays.stream(imgArray).anyMatch(imgType -> StringUtils.equals(imgType, srcContent.substring(srcContent.indexOf('.') + 1)))) {
-                    if (zentaoClient.getBaseUrl().contains("biz")) {
-                        // 禅道企业版
+                    if (zentaoClient instanceof ZentaoGetClient) {
                         path = zentaoClient.getBaseUrl() + "/index.php?m=file&f=read&fileID=" + srcContent;
                     } else {
                         // 禅道开源版
@@ -456,7 +523,13 @@ public class ZentaoPlatform extends AbstractIssuePlatform {
                 } else {
                     return result;
                 }
+            } else {
+                name = name.replaceAll("&amp;", "&");
+                path = zentaoClient.getBaseUrl() + path.replaceAll("&amp;", "&");
             }
+            // 专业版格式有差异，解析完会出现两个 /pro，去掉一个
+            path.replace("/pro/pro", "/pro");
+            path = "/resource/md/get/url?url=" + URLEncoder.encode(path, StandardCharsets.UTF_8);
             // 图片与描述信息之间需换行，否则无法预览图片
             result = "\n\n![" + name + "](" + path + ")";
         }
@@ -479,5 +552,89 @@ public class ZentaoPlatform extends AbstractIssuePlatform {
     @Override
     public Boolean checkProjectExist(String relateId) {
         return zentaoClient.checkProjectExist(relateId);
+    }
+
+    @Override
+    public void syncIssuesAttachment(IssuesUpdateRequest issuesRequest, File file, AttachmentSyncType syncType) {
+        if ("upload".equals(syncType.syncOperateType())) {
+            zentaoClient.uploadAttachment("bug", issuesRequest.getPlatformId(), file);
+        } else if ("delete".equals(syncType.syncOperateType())) {
+            JSONObject bugInfo = zentaoClient.getBugById(issuesRequest.getPlatformId());
+            JSONObject zenFiles = bugInfo.getJSONObject("files");
+            for (String fileId : zenFiles.keySet()) {
+                JSONObject fileInfo = zenFiles.getJSONObject(fileId);
+                if (file.getName().equals(fileInfo.getString("title"))) {
+                    zentaoClient.deleteAttachment(fileId);
+                    break;
+                }
+            }
+        }
+    }
+
+    public void syncZentaoIssueAttachments(IssuesWithBLOBs issue) {
+        List<String> znetaoAttachmentsName = new ArrayList<String>();
+        AttachmentRequest request = new AttachmentRequest();
+        request.setBelongType(AttachmentType.ISSUE.type());
+        request.setBelongId(issue.getId());
+        List<FileAttachmentMetadata> allMsAttachments = attachmentService.listMetadata(request);
+        List<String> msAttachmentsName = allMsAttachments.stream().map(FileAttachmentMetadata::getName).collect(Collectors.toList());
+        JSONObject bugInfo = zentaoClient.getBugById(issue.getPlatformId());
+        Object files = bugInfo.get("files");
+        JSONObject zenFiles;
+        if (files instanceof JSONArray && ((JSONArray) files).size() == 0) {
+            zenFiles = null;
+        } else {
+            zenFiles = (JSONObject) files;
+        }
+        // 同步禅道中新的附件
+        if (zenFiles != null) {
+            for (String fileId : zenFiles.keySet()) {
+                JSONObject fileInfo = zenFiles.getJSONObject(fileId);
+                String filename = fileInfo.getString("title");
+                znetaoAttachmentsName.add(filename);
+                if (!msAttachmentsName.contains(filename)) {
+                    try {
+                        byte[] bytes = zentaoClient.getAttachmentBytes(fileId);
+                        FileAttachmentMetadata fileAttachmentMetadata = fileService.saveAttachmentByBytes(bytes, AttachmentType.ISSUE.type(), issue.getId(), filename);
+                        AttachmentModuleRelation attachmentModuleRelation = new AttachmentModuleRelation();
+                        attachmentModuleRelation.setAttachmentId(fileAttachmentMetadata.getId());
+                        attachmentModuleRelation.setRelationId(issue.getId());
+                        attachmentModuleRelation.setRelationType(AttachmentType.ISSUE.type());
+                        attachmentModuleRelationMapper.insert(attachmentModuleRelation);
+                    } catch (Exception e) {
+                        LogUtil.error(e);
+                    }
+                }
+            }
+        }
+
+        // 删除禅道中不存在的附件
+        if (CollectionUtils.isNotEmpty(allMsAttachments)) {
+            List<FileAttachmentMetadata> deleteMsAttachments = allMsAttachments.stream()
+                    .filter(msAttachment -> !znetaoAttachmentsName.contains(msAttachment.getName())).collect(Collectors.toList());
+            deleteMsAttachments.forEach(fileAttachmentMetadata -> {
+                List<String> ids = List.of(fileAttachmentMetadata.getId());
+                AttachmentModuleRelationExample example = new AttachmentModuleRelationExample();
+                example.createCriteria().andAttachmentIdIn(ids).andRelationTypeEqualTo(AttachmentType.ISSUE.type());
+                // 删除MS附件及关联数据
+                fileService.deleteAttachment(ids);
+                fileService.deleteFileAttachmentByIds(ids);
+                attachmentModuleRelationMapper.deleteByExample(example);
+            });
+        }
+    }
+
+
+    @Override
+    public List<PlatformStatusDTO> getTransitions(String issueKey) {
+        List<PlatformStatusDTO> platformStatusDTOS = new ArrayList<>();
+        for (ZentaoIssuePlatformStatus status : ZentaoIssuePlatformStatus.values()) {
+            PlatformStatusDTO platformStatusDTO = new PlatformStatusDTO();
+            platformStatusDTO.setValue(status.name());
+            platformStatusDTO.setLable(status.getName());
+
+            platformStatusDTOS.add(platformStatusDTO);
+        }
+        return platformStatusDTOS;
     }
 }

@@ -7,12 +7,12 @@
         <div class="ms-opt-btn">
           <el-tooltip :content="$t('commons.follow')" placement="bottom" effect="dark" v-if="!showFollow">
             <i class="el-icon-star-off"
-               style="color: #783987; font-size: 25px;  margin-right: 15px;cursor: pointer;position: relative;top: 5px "
+               style="color: var(--primary_color); font-size: 25px;  margin-right: 15px;cursor: pointer;position: relative;top: 5px "
                @click="saveFollow"/>
           </el-tooltip>
           <el-tooltip :content="$t('commons.cancel')" placement="bottom" effect="dark" v-if="showFollow">
             <i class="el-icon-star-on"
-               style="color: #783987; font-size: 28px; margin-right: 15px;cursor: pointer;position: relative;top: 5px "
+               style="color: var(--primary_color); font-size: 28px; margin-right: 15px;cursor: pointer;position: relative;top: 5px "
                @click="saveFollow"/>
           </el-tooltip>
           <el-link type="primary" style="margin-right: 20px" @click="openHis" v-if="form.id">
@@ -32,7 +32,7 @@
                            :content="$t('commons.copy')"
                            size="small" @click="handleCopyPublic"
                            icon=""
-                           />
+          />
         </div>
         <el-form :model="form" :rules="rules" ref="caseFrom" v-loading="result.loading" class="case-form">
           <ms-form-divider :title="$t('test_track.plan_view.base_info')"/>
@@ -57,7 +57,8 @@
 
             <el-col :span="8">
               <el-form-item :label="$t('commons.tag')" :label-width="formLabelWidth" prop="tag">
-                <ms-input-tag :read-only="readOnly" :currentScenario="form" v-if="showInputTag" ref="tag" :disabled="true"
+                <ms-input-tag :read-only="readOnly" :currentScenario="form" v-if="showInputTag" ref="tag"
+                              :disabled="true"
                               class="ms-case-input"/>
               </el-form-item>
             </el-col>
@@ -97,29 +98,8 @@
           <ms-form-divider :title="$t('test_track.case.other_info')"/>
 
           <test-case-edit-other-info :read-only="readOnly" :project-id="projectIds" :form="form"
+                                     :comments.sync="comments"
                                      :label-width="formLabelWidth" :case-id="form.id" ref="otherInfo"/>
-
-          <el-row style="margin-top: 10px" v-if="type!=='add'">
-            <el-col :span="20" :offset="1">{{ $t('test_track.review.comment') }}:
-              <el-button icon="el-icon-plus" type="mini" @click="openComment" :disabled="readOnly"></el-button>
-            </el-col>
-          </el-row>
-          <el-row v-if="type!=='add'">
-            <el-col :span="20" :offset="1">
-
-              <review-comment-item v-for="(comment,index) in comments"
-                                   :key="index"
-                                   :comment="comment"
-                                   @refresh="getComments" :disabled="readOnly" api-url="/test/case"/>
-              <div v-if="comments.length === 0" style="text-align: center">
-                <i class="el-icon-chat-line-square" style="font-size: 15px;color: #8a8b8d;">
-                      <span style="font-size: 15px; color: #8a8b8d;">
-                        {{ $t('test_track.comment.no_comment') }}
-                      </span>
-                </i>
-              </div>
-            </el-col>
-          </el-row>
           <test-case-comment :case-id="form.id"
                              @getComments="getComments" ref="testCaseComment"/>
 
@@ -134,7 +114,7 @@
         :destroy-on-close="true"
         width="100%"
       >
-        <test-case-version-diff  v-if="dialogVisible" :old-data="oldData" :new-data="newData"
+        <test-case-version-diff v-if="dialogVisible" :old-data="oldData" :new-data="newData"
                                 :tree-nodes="treeNodes" :is-public="publicEnable"></test-case-version-diff>
 
       </el-dialog>
@@ -296,7 +276,7 @@ export default {
       },
       tabId: getUUID(),
       versionData: [],
-      currentProjectId: "" ,
+      currentProjectId: "",
       dialogVisible: false,
       oldData: null,
       newData: null,
@@ -535,7 +515,7 @@ export default {
           initFuc(testCase);
         });
     },
-    initEdit(testCase , callback) {
+    initEdit(testCase, callback) {
       if (window.history && window.history.pushState) {
         history.pushState(null, null, document.URL);
         window.addEventListener('popstate', this.close);
@@ -799,7 +779,7 @@ export default {
       this.form.testId = '';
     },
     getMaintainerOptions() {
-      this.$post('/user/project/member/tester/list', {projectId: getCurrentProjectID()}, response => {
+      this.$get('/user/project/member/list', response => {
         this.maintainerOptions = response.data;
       });
     },
@@ -882,7 +862,7 @@ export default {
     },
     getVersionHistory() {
       this.$get('/test/case/versions/' + this.currentTestCaseInfo.id, response => {
-        for (let i = 0; i < response.data.length ; i++) {
+        for (let i = 0; i < response.data.length; i++) {
           this.currentProjectId = response.data[i].projectId
         }
         this.versionData = response.data;
